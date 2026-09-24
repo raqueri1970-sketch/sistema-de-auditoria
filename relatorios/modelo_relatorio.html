@@ -1,0 +1,170 @@
+<title>Auditoria de Ajustes de Estoque</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --bg:#F3F6F7; --surface:#FFFFFF; --ink:#15232A; --muted:#56666E; --line:#D7DFE2; --soft:#E9EFF1;
+  --accent:#1F5F74; --accent-ink:#FFFFFF;
+  --ok:#2C7A4B; --ok-bg:#E4F2E9; --warn:#9A5B00; --warn-bg:#FCEFD9; --none:#5F6E76; --none-bg:#ECF0F2;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0E1619; --surface:#152126; --ink:#E2EBEE; --muted:#93A5AC; --line:#26363C; --soft:#1B2A30;
+    --accent:#6DB2C7; --accent-ink:#0E1619;
+    --ok:#7FCB9B; --ok-bg:#16301F; --warn:#F0B35C; --warn-bg:#35270F; --none:#A4B3BA; --none-bg:#1D2A2F;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0E1619; --surface:#152126; --ink:#E2EBEE; --muted:#93A5AC; --line:#26363C; --soft:#1B2A30;
+  --accent:#6DB2C7; --accent-ink:#0E1619;
+  --ok:#7FCB9B; --ok-bg:#16301F; --warn:#F0B35C; --warn-bg:#35270F; --none:#A4B3BA; --none-bg:#1D2A2F;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans);padding-inline:16px;padding-block:28px 60px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
+header{display:flex;flex-direction:column;gap:8px}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{margin:0;font-size:clamp(24px,4vw,32px);line-height:1.15;font-weight:700;text-wrap:balance}
+.sub{margin:0;color:var(--muted);max-width:70ch}
+.fontes{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:500 12px/1 var(--mono);padding:6px 9px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--muted)}
+.nota{margin:0;padding:12px 14px;border:1px solid var(--line);border-left:3px solid var(--warn);background:var(--surface);border-radius:4px;max-width:none;font-size:14px}
+.nota code{font-family:var(--mono);font-size:12.5px}
+.resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.kpi{background:var(--surface);padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+.kpi b{font:600 24px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.kpi span{font-size:12.5px;color:var(--muted)}
+.kpi.ok b{color:var(--ok)} .kpi.warn b{color:var(--warn)}
+.filtros{display:flex;flex-wrap:wrap;gap:10px;align-items:end;position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line)}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 180px}
+.f label{font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.f select,.f input{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink);width:100%}
+.f select:focus-visible,.f input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.contagem{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.lista{display:flex;flex-direction:column;gap:14px}
+article{background:var(--surface);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.topo{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 14px;padding:10px 16px;background:var(--soft);border-bottom:1px solid var(--line);font:500 12.5px/1.3 var(--mono);color:var(--muted)}
+.topo strong{color:var(--ink);font-weight:500}
+.cancel{color:var(--warn)}
+dl{margin:0;display:grid;grid-template-columns:minmax(150px,230px) 1fr;column-gap:16px}
+dt,dd{padding:7px 16px;border-bottom:1px solid var(--soft);margin:0}
+dt{font-size:12.5px;color:var(--muted);padding-right:0}
+dd{padding-left:0;overflow-wrap:anywhere}
+dd .mono{font-family:var(--mono);font-size:13.5px}
+.pill{display:inline-block;font:600 11.5px/1 var(--mono);letter-spacing:.04em;padding:4px 7px;border-radius:3px;margin-right:6px;vertical-align:1px}
+.p-nc{background:var(--none-bg);color:var(--none)} .p-ult{background:var(--warn-bg);color:var(--warn)}
+.p-out{background:var(--ok-bg);color:var(--ok)} .p-sem{background:var(--none-bg);color:var(--ink)}
+.det{color:var(--muted);font-size:13px}
+.apont{display:flex;flex-direction:column;gap:4px;padding:12px 16px;border-left:4px solid var(--none);background:var(--none-bg)}
+.apont small{font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.apont p{margin:0;font-weight:500}
+.apont.zero{border-color:var(--ok);background:var(--ok-bg)} .apont.atencao{border-color:var(--warn);background:var(--warn-bg)}
+.mais{align-self:center;font:inherit;font-weight:600;padding:10px 18px;border-radius:4px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);cursor:pointer}
+.vazio{padding:30px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:6px}
+footer{font-size:12.5px;color:var(--muted)}
+@media (max-width:620px){
+  dl{grid-template-columns:1fr}
+  dt{border-bottom:0;padding-bottom:0}
+  dd{padding-left:16px}
+}
+@media (prefers-reduced-motion:no-preference){ article{animation:none} }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Auditoria · Acerto de Estoque · posição {{POSICAO}}</div>
+    <h1>Relatório informativo dos ajustes de estoque</h1>
+    <p class="sub">Cada ajuste cruzado somente com Acerto de Estoque, Estoque por Loja e Inventário. Relatório de esclarecimento: não bloqueia, não aprova, não altera ajustes e não analisa movimentações.</p>
+    <div class="fontes">
+      <span class="chip">Acerto de Estoque · ajuste_estoque_entrada + acertos SETA</span>
+      <span class="chip">Estoque por Loja · ajuste_saldo_estoque_loja</span>
+      <span class="chip">Inventário · inv_inventarios / inv_detalhe / inv_estoque_final</span>
+      <span class="chip">Código: 2 últimos dígitos = numeração</span>
+    </div>
+  </header>
+
+  {{AVISO_ESTOQUE}}
+
+  <section class="resumo" aria-label="Resumo">
+    <div class="kpi"><b>{{TOTAL}}</b><span>ajustes analisados em {{LOJAS}} lojas</span></div>
+    <div class="kpi ok"><b>{{ZERO}}</b><span>inventário já apontou zero</span></div>
+    <div class="kpi warn"><b>{{ATENCAO}}</b><span>inventário registrou saldo</span></div>
+    <div class="kpi"><b>{{SEMINV}}</b><span>sem inventário localizado</span></div>
+    <div class="kpi"><b>{{ANTERIOR}}</b><span>com ajuste anterior da mesma numeração</span></div>
+    <div class="kpi"><b>{{SEMNUM}}</b><span>código sem numeração identificável</span></div>
+  </section>
+
+  <section class="filtros" aria-label="Filtros">
+    <div class="f"><label for="fLoja">Loja</label><select id="fLoja"><option value="">Todas as lojas</option>{{OPCOES_LOJA}}</select></div>
+    <div class="f"><label for="fInv">Inventário</label><select id="fInv"><option value="">Todos</option><option value="zero">Já apontou zero</option><option value="atencao">Registrou saldo</option><option value="sem">Sem inventário localizado</option></select></div>
+    <div class="f"><label for="fHist">Ajuste anterior</label><select id="fHist"><option value="">Todos</option><option value="1">Com ajuste anterior</option><option value="0">Sem ajuste anterior</option></select></div>
+    <div class="f"><label for="fNum">Numeração</label><select id="fNum"><option value="">Todas</option><option value="0">Identificada</option><option value="1">Não identificada</option></select></div>
+    <div class="f" style="flex-basis:240px"><label for="fBusca">Buscar</label><input id="fBusca" type="search" placeholder="Marca, produto, código, solicitante"></div>
+    <div class="contagem" id="contagem" aria-live="polite"></div>
+  </section>
+
+  <section class="lista" id="lista"></section>
+  <button class="mais" id="mais" type="button" hidden>Mostrar mais 50</button>
+
+  <footer>Gerado a partir do SQL somente leitura <code>relatorios/auditoria_ajustes_estoque.sql</code>. Inventário considerado: o mais recente até a data do ajuste na mesma loja; se só houver inventário posterior, ele é informado e marcado como posterior.</footer>
+</div>
+
+<script>
+const DADOS = {{DADOS}};
+const PASSO = 50;
+let limite = PASSO, filtrados = DADOS;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pill = s => {
+  const cls = s === "ÚLTIMO PAR DA LINHA" ? "p-ult" : s === "HÁ OUTRAS NUMERAÇÕES" ? "p-out" : s === "SEM SALDO NA LINHA" ? "p-sem" : "p-nc";
+  return `<span class="pill ${cls}">${esc(s)}</span>`;
+};
+function card(x){
+  return `<article>
+    <div class="topo"><span><strong>${esc(x.lj)}</strong></span><span>Ajuste #${x.id}${x.st && x.st !== "CONCLUIDO" ? ` · <span class="cancel">${esc(x.st)}</span>` : ""}</span></div>
+    <dl>
+      <dt>Loja</dt><dd>${esc(x.lj)}</dd>
+      <dt>Marca</dt><dd>${esc(x.m)}</dd>
+      <dt>Produto</dt><dd>${esc(x.p)}</dd>
+      <dt>Código / Modelo / Numeração</dt><dd><span class="mono">${esc(x.cod)}</span></dd>
+      <dt>Ajuste atual</dt><dd>${esc(x.aj)}</dd>
+      <dt>Saldo por numeração na loja</dt><dd><span class="mono">${esc(x.sal)}</span></dd>
+      <dt>Situação da linha</dt><dd>${pill(x.sit)}<span class="det">${esc(x.sitd)}</span></dd>
+      <dt>Inventário</dt><dd>${esc(x.inv)}</dd>
+      <dt>Ajuste anterior da mesma numeração</dt><dd>${esc(x.ant)}</dd>
+    </dl>
+    <div class="apont ${x.ic}"><small>Apontamento de auditoria</small><p>${esc(x.ap)}</p></div>
+  </article>`;
+}
+function filtrar(){
+  const lj = $("fLoja").value, iv = $("fInv").value, h = $("fHist").value, n = $("fNum").value;
+  const b = $("fBusca").value.trim().toLowerCase();
+  filtrados = DADOS.filter(x =>
+    (!lj || String(x.ln) === lj) && (!iv || x.ic === iv) &&
+    (!h || (h === "1") === x.ta) && (!n || (n === "1") === x.nn) &&
+    (!b || (x.m + " " + x.p + " " + x.cod + " " + x.aj + " " + x.id).toLowerCase().includes(b)));
+  limite = PASSO; desenhar();
+  try { localStorage.setItem("aud-aj-filtros", JSON.stringify({lj, iv, h, n})); } catch (e) {}
+}
+function desenhar(){
+  const vis = filtrados.slice(0, limite);
+  $("lista").innerHTML = vis.length ? vis.map(card).join("") : `<div class="vazio">Nenhum ajuste com esses filtros.</div>`;
+  $("contagem").textContent = `${vis.length} de ${filtrados.length} ajustes`;
+  $("mais").hidden = limite >= filtrados.length;
+}
+["fLoja","fInv","fHist","fNum"].forEach(id => $(id).addEventListener("change", filtrar));
+$("fBusca").addEventListener("input", filtrar);
+$("mais").addEventListener("click", () => { limite += PASSO; desenhar(); });
+try {
+  const s = JSON.parse(localStorage.getItem("aud-aj-filtros") || "null");
+  if (s) { $("fLoja").value = s.lj || ""; $("fInv").value = s.iv || ""; $("fHist").value = s.h || ""; $("fNum").value = s.n || ""; }
+} catch (e) {}
+filtrar();
+</script>
