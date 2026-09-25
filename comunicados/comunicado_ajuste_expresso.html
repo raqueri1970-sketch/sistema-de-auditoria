@@ -4,7 +4,7 @@
 <style>
 @page{size:A4;margin:0}
 *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-body{margin:0;font-family:"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;color:#1c2733;font-size:10.2pt;line-height:1.33}
+body{margin:0;font-family:"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;color:#1c2733;font-size:11.3pt;line-height:1.45}
 .page{width:210mm;height:297mm;overflow:hidden;padding:0 0 14mm;position:relative}
 header{background:linear-gradient(135deg,#0a1f3d 0%,#0a3a7a 100%);color:#fff;padding:10mm 18mm 7mm}
 header .tag{font-size:9.5pt;letter-spacing:.14em;text-transform:uppercase;opacity:.8;font-weight:600}
@@ -14,7 +14,7 @@ header .sub{font-size:12pt;opacity:.9}
 .meta b{color:#0a1f3d}
 main{padding:5mm 18mm 0}
 p{margin:0 0 8px}
-h2{font-size:13.5pt;color:#0a3a7a;margin:8px 0 4px;display:flex;align-items:center;gap:8px}
+h2{font-size:13.5pt;color:#0a3a7a;margin:12px 0 6px;display:flex;align-items:center;gap:8px}
 h2 .n{background:#0a3a7a;color:#fff;border-radius:50%;width:22px;height:22px;font-size:10.5pt;display:inline-flex;align-items:center;justify-content:center;flex:none}
 .linkbox{border:2px solid #0a3a7a;border-radius:10px;padding:9px 16px;margin:8px 0 2px;text-align:center;background:#f7faff}
 .linkbox .lbl{font-size:10pt;color:#40546c;text-transform:uppercase;letter-spacing:.08em;font-weight:600}
@@ -26,16 +26,28 @@ h2 .n{background:#0a3a7a;color:#fff;border-radius:50%;width:22px;height:22px;fon
 .alert.red{border-color:#b3261e;background:#fdecea}
 .alert.blue{border-color:#0a3a7a;background:#eef3fa}
 ol.steps{margin:4px 0 6px;padding-left:22px}
-ol.steps li{margin:1px 0}
+ol.steps li{margin:3px 0}
 ul{margin:4px 0 6px;padding-left:20px}
-ul li{margin:1px 0}
+ul li{margin:3px 0}
 .two{display:flex;gap:12px}
 .two>div{flex:1}
+.os{flex:1;border:1px solid #d5e0ee;border-radius:10px;padding:8px 12px;background:#fbfcfe}
+.os h3{margin:0 0 4px;font-size:11.5pt;display:flex;align-items:center;gap:7px;color:#0a1f3d}
+.os h3 small{font-weight:400;color:#5b6f8a;font-size:9.5pt}
+.os ol{margin:0;padding-left:18px}.os li{margin:1px 0}
+.ico{width:22px;height:22px;flex:none}
+.k{display:inline-block;border:1px solid #9fb2c8;border-radius:4px;padding:0 5px;font-weight:700;background:#fff;font-size:9.5pt}
+header.mini{padding:8mm 18mm 6mm}header.mini h1{font-size:16pt}
+.page+.page{page-break-before:always}
+.p2{font-size:12pt;line-height:1.45}.p2 h2{font-size:15pt;margin:14px 0 8px}
+.p2 .os{padding:12px 16px}.p2 .os h3{font-size:14pt;gap:10px;margin-bottom:8px}.p2 .os li{margin:5px 0}
+.p2 .ico{width:36px;height:36px}.p2 .alert{padding:12px 16px}.p2 .k{font-size:11pt}
+.p2 .linkbox{margin-top:18px}
 footer{position:absolute;bottom:6mm;left:18mm;right:18mm;border-top:1px solid #d5e0ee;padding-top:5px;font-size:9pt;color:#5b6f8a;display:flex;justify-content:space-between}
 </style></head>
 <body><div class="page">
 <header>
-  <div class="tag">Comunicado interno · Controladoria / Auditoria</div>
+  <div class="tag">Comunicado interno · Auditoria</div>
   <h1>Novo link do Ajuste Expresso de Estoque</h1>
   <div class="sub">Todos os ajustes de estoque passam a ser feitos somente pelo link</div>
 </header>
@@ -49,7 +61,7 @@ footer{position:absolute;bottom:6mm;left:18mm;right:18mm;border-top:1px solid #d
   <div class="lbl">Acesse pelo link abaixo</div>
   <a class="btn" href="https://raqueri1970-sketch.github.io/portal-esposende-login/ajuste.html">Abrir o Ajuste Expresso</a>
   <div class="url"><a href="https://raqueri1970-sketch.github.io/portal-esposende-login/ajuste.html">https://raqueri1970-sketch.github.io/portal-esposende-login/ajuste.html</a></div>
-  <div class="hint">Funciona no celular e no computador. Dica: no celular, use “Adicionar à tela inicial” para ter o atalho sempre à mão.</div>
+  <div class="hint">Funciona no celular e no computador. Veja no item 4 como deixar o atalho na tela inicial do celular.</div>
 </div>
 
 <h2><span class="n">1</span>Quem pode acessar</h2>
@@ -64,22 +76,45 @@ footer{position:absolute;bottom:6mm;left:18mm;right:18mm;border-top:1px solid #d
   <li>Pronto! Nas próximas vezes, basta entrar com <b>CPF + senha</b>.</li>
 </ol>
 <div class="two">
-  <div class="alert"><b>Esqueceu a senha?</b> Na tela de entrada, digite o CPF e toque em <b>“Esqueci minha senha”</b>. Assim que a Controladoria liberar, digite o <b>seu CPF no campo da senha</b> e crie uma senha nova.</div>
+  <div class="alert"><b>Esqueceu a senha?</b> Na tela de entrada, digite o CPF e toque em <b>“Esqueci minha senha”</b>. Assim que a Auditoria liberar, digite o <b>seu CPF no campo da senha</b> e crie uma senha nova.</div>
   <div class="alert"><b>Quer trocar a senha?</b> Depois de entrar, toque no botão <b>🔑 Senha</b>, no topo da tela.</div>
 </div>
 
 <h2><span class="n">3</span>Todos os ajustes pelo link</h2>
 <ul>
   <li>Qualquer ajuste de estoque deve ser <b>lançado no link</b>, com as informações e fotos solicitadas na tela.</li>
-  <li>Pelo link você acompanha o andamento dos seus pedidos, sem precisar cobrar ninguém.</li>
+  <li><b>Acompanhe o andamento dos seus pedidos pelo link</b>: ali você vê a situação de cada ajuste, sem precisar cobrar ninguém.</li>
   <li>Pedidos feitos por mensagem, ligação ou e-mail <b>não serão aceitos</b> como solicitação de ajuste.</li>
 </ul>
 
-<h2><span class="n">4</span>WhatsApp: somente em último caso</h2>
-<div class="alert red">O WhatsApp da Controladoria <b>não substitui o link</b>. Use apenas se o link não abrir ou se houver um problema que impeça o lançamento. O botão <b>“💬 Falar no WhatsApp”</b> fica no rodapé da tela. Mesmo nesses casos, assim que o problema for resolvido, o ajuste deve ser <b>lançado pelo link</b>.</div>
-
-<p style="margin-top:12px">Contamos com a colaboração de todos. Em caso de dúvidas, procurem a Controladoria.</p>
-<p><b>Controladoria / Auditoria · Lojas Esposende</b></p>
 </main>
-<footer><span>Ajuste Expresso de Estoque · uso exclusivo de Gerentes e Subgerentes</span><span>Documento interno</span></footer>
+<footer><span>Ajuste Expresso de Estoque · uso exclusivo de Gerentes e Subgerentes</span><span>Documento interno · página 1 de 2</span></footer>
+</div>
+<div class="page">
+<header class="mini"><div class="tag">Comunicado interno · Auditoria</div><h1>Ajuste Expresso de Estoque</h1></header>
+<main class="p2">
+<h2><span class="n">4</span>Coloque o atalho na tela inicial do celular</h2>
+<div class="two">
+  <div class="os"><h3><svg viewBox="0 0 24 24" class="ico" style="fill:#3DDC84"><path d="M18.4395 5.5586c-.675 1.1664-1.352 2.3318-2.0274 3.498-.0366-.0155-.0742-.0286-.1113-.043-1.8249-.6957-3.484-.8-4.42-.787-1.8551.0185-3.3544.4643-4.2597.8203-.084-.1494-1.7526-3.021-2.0215-3.4864a1.1451 1.1451 0 0 0-.1406-.1914c-.3312-.364-.9054-.4859-1.379-.203-.475.282-.7136.9361-.3886 1.5019 1.9466 3.3696-.0966-.2158 1.9473 3.3593.0172.031-.4946.2642-1.3926 1.0177C2.8987 12.176.452 14.772 0 18.9902h24c-.119-1.1108-.3686-2.099-.7461-3.0683-.7438-1.9118-1.8435-3.2928-2.7402-4.1836a12.1048 12.1048 0 0 0-2.1309-1.6875c.6594-1.122 1.312-2.2559 1.9649-3.3848.2077-.3615.1886-.7956-.0079-1.1191a1.1001 1.1001 0 0 0-.8515-.5332c-.5225-.0536-.9392.3128-1.0488.5449zm-.0391 8.461c.3944.5926.324 1.3306-.1563 1.6503-.4799.3197-1.188.0985-1.582-.4941-.3944-.5927-.324-1.3307.1563-1.6504.4727-.315 1.1812-.1086 1.582.4941zM7.207 13.5273c.4803.3197.5506 1.0577.1563 1.6504-.394.5926-1.1038.8138-1.584.4941-.48-.3197-.5503-1.0577-.1563-1.6504.4008-.6021 1.1087-.8106 1.584-.4941z"/></svg>Android <small>(no Google Chrome)</small></h3>
+    <ol><li>Abra o link no <b>Chrome</b>.</li>
+    <li>Toque nos <b>3 pontinhos <span class="k">⋮</span></b> no canto de cima, à direita.</li>
+    <li>Toque em <b>“Adicionar à tela inicial”</b> (ou <b>“Instalar app”</b>).</li>
+    <li>Confirme em <b>Adicionar</b>. O ícone aparece junto com seus aplicativos.</li></ol></div>
+  <div class="os"><h3><svg viewBox="0 0 24 24" class="ico" style="fill:#1c2733"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>iPhone <small>(no Safari)</small></h3>
+    <ol><li>Abra o link no <b>Safari</b>.</li>
+    <li>Toque no botão <b>Compartilhar</b> <span class="k">⬆</span> (quadrado com seta para cima), na barra de baixo.</li>
+    <li>Role a lista e toque em <b>“Adicionar à Tela de Início”</b>.</li>
+    <li>Toque em <b>Adicionar</b>, no canto de cima. Pronto!</li></ol></div>
+</div>
+
+<h2><span class="n">5</span>WhatsApp: somente em último caso</h2>
+<div class="alert red">Use o WhatsApp da Auditoria <b>apenas se o link não abrir ou o sistema estiver fora do ar</b>. O botão <b>“💬 Falar no WhatsApp”</b> fica no rodapé da tela. Depois, <b>acompanhe o andamento do seu pedido pelo link</b>.</div>
+
+<div class="linkbox"><div class="lbl">Link do Ajuste Expresso</div>
+  <a class="btn" href="https://raqueri1970-sketch.github.io/portal-esposende-login/ajuste.html">Abrir o Ajuste Expresso</a>
+  <div class="url"><a href="https://raqueri1970-sketch.github.io/portal-esposende-login/ajuste.html">https://raqueri1970-sketch.github.io/portal-esposende-login/ajuste.html</a></div></div>
+<p style="margin-top:16px">Contamos com a colaboração de todos. Em caso de dúvidas, procurem a Auditoria.</p>
+<p><b>Auditoria · Lojas Esposende</b></p>
+</main>
+<footer><span>Ajuste Expresso de Estoque · uso exclusivo de Gerentes e Subgerentes</span><span>Documento interno · página 2 de 2</span></footer>
 </div></body></html>
