@@ -16,7 +16,7 @@ from PIL import ImageOps, Image
 import seta_vision as V
 from sentinela import validate_request, authorize_navigation, authorize_commit, SecurityBlock
 
-VERSAO = '1.5.0'
+VERSAO = '1.5.1'
 try: ctypes.windll.shcore.SetProcessDpiAwareness(2)   # coordenadas fisicas: captura de tela e cliques no mesmo sistema (PC com escala 125%/150%)
 except Exception:
     try: ctypes.windll.user32.SetProcessDPIAware()
@@ -278,6 +278,12 @@ def fechar_dialogo_empresa():
         if c: click_xy(c["x0"] + S(15), c["y0"] + S(4)); time.sleep(1.2)
     return not aberto()
 
+def digitado_no_campo(lines, n):
+    """O numero da loja digitado aparece no campo de busca (parte de baixo da janela 'Escolha a empresa').
+    1.5.1: a altura acompanha a escala do Seta. No PC31 (escala 0.79) o campo fica acima de 600 px e o numero lido
+    certo era recusado (loja nunca trocava). Escala 1.0 (D90) = igual antes."""
+    return any(l["y0"] > S(600) and len(l["text"].strip()) <= len(n) + 2 and re.sub(r"\D", "", l["text"]) == n for l in lines)
+
 def change_store(h, exp):
     n = str(int(exp))
     for tentativa in (1, 2):
@@ -311,8 +317,8 @@ def change_store(h, exp):
         ls_d = look()
         # 1.4.2: aceita a leitura so com os digitos (a loja 42 falhava sempre: o OCR le o "42" do campo com algum caractere a mais).
         # Seguro: depois do Enter a lista ainda precisa trazer UMA linha com a loja pedida, senao nada e confirmado.
-        if not any(l["y0"] > 600 and len(l["text"].strip()) <= len(n) + 2 and re.sub(r"\D", "", l["text"]) == n for l in ls_d):
-            log("TROCA_DIGITACAO_NAO_APARECEU", n=n, tentativa=tentativa, visto=" / ".join(l["text"].strip() for l in ls_d if l["y0"] > 560)[:200]); continue   # confere ANTES do Enter
+        if not digitado_no_campo(ls_d, n):
+            log("TROCA_DIGITACAO_NAO_APARECEU", n=n, tentativa=tentativa, visto=" / ".join(l["text"].strip() for l in ls_d if l["y0"] > S(560))[:200]); continue   # confere ANTES do Enter
         press_key("enter"); log("TROCA_DIGITADO", n=n, tentativa=tentativa)
         try: lines = wait_for(one, 5, what="empresa " + exp + " unica na lista"); break
         except Blocked: log("TROCA_LISTA_FALHOU", exp=exp, tentativa=tentativa, tela=alltext(look())[:300])

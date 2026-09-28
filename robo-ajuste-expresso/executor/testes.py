@@ -283,6 +283,21 @@ def t_rede_seta():
         check("sem rede ate o Seta: SETA_SEM_REDE (pedido fica na fila)", not ok and st == "SETA_SEM_REDE", (st, det))
     finally: E.SETA_REDE, E._REDE_T = o; E._REDE_V = True
 
+def t_escala_troca():
+    say("[Troca de loja com Seta em outra escala (PC31 = 0.79)]")
+    L = lambda txt, y: {"text": txt, "x0": 700, "y0": y, "x1": 740, "y1": y + 14, "words": []}
+    o = E.ESCALA
+    try:
+        E.ESCALA = 1.0
+        check("escala 1.0: numero no campo (y=640) e aceito", E.digitado_no_campo([L("50", 640)], "50"))
+        check("escala 1.0: mesma altura de antes (y=580 nao e o campo)", not E.digitado_no_campo([L("50", 580)], "50"))
+        E.ESCALA = 0.79
+        check("escala 0.79: numero no campo (y=580) e aceito", E.digitado_no_campo([L("50", 580)], "50"))
+        check("escala 0.79: linha da lista '050 - SHOP' nao conta como digitado", not E.digitado_no_campo([L("050 - SHOP MANAIRA", 580)], "50"))
+        check("escala 0.79: outro numero nao e aceito", not E.digitado_no_campo([L("18", 580)], "50"))
+        check("escala 0.79: numero no alto da tela (lista) nao e aceito", not E.digitado_no_campo([L("50", 300)], "50"))
+    finally: E.ESCALA = o
+
 def t_supervisor():
     say("[Supervisor: sem reinicio cego]")
     import supervisor as SV
@@ -341,7 +356,7 @@ if __name__ == "__main__":
     args = set(sys.argv[1:]); t0 = time.time()
     say(f"TESTES DO EXECUTOR v{E.VERSAO} - {time.strftime('%d/%m/%Y %H:%M:%S')}")
     for f in (t_sentinela, t_numeros, t_idempotencia, t_reenfileirar, t_internet_no_fim, t_recuperacao, t_diario_falha_fechada, t_seta_fechado, t_rede_caiu, t_parar,
-              t_freio, t_freio_no_loop, t_limites, t_rede_seta, t_supervisor):
+              t_freio, t_freio_no_loop, t_limites, t_rede_seta, t_escala_troca, t_supervisor):
         try: f()
         except Exception: check(f.__name__ + " (erro no teste)", False, traceback.format_exc()[-300:])
     if "--banco" in args or "--completo" in args:
