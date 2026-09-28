@@ -8,7 +8,7 @@
 #   python executor.py --dry  COD QTD LOJA   navega/preenche/confere e FECHA sem lancar
 #   python executor.py --once COD QTD LOJA   lanca de verdade UMA vez (local, sem Supabase)
 #   python executor.py --loop                24h: pega pedidos PENDENTE no Supabase (config.json)
-import asyncio, ctypes, json, time, os, sys, re, socket, unicodedata, argparse, traceback, urllib.request, urllib.error
+import asyncio, ctypes, json, time, os, sys, re, socket, subprocess, unicodedata, argparse, traceback, urllib.request, urllib.error
 import shutil
 from pathlib import Path
 import pyautogui, win32gui, win32process, win32api, win32con
@@ -16,7 +16,7 @@ from PIL import ImageOps, Image
 import seta_vision as V
 from sentinela import validate_request, authorize_navigation, authorize_commit, SecurityBlock
 
-VERSAO = '1.5.1'
+VERSAO = '1.5.2'
 try: ctypes.windll.shcore.SetProcessDpiAwareness(2)   # coordenadas fisicas: captura de tela e cliques no mesmo sistema (PC com escala 125%/150%)
 except Exception:
     try: ctypes.windll.user32.SetProcessDPIAware()
@@ -722,6 +722,44 @@ def pausa_motivo():
     try: return json.loads(PAUSAFILE.read_text(encoding="utf-8")).get("motivo") or "pausa manual"
     except Exception: return "pausa manual"
 
+def pausa_status():
+    """1.5.2: PAUSADO_REMOTO = pausado pelo administrador no celular; PAUSADO_SEGURANCA = freio automatico ou pausa no PC."""
+    try: return "PAUSADO_REMOTO" if json.loads(PAUSAFILE.read_text(encoding="utf-8")).get("origem") == "celular" else "PAUSADO_SEGURANCA"
+    except Exception: return "PAUSADO_SEGURANCA"
+
+# ---------------------------------------------------------------- controle remoto (1.5.2)
+SETA_EXE = r"C:\SETA\seta.exe"
+REINICIO = {"pedido": False}
+def abrir_seta():
+    """Abre o Seta se estiver fechado. O LOGIN continua sendo de uma pessoa (o robo nunca digita senha)."""
+    try: seta_hwnd(); log("ABRIR_SETA", resultado="ja estava aberto e logado"); return
+    except Blocked: pass
+    try:
+        if "seta.exe" in subprocess.run(["tasklist", "/FI", "IMAGENAME eq seta.exe"], capture_output=True, text=True).stdout.lower():
+            log("ABRIR_SETA", resultado="ja estava aberto (aguardando login)"); return
+    except Exception: pass
+    exe = Path(SETA_EXE)
+    if not exe.exists(): log("ABRIR_SETA", resultado="nao achei " + str(exe)); return
+    subprocess.Popen([str(exe)], cwd=str(exe.parent)); log("ABRIR_SETA", resultado="aberto - falta o login")
+
+def tratar_comando(resp):
+    """Comando mandado pelo administrador no app do celular, entregue junto com a resposta do sinal (heartbeat).
+    Nunca interrompe um pedido no meio: PAUSAR vale a partir do proximo pedido; REINICIAR espera o pedido atual terminar."""
+    cmd = (resp or {}).get("comando") if isinstance(resp, dict) else None
+    if not cmd: return
+    log("COMANDO_REMOTO", comando=cmd)
+    if cmd == "PAUSAR": pausar("pausado pelo administrador (celular)", origem="celular")
+    elif cmd == "RETOMAR":
+        if PAUSAFILE.exists(): PAUSAFILE.unlink(); _FALHAS.clear(); log("FILA_RETOMADA", origem="celular")
+    elif cmd == "REINICIAR": REINICIO["pedido"] = True
+    elif cmd == "ABRIR_SETA":
+        try: abrir_seta()
+        except Exception as e: log("ABRIR_SETA_FALHOU", err=repr(e)[:150])
+
+def sinal(supa, st, det=""):
+    """Heartbeat + comando remoto que vier na resposta."""
+    r = supa.heartbeat(st, det); tratar_comando(r); return r
+
 def keep_awake():
     """Pede ao Windows para nao dormir/apagar a tela enquanto este processo roda (valido so para o processo; nao altera configuracao)."""
     try: ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
@@ -732,8 +770,9 @@ def load_config():
     return json.loads(CONFIG.read_text(encoding="utf-8"))
 
 def loop():
-    global SETA_REDE, FREIO_IGUAIS, FREIO_SEGUIDAS, TROCAS_MAX
+    global SETA_REDE, FREIO_IGUAIS, FREIO_SEGUIDAS, TROCAS_MAX, SETA_EXE
     cfg = load_config(); supa = Supa(cfg); keep_awake()
+    SETA_EXE = cfg.get("seta_exe", SETA_EXE)
     if cfg.get("seta_host") and cfg.get("seta_porta"): SETA_REDE = (str(cfg["seta_host"]), int(cfg["seta_porta"]))
     FREIO_IGUAIS = int(cfg.get("freio_erros_iguais", FREIO_IGUAIS)); FREIO_SEGUIDAS = int(cfg.get("freio_falhas_seguidas", FREIO_SEGUIDAS))
     TROCAS_MAX = int(cfg.get("max_trocas_loja_10min", TROCAS_MAX))
@@ -745,24 +784,27 @@ def loop():
     last_hb, last_st, backoff, ultima_atividade = 0, None, 3, time.monotonic()
     while not STOPFILE.exists():
         try:
+            if REINICIO["pedido"]:                           # 1.5.2: reinicio pedido pelo celular (sempre entre pedidos)
+                log("REINICIO_REMOTO"); raise SystemExit(75)          # o supervisor sobe de novo em 3 s (nao conta como queda)
             if PAUSAFILE.exists():                           # 1.5.0: fila pausada -> nao toca no Seta nem pega pedido; so avisa o Portal
-                mot = pausa_motivo()
-                if last_st != "PAUSADO_SEGURANCA" or time.time() - last_hb > 60:
-                    try: supa.heartbeat("PAUSADO_SEGURANCA", mot[:380]); last_hb, last_st = time.time(), "PAUSADO_SEGURANCA"
+                mot, pst = pausa_motivo(), pausa_status()
+                if last_st != pst or time.time() - last_hb > 15:          # 1.5.2: 15 s (antes 60) para o RETOMAR do celular chegar rapido
+                    try: last_st = pst; sinal(supa, pst, mot[:380]); last_hb = time.time()
                     except Exception as e: log("HEARTBEAT_FALHOU", err=str(e)[:200])
-                save_state(status="PAUSADO_SEGURANCA", detalhe=mot, ts=time.strftime("%H:%M:%S")); time.sleep(5); continue
-            if last_st == "PAUSADO_SEGURANCA": _FALHAS.clear(); log("FILA_RETOMADA")   # RETOMAR.bat: recomeca a contagem do freio do zero
+                save_state(status=pst, detalhe=mot, ts=time.strftime("%H:%M:%S")); time.sleep(5); continue
+            if last_st and last_st.startswith("PAUSADO"): _FALHAS.clear(); log("FILA_RETOMADA")   # recomeca a contagem do freio do zero
             ok, st, det = health()
-            if st != last_st or time.time() - last_hb > 30:
-                try: supa.heartbeat(st, det); last_hb, last_st = time.time(), st
+            if st != last_st or time.time() - last_hb > 15:            # 1.5.2: 15 s (antes 30): comando do celular chega em ate ~15 s
+                try: last_hb, last_st = time.time(), st; sinal(supa, st, det)
                 except Exception as e: log("HEARTBEAT_FALHOU", err=str(e)[:200]); raise
             save_state(status=st, detalhe=det, ts=time.strftime("%H:%M:%S"))
+            if PAUSAFILE.exists(): continue                  # 1.5.2: PAUSAR do celular chegou neste sinal -> nao pega pedido
             if not ok: time.sleep(10); continue            # pedidos ficam PENDENTES ate o Seta voltar; nada e consumido
             sync_pendentes(supa)
             journal_load()                                   # diario ilegivel -> excecao AQUI, antes de pegar qualquer pedido (falha fechada)
             rows = supa.next() or []
             if rows:
-                supa.heartbeat("EXECUTANDO", "protocolo " + str(rows[0]["protocolo"] if isinstance(rows, list) else rows["protocolo"])); last_hb, last_st = time.time(), "EXECUTANDO"
+                sinal(supa, "EXECUTANDO", "protocolo " + str(rows[0]["protocolo"] if isinstance(rows, list) else rows["protocolo"])); last_hb, last_st = time.time(), "EXECUTANDO"
                 run_request(supa, rows[0] if isinstance(rows, list) else rows); backoff = 3; ultima_atividade = time.monotonic()
                 motivo = freio_avaliar(ULTIMO["code"])
                 if motivo: pausar(motivo); last_st = None; continue

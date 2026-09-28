@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Robô Ajuste</title>
+<meta name="theme-color" content="#0b1020">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Robô Ajuste">
+<link rel="manifest" href="__BASE__/manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="__BASE__/icon.svg">
+<script>
+// iPhone nao aceita SVG como icone da tela de inicio: desenha o SVG num PNG 180x180 e usa como apple-touch-icon
+(function(){var i=new Image();i.onload=function(){try{var c=document.createElement('canvas');c.width=c.height=180;c.getContext('2d').drawImage(i,0,0,180,180);
+var l=document.createElement('link');l.rel='apple-touch-icon';l.href=c.toDataURL('image/png');document.head.appendChild(l)}catch(e){}};i.src='__BASE__/icon.svg'})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#0b1020;--card:#141a2e;--card2:#1b2340;--line:#27304f;--txt:#e8ecf7;--mut:#9aa5c4;--ok:#22c55e;--warn:#f5b301;--bad:#ef4444;--off:#5b6380;--pri:#3b82f6;--pri2:#2563eb}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{padding:calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 24px)}
+h1{font-size:22px;margin:0}h2{font-size:15px;margin:22px 0 10px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.sub{color:var(--mut);font-size:13px;margin-top:2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.btn{appearance:none;border:0;border-radius:12px;padding:14px 16px;font-size:16px;font-weight:600;color:#fff;background:var(--card2);border:1px solid var(--line);flex:1 1 140px;min-height:52px;cursor:pointer}
+.btn:disabled{opacity:.45}
+.b-ok{background:#15803d;border-color:#16a34a}.b-warn{background:#a16207;border-color:#ca8a04}.b-bad{background:#b91c1c;border-color:#dc2626}.b-pri{background:var(--pri2);border-color:var(--pri)}
+.big{font-size:18px;min-height:62px}
+.dot{width:14px;height:14px;border-radius:50%;display:inline-block;margin-right:8px;flex:0 0 auto}
+.mname{font-weight:700;font-size:17px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;word-break:break-word}
+.state{font-size:18px;font-weight:700;margin:10px 0 2px}
+.det{color:var(--mut);font-size:14px}
+.hint{background:#0f1530;border:1px dashed var(--line);border-radius:10px;padding:10px;margin-top:10px;font-size:14px;color:#cfd6ee}
+.cmd{font-size:14px;margin-top:10px;padding:8px 10px;border-radius:10px;background:#0f1530}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kpi{background:var(--card2);border-radius:12px;padding:10px;text-align:center}.kpi b{display:block;font-size:22px}.kpi span{font-size:12px;color:var(--mut)}
+.chip{font-size:12px;padding:3px 8px;border-radius:999px;font-weight:700;white-space:nowrap;align-self:flex-start}
+.c-CONCLUIDO{background:#14532d;color:#86efac}.c-ERRO{background:#7f1d1d;color:#fca5a5}.c-BLOQUEADO_DIVERGENCIA{background:#78350f;color:#fcd34d}.c-PENDENTE{background:#1e3a8a;color:#bfdbfe}.c-EM_EXECUCAO{background:#312e81;color:#c7d2fe}
+.ped{display:flex;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}.ped:last-child{border:0}
+.small{font-size:13px;color:var(--mut)}
+input{width:100%;padding:14px;border-radius:12px;border:1px solid var(--line);background:#0f1530;color:var(--txt);font-size:16px;margin:6px 0 12px}
+.err{color:#fca5a5;font-size:14px;min-height:20px}
+.toast{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 16px);background:#111827;border:1px solid var(--line);border-radius:12px;padding:14px;font-weight:600;display:none;z-index:9}
+details summary{cursor:pointer;color:var(--mut);font-size:14px}
+.hidden{display:none}
+.linkline{display:flex;align-items:center;justify-content:space-between;gap:10px}
+</style>
+</head>
+<body>
+
+<div id="vLogin" class="hidden">
+  <h1>🤖 Robô Ajuste</h1><div class="sub">Controle remoto do Ajuste Expresso · só administrador</div>
+  <div class="card">
+    <label class="small">Email do Portal</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label class="small">Senha</label><input id="lSenha" type="password" autocomplete="current-password">
+    <div id="lErr" class="err"></div>
+    <button class="btn b-pri big" style="width:100%" onclick="entrar()">Entrar</button>
+  </div>
+  <div class="small">Dica: no iPhone, toque em Compartilhar → <b>Adicionar à Tela de Início</b> para ter o ícone do app.</div>
+</div>
+
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div><h1>🤖 Robô Ajuste</h1><div class="sub" id="upd">carregando…</div></div>
+    <button class="btn" style="flex:0 0 auto;min-height:44px;padding:10px 14px" onclick="carregar(true)">↻</button>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button class="btn b-bad big" id="bParar" onclick="pararTudo()">⛔ Parar tudo</button>
+      <button class="btn b-ok big" id="bLigar" onclick="ligarTudo()">▶️ Ligar tudo</button>
+    </div>
+    <div class="small" style="margin-top:8px">Parar tudo = as máquinas terminam o pedido atual e param de pegar pedidos (continuam ligadas e visíveis). Ligar tudo = retoma as máquinas e abre o Seta onde estiver fechado.</div>
+  </div>
+
+  <h2>Máquinas</h2>
+  <div id="maquinas"></div>
+
+  <h2>Fila de pedidos</h2>
+  <div class="card">
+    <div class="kpis" id="kpis"></div>
+    <div class="linkline" style="margin-top:14px">
+      <div><b>Link dos gerentes</b><div class="small" id="linkTxt"></div></div>
+      <button class="btn" style="flex:0 0 auto" id="bLink" onclick="alternarLink()"></button>
+    </div>
+  </div>
+
+  <h2>Últimos pedidos (24 h)</h2>
+  <div class="card" id="pedidos"></div>
+
+  <details class="card"><summary>Ajuda: o que cada botão faz</summary>
+    <div class="small" style="margin-top:10px;line-height:1.6">
+      <b>Pausar</b>: a máquina termina o pedido atual (nunca corta no meio) e para de pegar pedidos. Fica ligada, mostrando o status.<br>
+      <b>Retomar</b>: volta a pegar pedidos. Também libera o <b>freio de segurança</b> — antes, confira no Seta o motivo.<br>
+      <b>Abrir Seta</b>: abre o Seta se estiver fechado. O <b>login</b> precisa de uma pessoa na máquina (o robô nunca digita senha).<br>
+      <b>Reiniciar robô</b>: fecha e abre o programa do robô (entre um pedido e outro). Use se ele parecer travado.<br>
+      <b>Desativar</b>: corta a máquina do sistema na hora (parada total). <b>Ativar</b> devolve.<br>
+      Os comandos chegam na máquina em até ~15 segundos. Máquina <b>vermelha</b> (sem sinal) não recebe comando: alguém precisa ir ao PC e usar o atalho <b>Robo 1 - LIGAR TUDO</b>.<br>
+      <b>Cores</b>: 🟢 pronta · 🟡 parada por algum motivo (escrito no cartão) · 🔴 sem sinal · ⚫ desativada.
+    </div>
+  </details>
+  <div class="row" style="margin-top:6px"><button class="btn" onclick="sair()">Sair</button></div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const SB_URL = 'https://rdztzurfesnobfkazgpm.supabase.co';
+const SB_KEY = 'sb_publishable_4LHSO4TrP7F4m4tpJyH44g_BGmfC92h';
+const sb = supabase.createClient(SB_URL, SB_KEY, {auth: {persistSession: true, autoRefreshToken: true, storageKey: 'robo-ajuste-auth'}});
+let DADOS = null, OCUPADO = false, TIMER = null;
+const MAQ = {'EXEC-SETA-CONTROLADORIA': 'D90 · Controladoria', 'EXEC-SETA-D-40-PDV31': 'PC31'};
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(m, ms){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',ms||3500)}
+function ha(iso){if(!iso)return 'nunca';const s=Math.max(0,(Date.now()-new Date(iso))/1000);if(s<60)return Math.round(s)+' s';if(s<3600)return Math.round(s/60)+' min';if(s<86400)return Math.round(s/3600)+' h';return Math.round(s/86400)+' dias'}
+function hora(iso){return iso?new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):''}
+function versaoOk(v){const m=/^(\d+)\.(\d+)\.(\d+)$/.exec(v||'');if(!m)return false;const a=[+m[1],+m[2],+m[3]];return a[0]>1||(a[0]==1&&(a[1]>5||(a[1]==5&&a[2]>=2)))}
+
+const ESTADOS = {
+  OCIOSO:['ok','Pronta, esperando pedidos',''],
+  EXECUTANDO:['ok','Lançando um pedido agora',''],
+  PAUSADO_REMOTO:['warn','Pausada por você','Toque em Retomar para voltar a pegar pedidos.'],
+  PAUSADO_SEGURANCA:['warn','Freio de segurança acionado','O Seta repetiu um erro e a fila parou para não insistir. Veja o motivo abaixo, confira o Seta e toque em Retomar.'],
+  SETA_FECHADO:['warn','Seta fechado ou deslogado','Toque em Abrir Seta e peça para alguém fazer o login na máquina.'],
+  TELA_BLOQUEADA:['warn','Tela do Windows bloqueada','Alguém precisa desbloquear o Windows na máquina.'],
+  SETA_TRAVADO:['warn','Seta travado (não responde)','Alguém precisa fechar e abrir o Seta na máquina.'],
+  SETA_PEDINDO_SENHA:['warn','Seta pedindo a senha','Alguém precisa entrar no Seta na máquina.'],
+  SETA_SEM_REDE:['warn','Sem rede até o Seta/VPN','Veja a VPN/rede com a TI. O robô volta sozinho quando a rede voltar.'],
+};
+function estado(m){
+  if(!m.ativo) return {cor:'off',txt:'Desativada',dica:'Não pega pedidos. Toque em Ativar para devolver ao trabalho.'};
+  const idade = m.heartbeat_em ? (Date.now()-new Date(m.heartbeat_em))/1000 : null;
+  if(idade==null) return {cor:'off',txt:'Nunca conectou',dica:'Token sem uso. Se não reconhece esta máquina, desative.'};
+  if(idade>90) return {cor:'bad',txt:'Sem sinal há '+ha(m.heartbeat_em),dica:'PC desligado, sem internet ou robô parado. Não recebe comandos: alguém precisa ir ao PC e usar o atalho "Robo 1 - LIGAR TUDO".'};
+  const e = ESTADOS[m.status] || ['warn', m.status || 'Status desconhecido', ''];
+  return {cor:e[0],txt:e[1],dica:e[2]};
+}
+function cmdTexto(m){
+  if(!m.comando||!m.comando_em) return '';
+  const nome={PAUSAR:'Pausar',RETOMAR:'Retomar',REINICIAR:'Reiniciar robô',ABRIR_SETA:'Abrir Seta'}[m.comando]||m.comando;
+  const idade=(Date.now()-new Date(m.comando_em))/1000;
+  if(m.comando_entregue_em) { if(idade>600) return ''; return '✅ <b>'+nome+'</b> recebido pela máquina às '+hora(m.comando_entregue_em); }
+  if(idade>300) return '✖️ <b>'+nome+'</b> não chegou (máquina sem sinal) — comando expirou';
+  return '⏳ <b>'+nome+'</b> enviado às '+hora(m.comando_em)+' — aguardando a máquina (até ~15 s)';
+}
+
+async function rpc(fn, args){const r=await sb.rpc(fn,args||{});if(r.error)throw new Error(r.error.message);return r.data}
+
+async function carregar(manual){
+  try{
+    DADOS = await rpc('ajuste_admin_painel_robo');
+    render(); $('upd').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR');
+    if(manual) toast('Atualizado');
+  }catch(e){
+    if(/acesso negado|JWT|not authenticated/i.test(e.message)){ await sb.auth.signOut(); mostrarLogin('Sessão expirada ou sem permissão de administrador.'); return }
+    $('upd').textContent='Sem conexão: '+e.message.slice(0,80);
+  }
+}
+
+function render(){
+  const ms = (DADOS.executores||[]);
+  const principais = ms.filter(m=>m.heartbeat_em), outras = ms.filter(m=>!m.heartbeat_em);
+  $('maquinas').innerHTML = principais.map(cartao).join('') + (outras.length? `<details class="card"><summary>Outros tokens cadastrados (${outras.length})</summary>${outras.map(cartao).join('')}</details>`:'');
+  const f = DADOS.fila||{};
+  $('kpis').innerHTML = [['pendentes','Na fila'],['em_execucao','Lançando'],['concluidos_hoje','Concluídos hoje'],['erros_hoje','Erros hoje'],['divergencias','Divergências']].map(([k,l])=>`<div class="kpi"><b>${f[k]??'–'}</b><span>${l}</span></div>`).join('');
+  const lk = DADOS.link||{};
+  $('linkTxt').textContent = lk.ativo ? 'Liberado: gerentes podem enviar pedidos' : 'Pausado: gerentes veem a mensagem de pausa';
+  $('bLink').textContent = lk.ativo ? '⏸️ Pausar link' : '▶️ Liberar link';
+  $('bLink').className = 'btn '+(lk.ativo?'b-warn':'b-ok');
+  const ps = DADOS.recentes||[];
+  $('pedidos').innerHTML = ps.length ? ps.map(p=>`<div class="ped"><div><b>#${p.id}</b> · loja ${esc(String(p.loja).padStart(3,'0'))} · ${esc(p.produto)} · ${p.qtd} un.<div class="small">${esc(MAQ[p.maquina]||p.maquina||'')} · ${hora(p.atualizado_em)}${p.erro&&p.status!=='CONCLUIDO'?' · '+esc(p.erro.slice(0,90)):''}</div></div><span class="chip c-${esc(p.status)}">${esc(({CONCLUIDO:'Concluído',ERRO:'Erro',BLOQUEADO_DIVERGENCIA:'Divergência',PENDENTE:'Na fila',EM_EXECUCAO:'Lançando'})[p.status]||p.status)}</span></div>`).join('') : '<div class="small">Nenhum pedido nas últimas 24 h.</div>';
+}
+
+function cartao(m){
+  const e = estado(m), nome = esc(m.nome), apelido = MAQ[m.nome] ? ' <span class="small">('+esc(MAQ[m.nome])+')</span>' : '';
+  const online = m.ativo && m.heartbeat_em && (Date.now()-new Date(m.heartbeat_em))/1000 <= 90;
+  const podeCmd = online && versaoOk(m.versao);
+  const pausada = (m.status||'').startsWith('PAUSADO');
+  const n = JSON.stringify(m.nome).replace(/"/g,'&quot;');
+  let bt = '';
+  if(m.ativo && m.heartbeat_em){
+    bt += pausada ? `<button class="btn b-ok" ${podeCmd?'':'disabled'} onclick="comando(${n},'RETOMAR')">▶️ Retomar</button>`
+                  : `<button class="btn b-warn" ${podeCmd?'':'disabled'} onclick="comando(${n},'PAUSAR')">⏸️ Pausar</button>`;
+    bt += `<button class="btn" ${podeCmd?'':'disabled'} onclick="comando(${n},'ABRIR_SETA')">🖥️ Abrir Seta</button>`;
+    bt += `<button class="btn" ${podeCmd?'':'disabled'} onclick="comando(${n},'REINICIAR')">🔄 Reiniciar robô</button>`;
+  }
+  bt += m.ativo ? `<button class="btn b-bad" onclick="ativar(${n},false)">⛔ Desativar</button>` : `<button class="btn b-ok" onclick="ativar(${n},true)">✅ Ativar</button>`;
+  const aviso = (online && !versaoOk(m.versao)) ? `<div class="hint">Esta máquina está na versão ${esc(m.versao||'?')}: os comandos pelo celular precisam da 1.5.2. Por enquanto só Desativar/Ativar funciona.</div>` : '';
+  const ct = cmdTexto(m);
+  return `<div class="card"><div class="mname"><span class="dot" style="background:var(--${e.cor})"></span>${nome}${apelido}</div>
+    <div class="state">${esc(e.txt)}</div>
+    ${m.detalhe && m.status!=='OCIOSO' ? `<div class="det">${esc(m.detalhe)}</div>`:''}
+    <div class="small" style="margin-top:4px">Último sinal: há ${ha(m.heartbeat_em)} · v${esc(m.versao||'?')}${m.host?' · '+esc(m.host):''}</div>
+    ${e.dica?`<div class="hint">${esc(e.dica)}</div>`:''}${aviso}
+    ${ct?`<div class="cmd">${ct}</div>`:''}
+    <div class="row" style="margin-top:12px">${bt}</div></div>`;
+}
+
+const PERGUNTA = {
+  PAUSAR: n=>`Pausar ${n}?\n\nEla termina o pedido atual e para de pegar pedidos.`,
+  RETOMAR: n=>`Retomar ${n}?\n\nSe ela parou pelo FREIO DE SEGURANÇA, confira antes no Seta o motivo.`,
+  ABRIR_SETA: n=>`Abrir o Seta em ${n}?\n\nO login precisa ser feito por uma pessoa na máquina.`,
+  REINICIAR: n=>`Reiniciar o robô em ${n}?\n\nEle espera terminar o pedido atual, fecha e abre de novo (~5 s).`,
+};
+// trava TODOS os botoes durante o envio e 1,5 s depois: toque duplo no celular nao desfaz o comando
+async function travar(fn){ if(OCUPADO) return; OCUPADO=true; const fixos=[...document.querySelectorAll('button')].filter(b=>!b.disabled); fixos.forEach(b=>b.disabled=true);
+  try{ await fn() } catch(e){ alert('Não foi possível: '+e.message) }
+  finally{ setTimeout(async()=>{ fixos.forEach(b=>b.disabled=false); OCUPADO=false; await carregar(); },1500) } }
+function comando(nome, cmd){ if(!confirm(PERGUNTA[cmd](MAQ[nome]||nome))) return;
+  travar(async()=>{ await rpc('ajuste_admin_comando_executor',{p_nome:nome,p_comando:cmd}); toast('Comando enviado. A máquina recebe em até ~15 s.') }) }
+function ativar(nome, a){ const q = a ? `Ativar ${MAQ[nome]||nome}?\n\nEla volta a poder pegar pedidos.` : `DESATIVAR ${MAQ[nome]||nome}?\n\nEla é cortada do sistema na hora e não pega mais pedidos até você ativar de novo.`;
+  if(!confirm(q)) return; travar(async()=>{ await rpc('ajuste_admin_set_executor',{p_nome:nome,p_ativo:a}); toast(a?'Máquina ativada.':'Máquina desativada.') }) }
+function alternarLink(){ const lk=DADOS.link||{}; const liberar=!lk.ativo;
+  if(!confirm(liberar?'Liberar o link dos gerentes?\n\nEles voltam a poder enviar pedidos.':'Pausar o link dos gerentes?\n\nEles NÃO conseguem enviar pedidos novos e veem a mensagem de pausa. Os robôs terminam o que já está na fila.')) return;
+  travar(async()=>{ await rpc('ajuste_admin_set_link',{p_ativo:liberar,p_mensagem:null}); toast(liberar?'Link liberado.':'Link pausado.') }) }
+function pararTudo(){ const ms=(DADOS.executores||[]).filter(m=>m.ativo&&m.heartbeat_em);
+  if(!confirm('PARAR TUDO?\n\nTodas as máquinas terminam o pedido atual e param de pegar pedidos.\nOs pedidos ficam guardados na fila.')) return;
+  const tambemLink = confirm('Pausar também o link dos gerentes (ninguém envia pedido novo)?\n\nOK = sim · Cancelar = não');
+  travar(async()=>{ const falhas=[];
+    for(const m of ms){ try{ if(versaoOk(m.versao)) await rpc('ajuste_admin_comando_executor',{p_nome:m.nome,p_comando:'PAUSAR'}); else await rpc('ajuste_admin_set_executor',{p_nome:m.nome,p_ativo:false}); }catch(e){falhas.push(m.nome)} }
+    if(tambemLink) await rpc('ajuste_admin_set_link',{p_ativo:false,p_mensagem:null});
+    toast(falhas.length?'Falhou em: '+falhas.join(', '):'Parada enviada para '+ms.length+' máquina(s).',5000) }) }
+function ligarTudo(){ const ms=(DADOS.executores||[]).filter(m=>m.heartbeat_em);
+  if(!confirm('LIGAR TUDO?\n\n• Ativa as máquinas desativadas\n• Retoma as pausadas (inclusive freio de segurança)\n• Abre o Seta onde estiver fechado (login é com uma pessoa)')) return;
+  travar(async()=>{ const falhas=[];
+    for(const m of ms){ try{
+      if(!m.ativo) await rpc('ajuste_admin_set_executor',{p_nome:m.nome,p_ativo:true});
+      if(versaoOk(m.versao)){ if((m.status||'').startsWith('PAUSADO')) await rpc('ajuste_admin_comando_executor',{p_nome:m.nome,p_comando:'RETOMAR'});
+        else if(m.status==='SETA_FECHADO') await rpc('ajuste_admin_comando_executor',{p_nome:m.nome,p_comando:'ABRIR_SETA'}); }
+    }catch(e){falhas.push(m.nome)} }
+    const lk=DADOS.link||{}; if(!lk.ativo && confirm('O link dos gerentes está pausado. Liberar agora?')) await rpc('ajuste_admin_set_link',{p_ativo:true,p_mensagem:null});
+    toast(falhas.length?'Falhou em: '+falhas.join(', '):'Pronto. As máquinas recebem em até ~15 s.',5000) }) }
+
+function mostrarLogin(msg){ $('vApp').classList.add('hidden'); $('vLogin').classList.remove('hidden'); $('lErr').textContent=msg||''; clearInterval(TIMER) }
+function mostrarApp(){ $('vLogin').classList.add('hidden'); $('vApp').classList.remove('hidden'); carregar(); clearInterval(TIMER); TIMER=setInterval(()=>{ if(!document.hidden && !OCUPADO) carregar() },10000) }
+async function entrar(){ $('lErr').textContent='Entrando…';
+  const r = await sb.auth.signInWithPassword({email:$('lEmail').value.trim(), password:$('lSenha').value});
+  if(r.error){ $('lErr').textContent='Email ou senha inválidos.'; return }
+  try{ await rpc('ajuste_admin_painel_robo'); mostrarApp() } catch(e){ await sb.auth.signOut(); $('lErr').textContent='Este usuário não é administrador do Portal.' } }
+async function sair(){ if(!confirm('Sair do app?')) return; await sb.auth.signOut(); mostrarLogin() }
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && DADOS) carregar() });
+(async()=>{ const s = await sb.auth.getSession(); if(s.data && s.data.session) mostrarApp(); else mostrarLogin() })();
+</script>
+</body>
+</html>

@@ -298,6 +298,48 @@ def t_escala_troca():
         check("escala 0.79: numero no alto da tela (lista) nao e aceito", not E.digitado_no_campo([L("50", 300)], "50"))
     finally: E.ESCALA = o
 
+def t_comandos_celular():
+    say("[Controle remoto pelo celular: pausar, retomar, reiniciar, abrir Seta]")
+    E.PAUSAFILE.unlink(missing_ok=True); E._FALHAS.clear(); E.REINICIO["pedido"] = False
+    class Cmd(Stub):
+        def __init__(self, cmds): super().__init__(); self.cmds = list(cmds)
+        def heartbeat(self, st, det=""): self.hb.append(st); return {"ok": True, "comando": self.cmds.pop(0) if self.cmds else None}
+    st = Cmd(["PAUSAR"]); _loop_run(st, lambda: (True, "OCIOSO", "ok"), 0.8)
+    check("PAUSAR: cria a pausa (origem celular) e nao pega pedido", E.PAUSAFILE.exists() and "celular" in E.PAUSAFILE.read_text(encoding="utf-8") and st.nexts == 0, st.nexts)
+    check("PAUSAR: Portal ve PAUSADO_REMOTO (diferente do freio)", "PAUSADO_REMOTO" in st.hb, st.hb[:4])
+    st = Cmd(["RETOMAR"]); _loop_run(st, lambda: (True, "OCIOSO", "ok"), 0.8)
+    check("RETOMAR: tira a pausa e volta a consultar a fila", not E.PAUSAFILE.exists() and st.nexts > 0, st.nexts)
+    E.pausar("freio teste"); E._FALHAS[:] = ["X"]
+    st = Cmd(["RETOMAR"]); _loop_run(st, lambda: (True, "OCIOSO", "ok"), 0.8)
+    check("RETOMAR tambem libera o freio de seguranca (decisao do administrador)", not E.PAUSAFILE.exists() and st.nexts > 0)
+    abriu = []; o = E.abrir_seta; E.abrir_seta = lambda: abriu.append(1)
+    try:
+        st = Cmd(["ABRIR_SETA"]); _loop_run(st, lambda: (False, "SETA_FECHADO", "x"), 0.6)
+        check("ABRIR_SETA: abre o Seta mesmo com o robo esperando (Seta fechado)", abriu == [1], abriu)
+    finally: E.abrir_seta = o
+    st = Cmd(["REINICIAR"]); saiu = []
+    def rodar():
+        try: E.loop()
+        except SystemExit as e: saiu.append(e.code)
+    E.CONFIG = TMP / "config.json"; ob = (E.Supa, E.health, E.time.sleep)
+    E.Supa = lambda c: st; E.health = lambda: (True, "OCIOSO", "ok"); E.time.sleep = lambda s: REAL_SLEEP(min(s, 0.02))
+    try:
+        th = threading.Thread(target=rodar, daemon=True); th.start(); th.join(3)
+    finally: E.Supa, E.health, E.time.sleep = ob; E.STOPFILE.unlink(missing_ok=True); E.REINICIO["pedido"] = False
+    check("REINICIAR: robo sai com codigo 75 (supervisor sobe em 3 s, nao conta queda)", saiu == [75], saiu)
+    class Exe(Cmd):
+        def next(self):
+            self.nexts += 1
+            return [{"id": 5, "protocolo": "T-CEL-%d" % self.nexts, "quantidade": 1, "codigo_produto": "742139", "codigo_seta_solicitado": "050", "motivo": "X"}] if self.nexts == 1 else []
+        def heartbeat(self, st, det=""):
+            self.hb.append(st); return {"comando": "PAUSAR"} if st == "EXECUTANDO" else {}
+    feitos = []; oe = E.execute
+    E.execute = lambda req, mode, rep: feitos.append(req["protocolo"]) or {"ok": True, "antes": 0.0, "depois": 1.0, "tempos": {}, "produto": {}, "total": 1}
+    try:
+        st = Exe([]); _loop_run(st, lambda: (True, "OCIOSO", "ok"), 0.8)
+        check("PAUSAR durante um pedido: termina o pedido (nao corta no meio) e so depois pausa", feitos == ["T-CEL-1"] and E.PAUSAFILE.exists() and st.nexts == 1, (feitos, st.nexts))
+    finally: E.execute = oe; E.PAUSAFILE.unlink(missing_ok=True); E._FALHAS.clear()
+
 def t_supervisor():
     say("[Supervisor: sem reinicio cego]")
     import supervisor as SV
@@ -356,7 +398,7 @@ if __name__ == "__main__":
     args = set(sys.argv[1:]); t0 = time.time()
     say(f"TESTES DO EXECUTOR v{E.VERSAO} - {time.strftime('%d/%m/%Y %H:%M:%S')}")
     for f in (t_sentinela, t_numeros, t_idempotencia, t_reenfileirar, t_internet_no_fim, t_recuperacao, t_diario_falha_fechada, t_seta_fechado, t_rede_caiu, t_parar,
-              t_freio, t_freio_no_loop, t_limites, t_rede_seta, t_escala_troca, t_supervisor):
+              t_freio, t_freio_no_loop, t_limites, t_rede_seta, t_escala_troca, t_comandos_celular, t_supervisor):
         try: f()
         except Exception: check(f.__name__ + " (erro no teste)", False, traceback.format_exc()[-300:])
     if "--banco" in args or "--completo" in args:

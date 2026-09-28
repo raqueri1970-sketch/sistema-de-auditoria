@@ -28,6 +28,8 @@ def main():
             try: p.wait(timeout=90)
             except Exception: p.kill()
             break
+        if p.returncode == 75:                        # 1.5.2: reinicio pedido pelo celular - nao e queda
+            log("reinicio pedido pelo administrador (celular); subindo de novo em 3 s"); time.sleep(3); continue
         agora = time.time(); quedas.append(agora); quedas = [t for t in quedas if agora - t < JANELA]
         espera, pausar = proxima_espera(quedas, agora)
         if pausar and not PAUSA.exists():
