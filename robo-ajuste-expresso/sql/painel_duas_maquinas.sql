@@ -1,0 +1,8 @@
+-- Painel ao vivo (ajuste_painel_base): com 2 robos, o status "robo" alternava entre as maquinas (pegava so o ultimo sinal).
+-- Agora: status = o mais util entre as maquinas com sinal (EXECUTANDO > OCIOSO > demais); detalhe = "D90: X · PC31: Y".
+-- A funcao original ficou salva em private.app_paginas, nome 'backup_ajuste_painel_base_antes_2_maquinas' (para desfazer: execute o conteudo).
+-- Aplicado em 28/09/2026 por troca de trecho dentro do banco (confere que cada trecho existe 1 vez antes de trocar):
+--   'status'  -> (select d2.status ... where d2.ativo order by coalesce(d2.heartbeat_em > now() - interval '90 seconds', false) desc,
+--                 case d2.status when 'EXECUTANDO' then 0 when 'OCIOSO' then 1 else 2 end, d2.heartbeat_em desc nulls last limit 1)
+--   'detalhe' -> (select string_agg(<D90|PC31|nome> || ': ' || status, ' · ' order by device_name) from private.executor_devices d2
+--                 where d2.ativo and d2.heartbeat_em > now() - interval '90 seconds')
