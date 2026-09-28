@@ -34,6 +34,7 @@ Gerente (celular) → Supabase (fila) → Executor (este PC) → Seta → confer
 |---|---|
 | Ver se está funcionando | Portal → Segurança → Executores (ONLINE) ou `STATUS.bat` |
 | Parar o robô | `PARAR.bat` (termina o pedido atual e encerra) |
+| Retomar a fila depois do freio | `RETOMAR.bat` |
 | Ver o que aconteceu | `executor.log` (uma linha por etapa) e Portal → Ajustes → detalhes |
 | Testar depois de atualizar o Seta | `TESTAR_COM_SETA.bat` |
 
@@ -52,6 +53,29 @@ Gerente (celular) → Supabase (fila) → Executor (este PC) → Seta → confer
 - Falhas *antes* do Sim (tela não abriu, tempo esgotado…) são refeitas automaticamente até 3 vezes, sem efeito no estoque.
 - Se a internet cair no fim, o resultado fica guardado e é enviado quando voltar.
 
+## Freio de emergência (1.5.0)
+
+O robô já protegia **cada pedido** (3 tentativas, diário, nunca repete commit). Desde a 1.5.0 ele também protege o **estado geral do Seta**: quando o Seta entra em estado anormal, a **fila inteira pausa** em vez de seguir consumindo pedidos (caso de 26/09, loja 035: 5 pedidos seguidos com o mesmo aviso).
+
+| O robô pausa a fila quando… | Padrão |
+|---|---|
+| o Seta devolve o **mesmo erro** em 2 pedidos/tentativas seguidos | `freio_erros_iguais: 2` |
+| acontecem **3 falhas seguidas** de qualquer tipo | `freio_falhas_seguidas: 3` |
+| o Seta **não confirma** o resultado depois do Sim (divergência) | sempre, na 1ª vez |
+| o Executor **cai 4 vezes em 30 min** (supervisor) | sempre |
+
+- Pausado, o robô **não toca no Seta e não consulta a fila**; o Portal mostra `PAUSADO_SEGURANCA` com o motivo. **Nenhum pedido se perde**: os pendentes ficam na fila.
+- A pausa continua mesmo se o PC ou o robô reiniciar. Para voltar: **`RETOMAR.bat`** (mostra o motivo e pede confirmação).
+- Pedido com dado inválido (barrado pela Sentinela) **não** pausa a fila: o problema é do pedido, não do Seta.
+
+Outros limites da 1.5.0 (sem perder velocidade em operação normal):
+
+- **Trocas de loja:** no máximo 12 a cada 10 min (`max_trocas_loja_10min`). Um pedido com troca leva ~55 s, então o uso normal fica abaixo do limite; só segura rajadas anormais.
+- **Fila vazia:** consulta a cada 1,5 s nos 2 min seguintes a um pedido e a cada 5 s depois disso (~70% menos consultas por dia).
+- **Capturas de diagnóstico:** no máximo 10 por hora e 100 na pasta `diag` (as antigas, anteriores à 1.5.0, não são apagadas).
+- **Supervisor:** volta após 10 s, 30 s, 1 min, 2 min e 5 min (não reinicia mais a cada 10 s sem parar).
+- **Rede do Seta (opcional):** com `seta_host` e `seta_porta` no `config.json`, o robô testa a conexão com o servidor do Seta/VPN a cada 20 s e não pega pedido se ela estiver fora (`SETA_SEM_REDE`).
+
 ## Problemas comuns
 
 | Portal mostra | Significa | O que fazer |
@@ -59,6 +83,8 @@ Gerente (celular) → Supabase (fila) → Executor (este PC) → Seta → confer
 | `SETA_FECHADO` | Seta não está aberto/logado | Abrir o Seta e logar |
 | `TELA_BLOQUEADA` | Windows bloqueado/RDP desconectado | Desbloquear; desativar bloqueio automático |
 | `SETA_TRAVADO` | Seta não responde | Reiniciar o Seta |
+| `PAUSADO_SEGURANCA` | Freio de emergência: Seta repetiu erro / resultado incerto / robô caiu várias vezes | Ver o motivo (`STATUS.bat`), normalizar o Seta, conferir divergências e rodar `RETOMAR.bat` |
+| `SETA_SEM_REDE` | Servidor do Seta/VPN não responde | Ver VPN/rede com a TI; o robô volta sozinho quando a rede voltar |
 | Executor OFFLINE | Sem internet ou robô parado | `INICIAR.bat` / ver internet |
 | Pedido `ERRO` “produto não encontrado” | Código digitado não existe no Seta | Gerente refaz o pedido com o código certo |
 | Pedido `DIVERGÊNCIA` | Robô não teve certeza do resultado | Conferir o estoque no Seta e resolver pelo Portal |

@@ -3,5 +3,12 @@
   "anon_key": "sb_publishable_4LHSO4TrP7F4m4tpJyH44g_BGmfC92h",
   "token": "COLE_AQUI_O_TOKEN_GERADO_NO_PORTAL",
   "device": "EXEC-SETA-NOME-DO-COMPUTADOR",
-  "escala": 1.0
+  "escala": 1.0,
+  "freio_erros_iguais": 2,
+  "freio_falhas_seguidas": 3,
+  "max_trocas_loja_10min": 12,
+  "intervalo_fila_s": 1.5,
+  "intervalo_fila_ocioso_s": 5.0,
+  "seta_host": "",
+  "seta_porta": 0
 }

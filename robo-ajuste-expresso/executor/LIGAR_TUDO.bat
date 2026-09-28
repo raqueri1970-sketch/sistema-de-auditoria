@@ -45,6 +45,9 @@ if not exist "%EXEC%\config.json" (
   ) else (
     echo       ja estava ligado - nao liguei de novo para nao duplicar.
   )
+  if exist "%EXEC%\PAUSA" (
+    echo       ATENCAO: fila PAUSADA pelo freio de seguranca. Veja o motivo e use RETOMAR.bat na pasta do Executor.
+  )
 )
 echo.
 echo [4/4] Leitor WhatsApp...

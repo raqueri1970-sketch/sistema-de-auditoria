@@ -16,13 +16,15 @@ from PIL import ImageOps, Image
 import seta_vision as V
 from sentinela import validate_request, authorize_navigation, authorize_commit, SecurityBlock
 
-VERSAO = '1.4.2'
+VERSAO = '1.5.0'
 try: ctypes.windll.shcore.SetProcessDpiAwareness(2)   # coordenadas fisicas: captura de tela e cliques no mesmo sistema (PC com escala 125%/150%)
 except Exception:
     try: ctypes.windll.user32.SetProcessDPIAware()
     except Exception: pass
 BASE = Path(__file__).resolve().parent
 STATE, LOG, JOURNAL, CONFIG, STOPFILE = (BASE / n for n in ("state.json", "executor.log", "journal.json", "config.json", "STOP"))
+PAUSAFILE = BASE / "PAUSA"   # 1.5.0: freio de emergencia. Existe = fila pausada ate uma pessoa rodar RETOMAR.bat (sobrevive a reinicio)
+DIAG = BASE / "diag"
 def _escala():
     try: return float(json.loads((Path(__file__).resolve().parent / 'config.json').read_text(encoding='utf-8')).get('escala', 1.0))
     except Exception: return 1.0
@@ -123,11 +125,25 @@ def wait_for(pred, timeout=8.0, interval=0.2, what=""):
         r = pred(lines)
         if r: return lines
         if time.monotonic() - t0 > timeout:
-            try:
-                (BASE / "diag").mkdir(exist_ok=True); V.grab(FULL).save(BASE / "diag" / (time.strftime("%H%M%S") + "_" + re.sub(r"\W+", "_", what)[:40] + ".png"))
-            except Exception: pass
+            salvar_diag(what)
             raise Blocked("TIMEOUT", what)
         time.sleep(interval); lines = look()
+
+DIAG_MAX_HORA, DIAG_MAX_ARQUIVOS = 10, 100
+_DIAG_T = []
+def salvar_diag(what):
+    """1.5.0: captura de diagnostico com limite (no PC31 foram mais de 700 imagens). No maximo DIAG_MAX_HORA por hora e
+    DIAG_MAX_ARQUIVOS na pasta (apaga as mais antigas). Nunca derruba o pedido por causa da captura."""
+    try:
+        agora = time.time(); _DIAG_T[:] = [t for t in _DIAG_T if agora - t < 3600]
+        if len(_DIAG_T) >= DIAG_MAX_HORA: log("DIAG_LIMITE", what=what[:60]); return False
+        DIAG.mkdir(exist_ok=True)
+        V.grab(FULL).save(DIAG / (time.strftime("%Y%m%d_%H%M%S") + "_" + re.sub(r"\W+", "_", what)[:40] + ".png"))
+        _DIAG_T.append(agora)
+        imgs = sorted(DIAG.glob("20[0-9][0-9][01][0-9][0-3][0-9]_*.png"))   # so as do 1.5.0 (nome com data): as antigas sao evidencia e ficam
+        for f in imgs[:max(0, len(imgs) - DIAG_MAX_ARQUIVOS)]: f.unlink(missing_ok=True)
+        return True
+    except Exception: return False
 
 def guard():
     """Nada de tecla/clique sem o Seta em primeiro plano (o usuario pode ter clicado em outro app)."""
@@ -328,11 +344,22 @@ def open_retaguarda(h):
         return menubar_present(ls)
     return wait_for(aberto, 25, what="Retaguarda abrir")
 
+TROCAS_MAX, TROCAS_JANELA = 12, 600
+_TROCAS = []
+def limite_trocas(espera=time.sleep):
+    """1.5.0: no maximo TROCAS_MAX trocas de loja a cada TROCAS_JANELA s. Operacao normal (~55 s por pedido com troca)
+    fica abaixo do limite; so segura rajadas anormais como a do PC31 (07 > 94 > 92 > 60 > 14 > 80 > 18 > 45 em minutos)."""
+    while True:
+        agora = time.monotonic(); _TROCAS[:] = [t for t in _TROCAS if agora - t < TROCAS_JANELA]
+        if len(_TROCAS) < TROCAS_MAX: _TROCAS.append(agora); return
+        falta = TROCAS_JANELA - (agora - _TROCAS[0]) + 0.5
+        log("LIMITE_TROCAS_LOJA", trocas=len(_TROCAS), espera_s=round(falta, 1)); espera(min(falta, 30))
+
 def goto_store(h, expected):
     exp = str(expected).zfill(3)
     if title_store(h) == exp and menubar_present(look()): return exp
     ensure_launcher(h)
-    if title_store(h) != exp: change_store(h, exp)
+    if title_store(h) != exp: limite_trocas(); change_store(h, exp)
     open_retaguarda(h)
     if title_store(h) != exp: raise Blocked("LOJA_DIFERENTE", f"seta={title_store(h)} pedido={exp}")
     return exp
@@ -527,6 +554,19 @@ class Supa:
         return self.rpc("executor_update", p)
 
 # ---------------------------------------------------------------- saude / limpeza
+SETA_REDE = None            # 1.5.0: (host, porta) do servidor do Seta/VPN no config.json ("seta_host", "seta_porta"). Sem isso, nao testa.
+_REDE_T, _REDE_V = 0.0, True
+def seta_rede_ok():
+    """Teste leve (1 conexao TCP a cada 20 s, sem enviar dados). Sem rede ate o Seta nao se pega pedido: evita abrir telas e
+    gerar reconexoes pela VPN enquanto ela esta caindo."""
+    global _REDE_T, _REDE_V
+    if not SETA_REDE: return True
+    if time.time() - _REDE_T > 20:
+        try: socket.create_connection(SETA_REDE, timeout=3).close(); _REDE_V = True
+        except OSError: _REDE_V = False
+        _REDE_T = time.time()
+    return _REDE_V
+
 _SENHA_T, _SENHA_V = 0.0, False
 def health():
     """(ok, status, detalhe). O Executor so pega pedido novo se o Seta e a tela estiverem em condicoes de operar."""
@@ -535,6 +575,7 @@ def health():
         if not d: return False, "TELA_BLOQUEADA", "sessao do Windows bloqueada/desconectada (precisa de sessao interativa desbloqueada)"
         ctypes.windll.user32.CloseDesktop(d)
     except Exception: pass
+    if not seta_rede_ok(): return False, "SETA_SEM_REDE", "servidor do Seta/VPN nao responde (%s:%s)" % tuple(SETA_REDE)
     try: h = seta_hwnd()
     except Blocked: return False, "SETA_FECHADO", "Seta nao esta aberto/logado"
     try:
@@ -578,6 +619,7 @@ def sync_pendentes(supa):
             try: supa.update(j["id"], **j["final"]); journal_set(proto, sync=True); log("SYNC_OK", protocolo=proto)
             except Exception as e: log("SYNC_FALHOU", protocolo=proto, err=str(e)[:200]); return
 
+ULTIMO = {"code": None}   # 1.5.0: resultado do ultimo pedido para o freio (None = concluido)
 def run_request(supa, row):
     req = {"id": row["id"], "protocolo": row["protocolo"], "operacao": "ENTRADA", "finalidade": "VENDA", "quantidade": row["quantidade"],
            "codigo_produto": row["codigo_produto"], "codigo_seta_solicitado": row["codigo_seta_solicitado"], "motivo": row.get("motivo")}
@@ -588,7 +630,9 @@ def run_request(supa, row):
     try:
         n = journal_load().get(proto, {}).get("tentativas", 0) + 1
         journal_set(proto, id=row["id"], tentativas=n)
+        ULTIMO["code"] = "EXCECAO"
         res = execute(req, "real", rep)
+        ULTIMO["code"] = None
         _final_update(supa, row["id"], proto, etapa="CONCLUIDO", status="CONCLUIDO", estoque_anterior=res["antes"], estoque_novo=res["depois"],
                       seta_retorno=json.dumps({"tempos": res["tempos"], "total": res["total"], "produto": res["produto"], "tentativas": n}, ensure_ascii=False), executado=True)
         log("CONCLUIDO", protocolo=proto, **{k: res[k] for k in ("antes", "depois", "total")}); return res
@@ -597,16 +641,18 @@ def run_request(supa, row):
         fase = journal_load().get(proto, {}).get("fase")
         ambiguo = fase in ("COMMIT_CLICADO", "VERIFICAR_EXECUCAO") or (isinstance(e, Blocked) and e.code in ("VERIFICAR_EXECUCAO", "ESTOQUE_POS_DIVERGENTE"))
         code = e.code if isinstance(e, Blocked) else "SEGURANCA"
+        ULTIMO["code"] = "AMBIGUO" if ambiguo else code
         if not ambiguo and code in RETENTAVEL and journal_load().get(proto, {}).get("tentativas", 1) < MAX_TENTATIVAS:
             log("REENFILEIRADO", protocolo=proto, err=str(e)[:200])
             try: supa.update(row["id"], etapa="AGUARDANDO_TROCA_LOJA", status="PENDENTE", erro="tentativa falhou (" + str(e)[:150] + ")")
             except Exception as e2: log("REENFILEIRAR_FALHOU", err=str(e2)[:200])
-            time.sleep(5); return None
+            return None                                     # 1.5.0: sem espera fixa aqui; o loop decide (freio/proximo pedido)
         st = "BLOQUEADO_DIVERGENCIA" if ambiguo else "ERRO"
         _final_update(supa, row["id"], proto, etapa=st, status=st, erro=str(e)[:400])
         log("BLOQUEADO", protocolo=proto, err=str(e)); return None
     except Exception as e:
         fase = journal_load().get(proto, {}).get("fase"); amb = fase in ("COMMIT_CLICADO", "VERIFICAR_EXECUCAO")
+        ULTIMO["code"] = "AMBIGUO" if amb else "EXCECAO"
         if amb: journal_set(proto, fase="VERIFICAR_EXECUCAO")
         else: cleanup()
         st = "BLOQUEADO_DIVERGENCIA" if amb else "ERRO"
@@ -642,6 +688,34 @@ def recover_journal(supa):
             supa.update(r["id"], etapa="AGUARDANDO_TROCA_LOJA", status="PENDENTE", erro="reenfileirado apos reinicio do executor (nada tinha sido confirmado no Seta)")
             log("RECOVER_REENFILEIRADO", protocolo=r["protocolo"])
 
+# ---------------------------------------------------------------- freio de emergencia (1.5.0)
+FREIO_IGUAIS, FREIO_SEGUIDAS = 2, 3
+NAO_CONTA = {"SEGURANCA", "PEDIDO_JA_TENTADO"}   # problema do PEDIDO (dado invalido/repetido), nao do Seta: nao pausa a fila
+_FALHAS = []
+def freio_avaliar(code):
+    """Recebe o resultado do pedido (None = concluido). Retorna o motivo da pausa, ou None para seguir.
+    Regra: o robo protege por PEDIDO (tentativas, diario) e agora tambem pelo ESTADO GERAL do Seta: quando o Seta repete o
+    mesmo erro ele nao consome o resto da fila (sabado 26/09, loja 035: 5 pedidos seguidos com o mesmo aviso)."""
+    if code is None: _FALHAS.clear(); return None
+    if code in NAO_CONTA: return None
+    _FALHAS.append(code)
+    if code == "AMBIGUO": return "Seta nao confirmou o resultado de um lancamento (conferir estoque no Seta)"
+    if len(_FALHAS) >= FREIO_IGUAIS and len(set(_FALHAS[-FREIO_IGUAIS:])) == 1:
+        return "%d erros iguais seguidos do Seta (%s)" % (FREIO_IGUAIS, code)
+    if len(_FALHAS) >= FREIO_SEGUIDAS: return "%d falhas seguidas do Seta (%s)" % (len(_FALHAS), ", ".join(_FALHAS[-FREIO_SEGUIDAS:]))
+    return None
+
+def pausar(motivo, origem="executor"):
+    """Cria PAUSA: nenhum pedido novo e consumido (os pendentes ficam na fila, nada se perde) ate alguem rodar RETOMAR.bat."""
+    if PAUSAFILE.exists(): return
+    PAUSAFILE.write_text(json.dumps({"motivo": motivo, "origem": origem, "desde": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                     "falhas": list(_FALHAS[-5:])}, ensure_ascii=False, indent=1), encoding="utf-8")
+    log("FILA_PAUSADA", motivo=motivo, origem=origem)
+
+def pausa_motivo():
+    try: return json.loads(PAUSAFILE.read_text(encoding="utf-8")).get("motivo") or "pausa manual"
+    except Exception: return "pausa manual"
+
 def keep_awake():
     """Pede ao Windows para nao dormir/apagar a tela enquanto este processo roda (valido so para o processo; nao altera configuracao)."""
     try: ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
@@ -652,14 +726,26 @@ def load_config():
     return json.loads(CONFIG.read_text(encoding="utf-8"))
 
 def loop():
+    global SETA_REDE, FREIO_IGUAIS, FREIO_SEGUIDAS, TROCAS_MAX
     cfg = load_config(); supa = Supa(cfg); keep_awake()
+    if cfg.get("seta_host") and cfg.get("seta_porta"): SETA_REDE = (str(cfg["seta_host"]), int(cfg["seta_porta"]))
+    FREIO_IGUAIS = int(cfg.get("freio_erros_iguais", FREIO_IGUAIS)); FREIO_SEGUIDAS = int(cfg.get("freio_falhas_seguidas", FREIO_SEGUIDAS))
+    TROCAS_MAX = int(cfg.get("max_trocas_loja_10min", TROCAS_MAX))
+    ocioso_rapido, ocioso_lento = float(cfg.get("intervalo_fila_s", 1.5)), float(cfg.get("intervalo_fila_ocioso_s", 5.0))
     log("LOOP_INICIO", device=cfg["device"], versao=VERSAO)
     while True:
         try: recover_journal(supa); break
         except Exception as e: log("RECOVER_ERRO", err=str(e)[:200]); time.sleep(10)
-    last_hb, last_st, backoff = 0, None, 3
+    last_hb, last_st, backoff, ultima_atividade = 0, None, 3, time.monotonic()
     while not STOPFILE.exists():
         try:
+            if PAUSAFILE.exists():                           # 1.5.0: fila pausada -> nao toca no Seta nem pega pedido; so avisa o Portal
+                mot = pausa_motivo()
+                if last_st != "PAUSADO_SEGURANCA" or time.time() - last_hb > 60:
+                    try: supa.heartbeat("PAUSADO_SEGURANCA", mot[:380]); last_hb, last_st = time.time(), "PAUSADO_SEGURANCA"
+                    except Exception as e: log("HEARTBEAT_FALHOU", err=str(e)[:200])
+                save_state(status="PAUSADO_SEGURANCA", detalhe=mot, ts=time.strftime("%H:%M:%S")); time.sleep(5); continue
+            if last_st == "PAUSADO_SEGURANCA": _FALHAS.clear(); log("FILA_RETOMADA")   # RETOMAR.bat: recomeca a contagem do freio do zero
             ok, st, det = health()
             if st != last_st or time.time() - last_hb > 30:
                 try: supa.heartbeat(st, det); last_hb, last_st = time.time(), st
@@ -671,8 +757,13 @@ def loop():
             rows = supa.next() or []
             if rows:
                 supa.heartbeat("EXECUTANDO", "protocolo " + str(rows[0]["protocolo"] if isinstance(rows, list) else rows["protocolo"])); last_hb, last_st = time.time(), "EXECUTANDO"
-                run_request(supa, rows[0] if isinstance(rows, list) else rows); backoff = 3; continue
-            time.sleep(1.5); backoff = 3                     # 1.4.1: fila consultada a cada 1,5 s (antes 3 s)
+                run_request(supa, rows[0] if isinstance(rows, list) else rows); backoff = 3; ultima_atividade = time.monotonic()
+                motivo = freio_avaliar(ULTIMO["code"])
+                if motivo: pausar(motivo); last_st = None; continue
+                if ULTIMO["code"]: time.sleep(5)             # falhou mas nao pausou: folga para o Seta antes do proximo
+                continue
+            # 1.5.0: fila vazia -> 1,5 s nos 2 min seguintes a um pedido (rajada de pedidos); depois 5 s. ~70% menos consultas/dia
+            time.sleep(ocioso_rapido if time.monotonic() - ultima_atividade < 120 else ocioso_lento); backoff = 3
         except (urllib.error.URLError, TimeoutError, ConnectionError, OSError, RuntimeError) as e:
             log("REDE_OU_API", err=str(e)[:200]); time.sleep(min(backoff, 60)); backoff = min(backoff * 2, 60)
         except Exception as e:

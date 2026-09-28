@@ -23,7 +23,7 @@ def raises(exc, fn, code=None):
 
 REAL_CONFIG = E.CONFIG
 TMP = Path(tempfile.mkdtemp(prefix="ajuste_testes_"))
-E.JOURNAL = TMP / "journal.json"; E.LOG = TMP / "executor.log"; E.STOPFILE = TMP / "STOP"; E.STATE = TMP / "state.json"
+E.JOURNAL = TMP / "journal.json"; E.LOG = TMP / "executor.log"; E.STOPFILE = TMP / "STOP"; E.STATE = TMP / "state.json"; E.PAUSAFILE = TMP / "PAUSA"; E.DIAG = TMP / "diag"
 REAL_SLEEP = time.sleep
 BASE_REQ = {"protocolo": "T-1", "operacao": "ENTRADA", "finalidade": "VENDA", "quantidade": 1, "codigo_produto": "742139", "codigo_seta_solicitado": "050", "motivo": "TESTE DE IA", "id": 1}
 class Stub:
@@ -151,8 +151,8 @@ def t_diario_falha_fechada():
     for f in (J, bak):
         if f.exists(): f.unlink()
 
-def _loop_run(stub, health_fn, segundos=1.5, cfg=True):
-    E.CONFIG = TMP / "config.json"; E.CONFIG.write_text(json.dumps({"supabase_url": "http://x", "anon_key": "k", "token": "t", "device": "D"}))
+def _loop_run(stub, health_fn, segundos=1.5, cfg=True, extra=None):
+    E.CONFIG = TMP / "config.json"; E.CONFIG.write_text(json.dumps({"supabase_url": "http://x", "anon_key": "k", "token": "t", "device": "D", **(extra or {})}))
     o = (E.Supa, E.health, E.time.sleep)
     E.Supa = lambda c: stub; E.health = health_fn; E.time.sleep = lambda s: REAL_SLEEP(min(s, 0.02))
     if E.STOPFILE.exists(): E.STOPFILE.unlink()
@@ -186,6 +186,112 @@ def t_parar():
     say("[Parada segura]")
     st = Stub(); t0 = time.time(); fim = _loop_run(st, lambda: (True, "OCIOSO", "ok"), 0.8)
     check("arquivo STOP encerra o loop", fim)
+
+def t_freio():
+    say("[Freio de emergencia: Seta em estado anormal pausa a fila inteira]")
+    E._FALHAS.clear()
+    check("pedido concluido nao pausa", E.freio_avaliar(None) is None)
+    check("1o erro do Seta nao pausa", E.freio_avaliar("AVISO_DO_SETA") is None)
+    check("2o erro IGUAL seguido pausa", "AVISO_DO_SETA" in (E.freio_avaliar("AVISO_DO_SETA") or ""))
+    E._FALHAS.clear()
+    E.freio_avaliar("TIMEOUT"); E.freio_avaliar(None)
+    check("pedido concluido no meio zera a contagem", E.freio_avaliar("TIMEOUT") is None)
+    E._FALHAS.clear()
+    check("erros diferentes: 1o e 2o nao pausam", E.freio_avaliar("TIMEOUT") is None and E.freio_avaliar("MODAL_INESPERADO") is None)
+    check("3 falhas seguidas de qualquer tipo pausam", E.freio_avaliar("TROCA_DE_LOJA_LISTA") is not None)
+    E._FALHAS.clear()
+    check("resultado ambiguo apos o Sim pausa na 1a vez", E.freio_avaliar("AMBIGUO") is not None)
+    E._FALHAS.clear()
+    check("pedido com dado invalido (Sentinela) nao pausa a fila", E.freio_avaliar("SEGURANCA") is None and E.freio_avaliar("SEGURANCA") is None)
+    E._FALHAS.clear()
+
+def t_freio_no_loop():
+    say("[Freio no loop: reproduz sabado 26/09 loja 035 (avisos repetidos do Seta)]")
+    E.PAUSAFILE.unlink(missing_ok=True); E._FALHAS.clear()
+    class Fila(Stub):
+        def next(self):
+            self.nexts += 1; return [{"id": self.nexts, "protocolo": "T-FREIO-%d" % self.nexts, "quantidade": 1, "codigo_produto": "742139", "codigo_seta_solicitado": "035", "motivo": "X"}]
+    o_exec, o_clean = E.execute, E.cleanup
+    chamadas = []
+    def falha(req, mode, rep): chamadas.append(req["protocolo"]); raise E.Blocked("AVISO_DO_SETA", "aviso inesperado")
+    E.execute, E.cleanup = falha, (lambda: None)
+    try:
+        st = Fila(); fim = _loop_run(st, lambda: (True, "OCIOSO", "ok"), 1.5)
+        check("com 5 pedidos na fila, so 2 chegam ao Seta (antes: todos)", len(chamadas) == 2, chamadas)
+        check("arquivo PAUSA criado com o motivo", E.PAUSAFILE.exists() and "AVISO_DO_SETA" in E.PAUSAFILE.read_text(encoding="utf-8"))
+        check("Portal recebe PAUSADO_SEGURANCA", "PAUSADO_SEGURANCA" in st.hb, st.hb[-3:])
+        check("pausado: nao consulta mais a fila", st.nexts == 2, st.nexts)
+        check("loop encerra normalmente com STOP mesmo pausado", fim)
+        n = len(chamadas); st = Fila(); _loop_run(st, lambda: (True, "OCIOSO", "ok"), 0.6)
+        check("pausa sobrevive a reinicio do executor", st.nexts == 0 and len(chamadas) == n, st.nexts)
+        E._FALHAS[:] = ["AVISO_DO_SETA"]; E.PAUSAFILE.write_text("{}"); n = len(chamadas)
+        def retomar():
+            REAL_SLEEP(0.3); E.PAUSAFILE.unlink()
+        st = Fila(); threading.Thread(target=retomar, daemon=True).start(); _loop_run(st, lambda: (True, "OCIOSO", "ok"), 0.8)
+        check("apos RETOMAR o freio recomeca do zero (1 erro novo nao pausa de novo)", len(chamadas) >= n + 2, len(chamadas) - n)
+        E.PAUSAFILE.unlink(missing_ok=True); E._FALHAS.clear()
+        E.execute = lambda req, mode, rep: {"ok": True, "antes": 0.0, "depois": 1.0, "tempos": {}, "produto": {}, "total": 1}
+        st = Fila(); _loop_run(st, lambda: (True, "OCIOSO", "ok"), 0.5)
+        check("apos RETOMAR (PAUSA apagada) volta a executar", st.nexts >= 2 and not E.PAUSAFILE.exists(), st.nexts)
+    finally:
+        E.execute, E.cleanup = o_exec, o_clean; E.PAUSAFILE.unlink(missing_ok=True); E._FALHAS.clear()
+
+def t_limites():
+    say("[Limites: trocas de loja, capturas de tela, consulta da fila]")
+    E._TROCAS.clear(); esperas = []
+    for _ in range(E.TROCAS_MAX): E.limite_trocas(espera=lambda s: esperas.append(s))
+    check("ate %d trocas de loja em 10 min: sem espera" % E.TROCAS_MAX, not esperas, esperas)
+    agora = [E.time.monotonic()]
+    o_mono = E.time.monotonic
+    def dormir(s): esperas.append(s); agora[0] += s
+    E.time.monotonic = lambda: agora[0]
+    try: E.limite_trocas(espera=dormir)
+    finally: E.time.monotonic = o_mono
+    check("troca acima do limite espera a janela (nao troca em rajada)", sum(esperas) > 0 and len(E._TROCAS) <= E.TROCAS_MAX, esperas[:3])
+    E._TROCAS.clear()
+    class Img:
+        def save(self, f): Path(f).write_bytes(b"x")
+    o_grab = E.V.grab; E.V.grab = lambda bbox=None: Img(); E._DIAG_T.clear()
+    try:
+        salvas = sum(1 for i in range(25) if E.salvar_diag("teste %d" % i))
+        check("no maximo %d capturas por hora" % E.DIAG_MAX_HORA, salvas == E.DIAG_MAX_HORA, salvas)
+        E._DIAG_T.clear(); E.DIAG_MAX_ARQUIVOS = 5
+        for i in range(8): E.salvar_diag("pasta %d" % i); E._DIAG_T.clear()
+        check("pasta diag mantem so as mais recentes", len(list(E.DIAG.glob("*.png"))) <= 5, len(list(E.DIAG.glob("*.png"))))
+    finally: E.V.grab = o_grab; E.DIAG_MAX_ARQUIVOS = 100; E._DIAG_T.clear()
+    dormidas = []
+    o = (E.Supa, E.health, E.time.sleep)
+    E.CONFIG = TMP / "config.json"; E.CONFIG.write_text(json.dumps({"supabase_url": "http://x", "anon_key": "k", "token": "t", "device": "D"}))
+    st = Stub(); E.Supa = lambda c: st; E.health = lambda: (True, "OCIOSO", "ok")
+    base = E.time.monotonic(); o_mono = E.time.monotonic; salto = [0.0]
+    E.time.monotonic = lambda: o_mono() + salto[0]
+    def sl(s):
+        dormidas.append(s); salto[0] += 200 if len(dormidas) == 3 else 0
+        if len(dormidas) > 6: E.STOPFILE.write_text("x")
+    E.time.sleep = sl
+    try: E.loop()
+    finally: E.Supa, E.health, E.time.sleep = o; E.time.monotonic = o_mono; E.STOPFILE.unlink(missing_ok=True)
+    check("fila vazia logo apos atividade: consulta a cada 1,5 s", dormidas[0] == 1.5, dormidas)
+    check("fila vazia ha mais de 2 min: consulta a cada 5 s", dormidas[-1] == 5.0, dormidas)
+
+def t_rede_seta():
+    say("[Servidor do Seta/VPN fora: nao pega pedido]")
+    o = (E.SETA_REDE, E._REDE_T)
+    try:
+        E.SETA_REDE = ("127.0.0.1", 1); E._REDE_T = 0.0
+        ok, st, det = E.health()
+        check("sem rede ate o Seta: SETA_SEM_REDE (pedido fica na fila)", not ok and st == "SETA_SEM_REDE", (st, det))
+    finally: E.SETA_REDE, E._REDE_T = o; E._REDE_V = True
+
+def t_supervisor():
+    say("[Supervisor: sem reinicio cego]")
+    import supervisor as SV
+    agora = 10000.0
+    check("1a queda: volta em 10 s", SV.proxima_espera([agora], agora) == (10, False))
+    check("3 quedas em 30 min: espera 1 min", SV.proxima_espera([agora - 60, agora - 30, agora], agora) == (60, False))
+    esp, pausa = SV.proxima_espera([agora - 90, agora - 60, agora - 30, agora], agora)
+    check("4 quedas em 30 min: cria PAUSA (nao insiste)", pausa and esp == 120, (esp, pausa))
+    check("quedas antigas (> 30 min) nao contam", SV.proxima_espera([agora - 4000, agora - 3000, agora], agora) == (10, False))
 
 # --------------------------------------------------------------- B. BANCO REAL
 def t_banco():
@@ -234,7 +340,8 @@ def t_seta():
 if __name__ == "__main__":
     args = set(sys.argv[1:]); t0 = time.time()
     say(f"TESTES DO EXECUTOR v{E.VERSAO} - {time.strftime('%d/%m/%Y %H:%M:%S')}")
-    for f in (t_sentinela, t_numeros, t_idempotencia, t_reenfileirar, t_internet_no_fim, t_recuperacao, t_diario_falha_fechada, t_seta_fechado, t_rede_caiu, t_parar):
+    for f in (t_sentinela, t_numeros, t_idempotencia, t_reenfileirar, t_internet_no_fim, t_recuperacao, t_diario_falha_fechada, t_seta_fechado, t_rede_caiu, t_parar,
+              t_freio, t_freio_no_loop, t_limites, t_rede_seta, t_supervisor):
         try: f()
         except Exception: check(f.__name__ + " (erro no teste)", False, traceback.format_exc()[-300:])
     if "--banco" in args or "--completo" in args:

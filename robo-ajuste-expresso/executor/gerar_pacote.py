@@ -3,7 +3,7 @@ import zipfile, sys
 from pathlib import Path
 BASE = Path(__file__).resolve().parent
 OUT = BASE.parent / "AJUSTE_EXPRESS_PACOTE.zip"
-EXCLUIR_NOMES = {"config.json", "journal.json", "state.json", "STOP", "loop_out.txt", "loop_err.txt", "testes_resultado.txt", "supervisor.log", "executor.log", "executor.log.1"}
+EXCLUIR_NOMES = {"config.json", "journal.json", "state.json", "STOP", "PAUSA", "loop_out.txt", "loop_err.txt", "testes_resultado.txt", "supervisor.log", "executor.log", "executor.log.1"}
 EXCLUIR_DIRS = {"__pycache__", "diag", "_backup_pre_auditoria"}
 n = 0
 with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as z:
