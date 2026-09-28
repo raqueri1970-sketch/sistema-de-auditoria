@@ -1,0 +1,12 @@
+# Dependencias do Executor Ajuste Expresso (Windows 10/11, Python 3.11 a 3.14 de 64 bits)
+pyautogui==0.9.54
+pywin32>=306
+pillow>=10.0
+winrt-runtime>=2.3
+winrt-Windows.Foundation>=2.3
+winrt-Windows.Foundation.Collections>=2.3
+winrt-Windows.Globalization>=2.3
+winrt-Windows.Graphics.Imaging>=2.3
+winrt-Windows.Media.Ocr>=2.3
+winrt-Windows.Storage>=2.3
+winrt-Windows.Storage.Streams>=2.3

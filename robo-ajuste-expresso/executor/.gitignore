@@ -1,0 +1,10 @@
+config.json
+journal.json
+journal.bak
+state.json
+*.log
+*.log.1
+STOP
+PAUSA
+diag/
+__pycache__/
