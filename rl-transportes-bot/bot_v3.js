@@ -1131,12 +1131,12 @@ const server = http.createServer((req, res) => {
   }
 
   if (url === '/api/depositos') {
-    const rows = db.prepare(`SELECT * FROM depositos ORDER BY data DESC LIMIT 200`).all();
+    const rows = db.prepare(`SELECT * FROM depositos ORDER BY data DESC`).all();
     return jsonResp(res, rows.map(r=>({...r, ocr_json: r.ocr_json?JSON.parse(r.ocr_json):null})));
   }
 
   if (url === '/api/ajustes') {
-    const rows = db.prepare(`SELECT * FROM ajustes ORDER BY data DESC LIMIT 200`).all();
+    const rows = db.prepare(`SELECT * FROM ajustes ORDER BY data DESC`).all();
     return jsonResp(res, rows);
   }
 
@@ -1168,7 +1168,10 @@ const server = http.createServer((req, res) => {
   }
 
   if (url === '/api/despesas') {
-    const rows = db.prepare(`SELECT * FROM despesas ORDER BY data DESC LIMIT 500`).all();
+    // SEM LIMIT: a Conciliacao e o Dashboard do painel calculam saldo no navegador com esta
+    // lista. Com LIMIT 500, em 01/10/2026 ficavam de fora 105 despesas (R$ 45.801,04) e o
+    // "Saldo Disponivel" aparecia +R$ 37.179,64 quando o real era -R$ 8.201,40.
+    const rows = db.prepare(`SELECT * FROM despesas ORDER BY data DESC`).all();
     return jsonResp(res, rows.map(r=>({...r, ocr_json: r.ocr_json?JSON.parse(r.ocr_json):null})));
   }
 

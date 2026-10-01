@@ -1,0 +1,2195 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RL TRANSPORTES — Painel Financeiro</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#000000;color:#e2e8f0;min-height:100vh}
+:root{--azul:#3b82f6;--verde:#10b981;--vermelho:#ef4444;--amarelo:#f59e0b;--roxo:#8b5cf6;--cinza:#334155}
+header{background:#111111;padding:14px 24px;border-bottom:2px solid #222222;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:100}
+header h1{font-size:1.35rem;font-weight:700;color:#fff}
+header h1 span{color:var(--azul)}
+.status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:5px}
+.dot-green{background:var(--verde);box-shadow:0 0 8px var(--verde)}
+.dot-red{background:var(--vermelho)}
+.dot-yellow{background:var(--amarelo);box-shadow:0 0 8px var(--amarelo)}
+.status-badge{font-size:.73rem;padding:3px 9px;border-radius:20px;background:#111111;border:1px solid #222222;color:#94a3b8}
+.tabs{background:#111111;padding:0 24px;border-bottom:1px solid #222222;display:flex;gap:4px;overflow-x:auto}
+.tab{padding:11px 16px;cursor:pointer;border-bottom:2px solid transparent;color:#64748b;font-size:.85rem;font-weight:500;white-space:nowrap;transition:all .2s}
+.tab:hover{color:#e2e8f0}
+.tab.active{color:var(--azul);border-bottom-color:var(--azul)}
+.page{display:none;padding:24px;max-width:1400px;margin:0 auto}
+.page.active{display:block}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.card{background:#111111;border-radius:12px;padding:18px 20px;border:1px solid #222222;position:relative}
+.card label{font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.05em}
+.card .val{font-size:1.9rem;font-weight:700;margin-top:4px}
+.card .sub{font-size:.78rem;color:#64748b;margin-top:4px}
+.card .origem-tag{position:absolute;top:10px;right:12px;font-size:.65rem;color:#475569;background:#000000;padding:2px 7px;border-radius:10px;border:1px solid #222222}
+.verde{color:var(--verde)} .vermelho{color:var(--vermelho)} .amarelo{color:var(--amarelo)} .azul{color:var(--azul)} .roxo{color:var(--roxo)}
+table{width:100%;border-collapse:collapse;background:#111111;border-radius:12px;overflow:hidden}
+th{background:#000000;padding:11px 14px;text-align:left;font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.05em}
+td{padding:10px 14px;border-bottom:1px solid #111111;font-size:.83rem;color:#cbd5e1}
+tr:hover td{background:#1a1a1a}
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:.7rem;font-weight:600}
+.badge-verde{background:#064e3b;color:#6ee7b7} .badge-vermelho{background:#450a0a;color:#fca5a5}
+.badge-amarelo{background:#451a03;color:#fcd34d} .badge-azul{background:#1e3a5f;color:#93c5fd}
+.badge-roxo{background:#2e1065;color:#c4b5fd} .badge-cinza{background:#111111;color:#64748b;border:1px solid #222222}
+.foto-thumb{width:48px;height:48px;border-radius:8px;object-fit:cover;cursor:pointer;border:2px solid #334155;transition:.2s}
+.foto-thumb:hover{transform:scale(1.1);border-color:var(--azul)}
+.pdf-icon{width:48px;height:48px;border-radius:8px;background:#450a0a;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid #334155;font-size:.6rem;color:#fca5a5;font-weight:700;line-height:1.2;text-align:center;transition:.2s}
+.pdf-icon:hover{border-color:var(--vermelho);transform:scale(1.1)}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;z-index:1000}
+.modal-overlay.open{display:flex}
+.modal-box{background:#111111;border-radius:16px;padding:20px;max-width:92vw;max-height:92vh;overflow:auto;border:1px solid #222222}
+.modal-box img{max-width:80vw;max-height:75vh;border-radius:8px}
+.modal-box iframe{width:80vw;height:75vh;border:none;border-radius:8px}
+.modal-info{margin-top:12px;padding:12px;background:#000000;border-radius:8px;font-size:.82rem;color:#94a3b8}
+.modal-close{float:right;background:var(--vermelho);color:#fff;border:none;padding:5px 14px;border-radius:8px;cursor:pointer;font-size:.83rem;margin-bottom:12px}
+.secao{background:#111111;border-radius:12px;border:1px solid #222222;margin-bottom:20px;overflow:hidden}
+.secao-header{padding:14px 20px;background:#000000;font-weight:600;font-size:.92rem;display:flex;align-items:center;gap:8px}
+.secao-body{padding:16px 20px}
+.dep-card{background:#000000;border-radius:10px;padding:16px;margin-bottom:12px;border-left:4px solid var(--verde)}
+.dep-card.esgotado{border-left-color:var(--cinza)} .dep-card.parcial{border-left-color:var(--amarelo)}
+.dep-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.dep-valor{font-size:1.35rem;font-weight:700}
+.dep-saldo{font-size:.82rem;color:#64748b}
+.dep-desp{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.desp-row{background:#111111;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:12px;font-size:.82rem;position:relative}
+.desp-row .dv{font-weight:600;color:var(--vermelho);min-width:80px}
+.barra{background:#111111;border-radius:4px;height:6px;margin-top:8px;overflow:hidden}
+.barra-fill{height:100%;background:var(--verde);border-radius:4px;transition:width .5s}
+.barra-fill.alto{background:var(--amarelo)} .barra-fill.total{background:var(--vermelho)}
+input.busca{width:100%;padding:11px 16px;background:#111111;border:1px solid #222222;border-radius:10px;color:#e2e8f0;font-size:.92rem;margin-bottom:16px;outline:none}
+input.busca:focus{border-color:var(--azul)}
+.alerta-row{background:#111111;border-radius:8px;padding:12px 16px;margin-bottom:8px;border-left:4px solid var(--amarelo);display:flex;justify-content:space-between;align-items:center}
+.alerta-tipo{font-size:.73rem;font-weight:700;text-transform:uppercase;color:var(--amarelo)}
+.alerta-ref{font-size:.83rem;color:#cbd5e1;margin-top:2px}
+.loading{text-align:center;padding:40px;color:#64748b}
+.spinner{width:30px;height:30px;border:3px solid #334155;border-top-color:var(--azul);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.forn-item{background:#111111;border-radius:8px;padding:12px 16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.forn-nome{font-weight:600;font-size:.88rem}
+.forn-gasto{color:var(--amarelo);font-weight:700}
+.btn{padding:7px 14px;border-radius:8px;border:none;cursor:pointer;font-size:.8rem;font-weight:600;transition:opacity .2s}
+.btn:hover{opacity:.85}
+.btn-azul{background:var(--azul);color:#fff} .btn-verde{background:var(--verde);color:#fff}
+.btn-vermelho{background:var(--vermelho);color:#fff} .btn-amarelo{background:var(--amarelo);color:#000000}
+.btn-sm{padding:3px 9px;font-size:.72rem}
+.log-row{padding:5px 0;border-bottom:1px solid #1a2744;font-size:.78rem;display:flex;gap:10px}
+.log-ts{color:#64748b;min-width:80px} .log-nivel-info{color:var(--verde)} .log-nivel-warn{color:var(--amarelo)} .log-nivel-error{color:var(--vermelho)}
+/* Upload area */
+.upload-area{border:2px dashed #334155;border-radius:12px;padding:40px;text-align:center;cursor:pointer;transition:all .3s;background:#000000}
+.upload-area:hover,.upload-area.drag{border-color:var(--azul);background:#1e3a5f22}
+.upload-area input{display:none}
+.upload-preview{background:#000000;border-radius:10px;padding:14px;margin-top:12px;display:none}
+.upload-preview img,.upload-preview embed{max-width:100%;max-height:300px;border-radius:8px}
+.upload-result{background:#000000;border-radius:10px;padding:14px;margin-top:12px;border:1px solid var(--verde)}
+.form-row{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.form-row label{font-size:.78rem;color:#64748b;display:block;margin-bottom:4px}
+.form-row select,.form-row input[type=text]{background:#111111;border:1px solid #222222;border-radius:8px;padding:8px 12px;color:#e2e8f0;font-size:.85rem;outline:none;flex:1;min-width:140px}
+.form-row select:focus,.form-row input[type=text]:focus{border-color:var(--azul)}
+/* Print */
+@media print{
+  header,#headerActions,.tabs,button,.btn,.modal-overlay,.upload-area,.origem-tag{display:none!important}
+  body{background:white!important;color:#000!important}
+  .page{display:none!important;padding:10px!important}
+  .page.active{display:block!important}
+  .card{background:#f8f9fa!important;border:1px solid #dee2e6!important;color:#000!important}
+  .card .val,.card .sub,.card label{color:#000!important}
+  .verde{color:#155724!important} .vermelho{color:#721c24!important} .amarelo{color:#856404!important}
+  table{background:white!important} th{background:#f8f9fa!important;color:#000!important}
+  td{color:#212529!important;border-color:#dee2e6!important}
+  .dep-card{background:#f8f9fa!important;border-left:4px solid #28a745!important;page-break-inside:avoid}
+  .desp-row{background:#fff!important;border:1px solid #dee2e6!important}
+  .secao{background:#f8f9fa!important;border:1px solid #dee2e6!important}
+  .secao-header{background:#e9ecef!important;color:#000!important}
+  .badge{border:1px solid #ccc!important;background:#f8f9fa!important;color:#000!important}
+  label,input[type=date]{color:#000!important;background:transparent!important;border-color:#ccc!important}
+  .print-titulo{display:block!important;font-size:1.2rem;font-weight:700;margin-bottom:16px;color:#000;text-align:center}
+}
+@media screen{.print-titulo{display:none}}
+@media(max-width:600px){.cards{grid-template-columns:1fr 1fr}.card .val{font-size:1.5rem}}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>RL <span>TRANSPORTES</span> — IA Financeira v3</h1>
+    <div style="margin-top:5px;display:flex;gap:7px;flex-wrap:wrap">
+      <span class="status-badge"><span id="dotBot" class="status-dot dot-yellow"></span><span id="txtBot">conectando...</span></span>
+      <span class="status-badge"><span id="dotIA" class="status-dot dot-yellow"></span><span id="txtIA">verificando IA...</span></span>
+      <span class="status-badge" style="color:#64748b">SQLite local</span>
+    </div>
+  </div>
+  <div id="headerActions" style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn btn-azul btn-sm" onclick="atualizarTudo()">↺ Atualizar</button>
+    <button class="btn btn-amarelo btn-sm" onclick="imprimirPainel()">🖨️ Imprimir PDF</button>
+    <button class="btn btn-sm" style="background:#7c3aed;color:#fff" onclick="exportarTudo()">📦 Exportar Tudo</button>
+    <button class="btn btn-sm" style="background:#450a0a;color:#fca5a5;border:1px solid #7f1d1d" onclick="limparTudo()">🗑️ Limpar Tudo</button>
+  </div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="irTab(0)">📊 Dashboard</div>
+  <div class="tab" onclick="irTab(1)">🔗 Conciliação</div>
+  <div class="tab" onclick="irTab(2)">📋 Despesas</div>
+  <div class="tab" onclick="irTab(7)">💰 Depósitos</div>
+  <div class="tab" onclick="irTab(3)">🔍 Busca</div>
+  <div class="tab" onclick="irTab(4)">⚠️ Auditoria</div>
+  <div class="tab" onclick="irTab(5)">🏢 Fornecedores</div>
+  <div class="tab" onclick="irTab(8)">📤 Enviar Foto</div>
+  <div class="tab" onclick="irTab(6)">📜 Logs</div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="p0" class="page active">
+  <div class="print-titulo">RL TRANSPORTES — Relatório Financeiro</div>
+  <!-- Filtro por periodo (data real do comprovante) -->
+  <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+      <div style="min-width:130px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">📅 DE</label>
+        <input type="date" id="dashDe" onchange="carregarDashboard()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+      </div>
+      <div style="min-width:130px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">📅 ATÉ</label>
+        <input type="date" id="dashAte" onchange="carregarDashboard()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="filtroRapidoDash(7)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">7d</button>
+        <button onclick="filtroRapidoDash(30)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">30d</button>
+        <button onclick="filtroRapidoDash(0)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">Mês</button>
+        <button onclick="limparFiltroDash()" style="background:transparent;border:1px solid #475569;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">✕ Limpar</button>
+        <button onclick="baixarPDFAba('p0','Dashboard')" style="background:#f59e0b;color:#0f172a;border:none;padding:9px 14px;border-radius:8px;font-size:.75rem;font-weight:700;cursor:pointer">📄 Exportar PDF</button>
+      </div>
+      <div id="dashPeriodoLabel" style="margin-left:auto;font-size:.78rem;color:#f59e0b;font-weight:700;align-self:center">Período: Tudo</div>
+    </div>
+  </div>
+  <div class="cards" id="kpiCards"><div class="loading"><div class="spinner"></div>Carregando KPIs...</div></div>
+  <div class="secao" style="margin-bottom:16px">
+    <div class="secao-header">🚛 Gastos por Placa</div>
+    <div class="secao-body" id="gastosPlaca"><div class="loading">Carregando...</div></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div class="secao">
+      <div class="secao-header">📦 Últimas Despesas</div>
+      <div class="secao-body" id="ultimasDespesas"><div class="loading">Carregando...</div></div>
+    </div>
+    <div class="secao">
+      <div class="secao-header">💰 Últimos Depósitos</div>
+      <div class="secao-body" id="ultimosDepositos"><div class="loading">Carregando...</div></div>
+    </div>
+  </div>
+  <div class="secao" style="margin-top:16px">
+    <div class="secao-header">🛠️ Ajuste Manual de Saldo</div>
+    <div class="secao-body">
+      <div id="ajusteFormLinha" style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px">
+        <div style="min-width:150px">
+          <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">TIPO</label>
+          <select id="ajusteTipo" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+            <option value="colocar">➕ Colocar (soma no saldo)</option>
+            <option value="tirar">➖ Tirar (subtrai do saldo)</option>
+          </select>
+        </div>
+        <div style="min-width:140px">
+          <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">VALOR (R$)</label>
+          <input type="number" id="ajusteValor" step="0.01" min="0" placeholder="0,00" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+        </div>
+        <div style="flex:1;min-width:220px">
+          <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">MOTIVO</label>
+          <input type="text" id="ajusteDescricao" placeholder="Ex: acerto conferência de comprovantes 29/06-05/07" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+        </div>
+        <button onclick="salvarAjuste()" style="background:#f59e0b;color:#0f172a;border:none;padding:10px 16px;border-radius:8px;font-size:.8rem;font-weight:700;cursor:pointer">Aplicar Ajuste</button>
+      </div>
+      <div id="listaAjustes"><div class="loading">Carregando...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- CONCILIACAO -->
+<div id="p1" class="page">
+  <!-- Filtro por data de lançamento (data real do comprovante) -->
+  <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+      <div style="min-width:130px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">📅 DE</label>
+        <input type="date" id="concDe" onchange="carregarConciliacao()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+      </div>
+      <div style="min-width:130px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">📅 ATÉ</label>
+        <input type="date" id="concAte" onchange="carregarConciliacao()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="filtroRapidoConc(7)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">7d</button>
+        <button onclick="filtroRapidoConc(30)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">30d</button>
+        <button onclick="filtroRapidoConc(0)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">Mês</button>
+        <button onclick="limparFiltroConc()" style="background:transparent;border:1px solid #475569;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">✕ Limpar</button>
+        <button id="btnReconciliarFifo" onclick="reconciliarFifo()" style="background:#7c2d12;border:1px solid #9a3412;color:#fdba74;padding:9px 12px;border-radius:8px;font-size:.75rem;font-weight:700;cursor:pointer" title="Revincula despesas aos depositos pela data real, corrigindo alertas de 'sem depósito' causados por reprocessamento fora de ordem">🔄 Reconciliar FIFO</button>
+        <button onclick="baixarPDFAba('p1','Conciliação')" style="background:#f59e0b;color:#0f172a;border:none;padding:9px 14px;border-radius:8px;font-size:.75rem;font-weight:700;cursor:pointer">📄 Exportar PDF</button>
+      </div>
+    </div>
+  </div>
+  <div id="conciliacaoContainer"><div class="loading"><div class="spinner"></div>Carregando conciliação...</div></div>
+</div>
+
+<!-- DESPESAS -->
+<div id="p2" class="page">
+  <!-- Filtro por data (data real do comprovante) -->
+  <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+      <div style="min-width:130px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">📅 DE</label>
+        <input type="date" id="despDe" onchange="carregarDespesas()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+      </div>
+      <div style="min-width:130px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">📅 ATÉ</label>
+        <input type="date" id="despAte" onchange="carregarDespesas()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+      </div>
+      <div style="flex:1;min-width:220px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">🔍 FORNECEDOR</label>
+        <input type="text" id="despBuscaFornecedor" list="despFornecedorSugestoes" placeholder="Buscar por fornecedor..." oninput="carregarDespesas()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+        <datalist id="despFornecedorSugestoes"></datalist>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="filtroRapidoDesp(7)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">7d</button>
+        <button onclick="filtroRapidoDesp(30)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">30d</button>
+        <button onclick="filtroRapidoDesp(0)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">Mês</button>
+        <button onclick="limparFiltroDesp()" style="background:transparent;border:1px solid #475569;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">✕ Limpar</button>
+      </div>
+      <div id="despPeriodoLabel" style="margin-left:auto;font-size:.78rem;color:#f59e0b;font-weight:700;align-self:center">Período: Tudo</div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:14px;max-width:360px">
+    <div class="origem-tag">🔍 busca</div>
+    <label>Total da Busca/Período</label>
+    <div class="val vermelho" id="despTotalBusca">R$ 0,00</div>
+    <div class="sub" id="despCountBusca">0 despesas</div>
+  </div>
+  <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+    <span id="countDesp" style="color:#64748b;font-size:.85rem"></span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="reprocessStatusTxt" style="font-size:.75rem;color:#facc15;display:none"></span>
+      <span style="font-size:.75rem;color:#64748b">💡 📱 WhatsApp · 📤 Upload · ✏️ Manual</span>
+      <button class="btnReprocessarZeradas" onclick="reprocessarZeradas()" style="background:#1d4ed8;color:#fff;border:none;padding:5px 12px;border-radius:8px;font-size:.75rem;font-weight:700;cursor:pointer">🤖 Reprocessar Zeradas</button>
+      <button onclick="baixarPDFAba('p2','Despesas')" style="background:#f59e0b;color:#0f172a;border:none;padding:5px 12px;border-radius:8px;font-size:.75rem;font-weight:700;cursor:pointer">📄 PDF</button>
+    </div>
+  </div>
+  <div style="overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th>Origem</th><th>Foto</th><th title="Data real do comprovante">Data Comprov.</th><th>Remetente</th><th>Fornecedor</th>
+        <th>Serviço</th><th>Placa</th><th>NF</th><th>Valor</th><th>Tipo</th><th>Status</th><th>Ações</th>
+      </tr></thead>
+      <tbody id="tbDesp"><tr><td colspan="12" class="loading">Carregando...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- DEPOSITOS -->
+<div id="p7" class="page">
+  <!-- Filtro por data (data real do comprovante) -->
+  <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+      <div style="min-width:130px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">📅 DE</label>
+        <input type="date" id="depDe" onchange="carregarDepositos()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+      </div>
+      <div style="min-width:130px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">📅 ATÉ</label>
+        <input type="date" id="depAte" onchange="carregarDepositos()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+      </div>
+      <div style="flex:1;min-width:220px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">🔍 DEPOSITANTE</label>
+        <input type="text" id="depBuscaRemetente" list="depRemetenteSugestoes" placeholder="Buscar por quem depositou..." oninput="carregarDepositos()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+        <datalist id="depRemetenteSugestoes"></datalist>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="filtroRapidoDep(7)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">7d</button>
+        <button onclick="filtroRapidoDep(30)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">30d</button>
+        <button onclick="filtroRapidoDep(0)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">Mês</button>
+        <button onclick="limparFiltroDep()" style="background:transparent;border:1px solid #475569;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">✕ Limpar</button>
+      </div>
+      <div id="depPeriodoLabel" style="margin-left:auto;font-size:.78rem;color:#f59e0b;font-weight:700;align-self:center">Período: Tudo</div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:14px;max-width:360px">
+    <div class="origem-tag">🔍 busca</div>
+    <label>Total da Busca/Período</label>
+    <div class="val verde" id="depTotalBusca">R$ 0,00</div>
+    <div class="sub" id="depCountBusca">0 depósitos</div>
+  </div>
+  <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+    <span id="countDep" style="color:#64748b;font-size:.85rem"></span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="reprocessStatusTxt" style="font-size:.75rem;color:#facc15;display:none"></span>
+      <button class="btnReprocessarZeradas" onclick="reprocessarZeradas()" style="background:#1d4ed8;color:#fff;border:none;padding:7px 14px;border-radius:8px;font-size:.78rem;font-weight:700;cursor:pointer">🤖 Reprocessar Zeradas</button>
+      <button onclick="baixarPDFAba('p7','Depositos')" style="background:#f59e0b;color:#0f172a;border:none;padding:7px 14px;border-radius:8px;font-size:.78rem;font-weight:700;cursor:pointer">📄 PDF</button>
+    </div>
+  </div>
+  <div style="overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th>Origem</th><th>Comprovante</th><th title="Data real do comprovante">Data Comprov.</th><th>Remetente</th><th>Banco/PIX</th><th>Valor</th><th>Ações</th>
+      </tr></thead>
+      <tbody id="tbDep"><tr><td colspan="7" class="loading">Carregando...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- BUSCA -->
+<div id="p3" class="page">
+  <!-- Filtros -->
+  <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+      <div style="flex:2;min-width:200px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">🔍 BUSCA</label>
+        <input class="busca" id="campoBusca" list="buscaSugestoes" placeholder="Fornecedor, placa, tipo, serviço..." oninput="buscar()" style="margin-bottom:0;width:100%">
+      </div>
+      <div style="min-width:130px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">📅 DE</label>
+        <input type="date" id="buscaDe" onchange="buscar()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+      </div>
+      <div style="min-width:130px">
+        <label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:4px">📅 ATÉ</label>
+        <input type="date" id="buscaAte" onchange="buscar()" style="width:100%;padding:10px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="filtroRapido(7)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">7d</button>
+        <button onclick="filtroRapido(30)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">30d</button>
+        <button onclick="filtroRapido(0)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">Mês</button>
+        <button onclick="limparBusca()" style="background:transparent;border:1px solid #475569;color:#94a3b8;padding:9px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">✕</button>
+        <button onclick="baixarPDFBusca()" style="background:#f59e0b;color:#0f172a;border:none;padding:9px 14px;border-radius:8px;font-size:.75rem;font-weight:700;cursor:pointer">📄 PDF</button>
+      </div>
+    </div>
+  </div>
+  <datalist id="buscaSugestoes"></datalist>
+  <!-- Totalizador -->
+  <div id="buscaTotalizador" style="display:none;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px 16px;margin-bottom:12px;align-items:center;gap:20px;flex-wrap:wrap">
+    <span style="color:#64748b;font-size:.82rem" id="buscaCount">0 resultados</span>
+    <span style="font-weight:700;color:#f59e0b;font-size:1.05rem" id="buscaTotal">R$ 0,00</span>
+    <span style="color:#64748b;font-size:.78rem" id="buscaInfo"></span>
+  </div>
+  <!-- Painel inteligente -->
+  <div id="buscaIndex" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:16px"></div>
+  <div id="resultadoBusca"></div>
+</div>
+
+<!-- AUDITORIA -->
+<div id="p4" class="page">
+  <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
+    <span id="recuperacaoStatusTxt" style="font-size:.75rem;color:#facc15;display:none"></span>
+    <button id="btnRecuperarArquivos" onclick="recuperarArquivos()" title="Rebusca no WhatsApp a mensagem original dos comprovantes que sumiram do servidor" style="background:#166534;border:1px solid #22c55e;color:#bbf7d0;padding:7px 14px;border-radius:8px;font-size:.78rem;font-weight:700;cursor:pointer">📲 Recuperar Arquivos Ausentes</button>
+    <button onclick="baixarPDFAba('p4','Auditoria')" style="background:#f59e0b;color:#0f172a;border:none;padding:7px 14px;border-radius:8px;font-size:.78rem;font-weight:700;cursor:pointer">📄 Exportar PDF</button>
+  </div>
+  <div id="fotosDuplicadasSecao"></div>
+  <div id="alertasAuditoria"><div class="loading"><div class="spinner"></div>Verificando alertas...</div></div>
+</div>
+
+<!-- FORNECEDORES -->
+<div id="p5" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <span id="countForn" style="color:#64748b;font-size:.85rem"></span>
+    <button onclick="baixarPDFAba('p5','Fornecedores')" style="background:#f59e0b;color:#0f172a;border:none;padding:7px 14px;border-radius:8px;font-size:.78rem;font-weight:700;cursor:pointer">📄 Exportar PDF</button>
+  </div>
+  <div id="listaFornecedores"><div class="loading"><div class="spinner"></div>Carregando...</div></div>
+</div>
+
+<!-- LOGS -->
+<div id="p6" class="page">
+  <div id="listaLogs" style="background:#111111;border-radius:12px;padding:16px;font-family:monospace">
+    <div class="loading"><div class="spinner"></div>Carregando logs...</div>
+  </div>
+</div>
+
+<!-- ENVIAR FOTO -->
+<div id="p8" class="page">
+  <div style="max-width:680px;margin:0 auto">
+    <div class="secao">
+      <div class="secao-header">📲 Reprocessar Histórico do WhatsApp</div>
+      <div class="secao-body">
+        <p style="font-size:.85rem;color:#94a3b8;margin-bottom:12px">Busca as últimas mensagens do grupo direto no WhatsApp e lança as fotos/PDFs que ainda não estão no sistema — não duplica o que já foi processado. Use se alguma mensagem não capturou sozinha em tempo real.</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <select id="historicoLimite" style="padding:9px 12px;background:#000;border:1px solid #333;border-radius:8px;color:#e2e8f0;font-size:.85rem">
+            <option value="100">Últimas 100 mensagens</option>
+            <option value="300" selected>Últimas 300 mensagens</option>
+            <option value="1000">Últimas 1000 mensagens</option>
+          </select>
+          <button id="btnHistorico" class="btn btn-verde" onclick="reprocessarHistorico()">📲 Reprocessar Histórico</button>
+        </div>
+        <div id="historicoStatusTxt" style="margin-top:10px;font-size:.82rem;color:#facc15;display:none"></div>
+      </div>
+    </div>
+
+    <div class="secao">
+      <div class="secao-header">📤 Enviar Foto ou PDF para Processamento</div>
+      <div class="secao-body">
+        <div class="form-row">
+          <div style="flex:1">
+            <label>Tipo de lançamento</label>
+            <select id="uploadTipo">
+              <option value="despesa">💸 Despesa (Bruna pagou fornecedor)</option>
+              <option value="deposito">💰 Depósito (Paulo enviou dinheiro)</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <label>Remetente</label>
+            <input type="text" id="uploadRemetente" value="Bruna" placeholder="Nome do remetente">
+          </div>
+        </div>
+
+        <div class="upload-area" id="uploadArea" onclick="document.getElementById('uploadInput').click()"
+          ondragover="event.preventDefault();this.classList.add('drag')"
+          ondragleave="this.classList.remove('drag')"
+          ondrop="handleDrop(event)">
+          <input type="file" id="uploadInput" accept="image/*,.pdf" multiple onchange="handleFiles(this.files)">
+          <div style="font-size:3rem;margin-bottom:12px">📎</div>
+          <div style="font-weight:600;color:#e2e8f0;margin-bottom:6px">Clique ou arraste várias fotos / PDFs de uma vez</div>
+          <div style="font-size:.82rem;color:#64748b">JPG, PNG, PDF · Máx 20 MB cada · <b style="color:var(--azul)">Selecione quantas quiser!</b></div>
+        </div>
+
+        <!-- Lista de arquivos selecionados -->
+        <div id="uploadLista" style="display:none;margin-top:12px;background:#0f172a;border-radius:10px;padding:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:.82rem;color:#64748b" id="uploadListaTitulo"></div>
+            <button onclick="limparUpload()" style="background:#450a0a;border:none;color:#fca5a5;font-size:.75rem;padding:3px 10px;border-radius:5px;cursor:pointer">🗑️ Excluir tudo</button>
+          </div>
+          <div id="uploadListaItens" style="display:flex;flex-direction:column;gap:5px;max-height:160px;overflow-y:auto"></div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <button class="btn btn-verde" id="btnEnviar" onclick="enviarTodos()" disabled style="flex:1;padding:12px">
+            🤖 Processar todos com IA
+          </button>
+          <button class="btn btn-cinza btn-sm" onclick="limparUpload()" style="background:#334155;color:#e2e8f0">✕ Limpar</button>
+        </div>
+
+        <!-- Barra de progresso em lote -->
+        <div id="uploadProgresso" style="display:none;margin-top:12px;background:#0f172a;border-radius:10px;padding:14px">
+          <div style="font-size:.85rem;color:#e2e8f0;margin-bottom:8px" id="uploadProgressoTexto">Processando...</div>
+          <div style="background:#1e293b;border-radius:6px;height:10px;overflow:hidden">
+            <div id="uploadProgressoBar" style="height:100%;background:var(--verde);border-radius:6px;width:0%;transition:width .4s"></div>
+          </div>
+          <div id="uploadProgressoLog" style="margin-top:10px;max-height:130px;overflow-y:auto;font-size:.78rem;line-height:1.6"></div>
+        </div>
+
+        <div id="uploadResultado" style="display:none" class="upload-result">
+          <div style="font-weight:700;color:var(--verde);margin-bottom:10px">✅ Lote processado!</div>
+          <div id="uploadResultadoDados"></div>
+          <div style="margin-top:10px;display:flex;gap:8px">
+            <button class="btn btn-azul btn-sm" onclick="limparUpload()">📤 Enviar mais</button>
+            <button class="btn btn-verde btn-sm" onclick="irTab(0);atualizarTudo()">📊 Ver Dashboard</button>
+          </div>
+        </div>
+
+        <div id="uploadErro" style="display:none;background:#450a0a;border-radius:8px;padding:12px;margin-top:10px;color:#fca5a5"></div>
+      </div>
+    </div>
+
+    <div class="secao">
+      <div class="secao-header">ℹ️ Como funciona o sistema</div>
+      <div class="secao-body" style="font-size:.85rem;color:#94a3b8;line-height:1.7">
+        <p><b style="color:#e2e8f0">📱 WhatsApp automático:</b> Quando o bot está rodando e você recebe fotos no grupo "RL TRANSPORTES", o sistema captura e processa automaticamente.</p>
+        <br>
+        <p><b style="color:#e2e8f0">📤 Upload manual:</b> Use esta aba para enviar fotos ou PDFs de comprovantes que não vieram pelo WhatsApp.</p>
+        <br>
+        <p><b style="color:#e2e8f0">🖥️ O bot precisa estar ligado:</b> O sistema roda localmente no PC. Se o PC for desligado, o bot para. Mas ao reiniciar e abrir o bot, ele reconecta ao WhatsApp e você pode usar o botão "Reprocessar Histórico" para recuperar mensagens perdidas.</p>
+        <br>
+        <p><b style="color:#e2e8f0">🚀 Auto-iniciar com Windows:</b> Para o bot iniciar sozinho quando o PC liga, use o atalho <b style="color:var(--azul)">RL_Bot_Startup.vbs</b> que está na Área de Trabalho.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL FOTO/PDF -->
+<div class="modal-overlay" id="fotoModal" onclick="fecharModal(event)">
+  <div class="modal-box">
+    <button class="modal-close" onclick="fecharModal(null,true)">✕ Fechar</button>
+    <div id="fotoConteudo"></div>
+    <div class="modal-info" id="fotoInfo"></div>
+  </div>
+</div>
+
+<!-- LANÇAMENTOS DE UM ALERTA DE AUDITORIA -->
+<div class="modal-overlay" id="lancamentosModal" onclick="fecharLancamentosModal()">
+  <div class="modal-box" style="max-width:1400px;width:95vw" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="fecharLancamentosModal()">✕ Fechar</button>
+    <div id="lancamentosConteudo"></div>
+  </div>
+</div>
+
+<!-- CONFIRM DELETE -->
+<div class="modal-overlay" id="confirmModal" onclick="confirmModal(false)">
+  <div class="modal-box" style="max-width:400px;text-align:center" onclick="event.stopPropagation()">
+    <div style="font-size:2rem;margin-bottom:12px">⚠️</div>
+    <div id="confirmMsg" style="font-size:.95rem;color:#e2e8f0;margin-bottom:20px"></div>
+    <div style="display:flex;gap:10px;justify-content:center">
+      <button class="btn btn-vermelho" onclick="confirmModal(true)">Confirmar exclusão</button>
+      <button class="btn" style="background:#334155;color:#e2e8f0" onclick="confirmModal(false)">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Usa o mesmo host:porta de onde a pagina foi carregada — funciona tanto em
+// localhost (PC) quanto acessando pelo IP do Tailscale (celular), sem precisar trocar.
+const BOT = window.location.origin;
+// So comprovante bancario (PIX/TED) conta como despesa real no total. NF/OS/recibo/orcamento ficam visiveis mas fora da soma.
+function ehDespesaReal(tipoDoc){ return tipoDoc==='comprovante_pix' || tipoDoc==='comprovante_ted' || tipoDoc==='comprovante_boleto'; }
+let tabAtiva = 0;
+let buscaTimer = null;
+let confirmCb = null;
+let placaDespesasMap = {};
+let placaSelecionada = null;
+
+// ── UTILS ──────────────────────────────────────────────────────
+const fmtData = s => {
+  if(!s) return '—';
+  const d = s.substring(0,10).split('-');
+  return d.length===3 ? `${d[2]}/${d[1]}/${d[0].substring(2)}` : s.substring(0,10);
+};
+const fmtR$ = v => v!=null ? 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2}) : '—';
+// Data real do comprovante (extraida pela IA); cai para a data de processamento se nao tiver sido lida
+const dataReal = d => d?.data_documento || d?.data;
+
+// ── PDF REAL (download via servidor Puppeteer) ─────────────────
+async function baixarPDF(htmlContent, nomeArquivo) {
+  const btn = event?.target;
+  const textoOriginal = btn?.textContent;
+  if(btn){btn.textContent='⏳ Gerando...';btn.disabled=true;}
+  try {
+    const resp = await fetch(BOT+'/api/gerar-pdf', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ html: htmlContent, nome: nomeArquivo })
+    });
+    if(!resp.ok) throw new Error('Erro '+resp.status);
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nomeArquivo + '.pdf';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    alert('Erro ao gerar PDF: '+e.message+'\nUsando impressão alternativa...');
+    imprimirAba(null, nomeArquivo, htmlContent);
+  } finally {
+    if(btn){btn.textContent=textoOriginal;btn.disabled=false;}
+  }
+}
+
+function gerarHtmlRelatorio(titulo, conteudo) {
+  const now = new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>RL - ${titulo}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',sans-serif}
+    body{background:#fff!important;color:#111!important;padding:20px;font-size:11px}
+    /* Força TUDO preto — anula cores do painel escuro */
+    *{color:#111!important;background:transparent!important;border-color:#ccc!important}
+    /* Exceções: valores financeiros mantêm verde/vermelho */
+    .verde,[style*="color:#10b981"],[style*="color:#059669"],[style*="color: rgb(16, 185, 129)"]{color:#16a34a!important}
+    .vermelho,[style*="color:#ef4444"],[style*="color:#dc2626"],[style*="color: rgb(239, 68, 68)"]{color:#dc2626!important}
+    td[style*="color:#10b981"],td[style*="color:#ef4444"]{font-weight:700}
+    h1{font-size:15px;margin-bottom:4px;font-weight:700}
+    .sub{font-size:9px;margin-bottom:14px;color:#444!important}
+    table{width:100%;border-collapse:collapse;margin-bottom:14px}
+    th{background:#1e293b!important;color:#fff!important;padding:5px 8px;text-align:left;font-size:9px;text-transform:uppercase}
+    td{padding:5px 8px;border-bottom:1px solid #ddd!important;font-size:10px;color:#111!important}
+    tr:nth-child(even) td{background:#f8f8f8!important}
+    .badge,.badge-azul,.badge-verde,.badge-vermelho,.badge-amarelo,.badge-cinza{padding:1px 6px;border-radius:10px;font-size:9px;border:1px solid #999!important}
+    .dep-card{border:1px solid #ccc!important;border-radius:6px;padding:10px;margin-bottom:10px;page-break-inside:avoid}
+    .forn-item{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #ddd!important}
+    .alerta-row{border-left:3px solid #666!important;padding:5px 8px;margin-bottom:5px}
+    button,.btn,input[type=text],input[type=number],select,.barra,.modal-overlay,#buscaIndex,#buscaTotalizador,#ajusteFormLinha{display:none!important}
+    input[type=date]{display:inline-block!important;border:1px solid #ccc!important;padding:4px 8px!important;color:#111!important;background:#f8f9fa!important;font-size:10px!important;border-radius:4px}
+    img,.foto-thumb,.pdf-icon{display:none!important}
+    .kpi{border:1px solid #ccc!important;border-radius:6px;padding:8px 12px;display:inline-block;margin-right:10px;margin-bottom:8px}
+    .kpi-label{font-size:8px;text-transform:uppercase;color:#555!important}
+    .kpi-val{font-size:14px;font-weight:700}
+    .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+    .card{border:1px solid #ccc!important;border-radius:8px;padding:10px 14px;page-break-inside:avoid}
+    .card label{display:block;font-size:8px;text-transform:uppercase;color:#555!important;margin:4px 0 2px}
+    .card .val{font-size:15px;font-weight:700}
+    .origem-tag{font-size:8px;color:#555!important}
+    @media print{@page{margin:1.5cm;size:A4}}
+  </style></head><body>
+  <h1>RL TRANSPORTES — ${titulo}</h1>
+  <div class="sub">Gerado em ${now}</div>
+  ${conteudo}
+  </body></html>`;
+}
+
+async function baixarPDFAba(pageId, titulo) {
+  const pageEl = document.getElementById(pageId);
+  // innerHTML nao carrega o valor atual de <input>, so o atributo original — sem isso, campos de data ficam em branco no PDF
+  pageEl?.querySelectorAll('input[type=date],input[type=text]').forEach(inp => inp.setAttribute('value', inp.value||''));
+  const conteudo = pageEl?.innerHTML || '';
+  await baixarPDF(gerarHtmlRelatorio(titulo, conteudo), 'RL_'+titulo.replace(/[^a-zA-Z0-9]/g,'_'));
+}
+
+async function baixarPDFBusca() {
+  const q = document.getElementById('campoBusca')?.value||'';
+  const di = document.getElementById('buscaDe')?.value||'';
+  const df = document.getElementById('buscaAte')?.value||'';
+  const titulo = `Busca_${q||di||'periodo'}_${new Date().toISOString().substring(0,10)}`;
+  const conteudo = document.getElementById('resultadoBusca')?.innerHTML||'';
+  const tot = document.getElementById('buscaTotalizador')?.outerHTML||'';
+  await baixarPDF(gerarHtmlRelatorio('Busca: '+(q||'período'), tot+conteudo), titulo);
+}
+
+// ── PDF POR ABA (impressão) ────────────────────────────────────
+function imprimirAba(pageId, titulo, htmlCustom) {
+  const conteudo = document.getElementById(pageId)?.innerHTML || '';
+  const win = window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>RL - ${titulo}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',sans-serif}
+    body{background:#fff;color:#0f172a;padding:20px;font-size:11px}
+    h1{font-size:15px;margin-bottom:12px;color:#1e293b}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px}
+    th{background:#1e293b;color:#fff;padding:6px 8px;text-align:left;font-size:9px}
+    td{padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:10px}
+    .badge,.badge-azul,.badge-verde,.badge-vermelho,.badge-amarelo{padding:1px 6px;border-radius:10px;font-size:9px}
+    .verde{color:#059669} .vermelho{color:#dc2626} .amarelo{color:#d97706} .azul{color:#2563eb}
+    .dep-card{border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin-bottom:10px;page-break-inside:avoid}
+    .dep-valor{font-size:13px;font-weight:700;color:#059669}
+    .dep-saldo{font-size:10px;color:#64748b}
+    .desp-row{border-bottom:1px solid #f1f5f9;padding:4px 0;font-size:10px}
+    .dv{color:#dc2626;font-weight:600}
+    .alerta-row{border-left:3px solid #d97706;padding:6px 8px;margin-bottom:6px}
+    .forn-item{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f1f5f9}
+    button,.btn,.modal-overlay,input[type=text],input[type=number],#buscaIndex,#buscaTotalizador,.barra{display:none!important}
+    img,.foto-thumb,.pdf-icon{display:none!important}
+    @media print{@page{margin:1.5cm;size:A4}}
+  </style></head><body>
+  <h1>RL TRANSPORTES — ${titulo} <small style="font-size:10px;color:#64748b">${new Date().toLocaleDateString('pt-BR')}</small></h1>
+  ${conteudo}
+  <script>window.onload=()=>window.print()<\/script>
+  </body></html>`);
+  win.document.close();
+}
+
+function exportarBuscaPDF() {
+  const titulo = `Busca: "${document.getElementById('campoBusca').value||'todos'}"`;
+  imprimirAba('p3', titulo);
+}
+
+async function exportarTudo() {
+  const btn = event?.target; if(btn){btn.textContent='⏳...';btn.disabled=true;}
+  try {
+    const [dash,desp,deps,forn,conc] = await Promise.all([
+      api('/api/dashboard'),api('/api/despesas'),api('/api/depositos'),
+      api('/api/fornecedores'),api('/api/conciliacao')
+    ]);
+    const fmt = v => v!=null?'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2}):'—';
+    const fd = s => {if(!s)return '—';const d=s.substring(0,10).split('-');return d.length===3?`${d[2]}/${d[1]}/${d[0].substring(2)}`:s;};
+    const now = new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    const saldoTotal = dash?.saldo_disponivel!=null ? dash.saldo_disponivel : (dash?.total_depositos||0)-(dash?.total_despesas||0);
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>RL TRANSPORTES — Exportação Completa</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',sans-serif}
+      body{background:#fff;color:#0f172a;padding:24px;font-size:11px}
+      h1{font-size:18px;font-weight:700;margin-bottom:4px}
+      h2{font-size:13px;font-weight:700;margin:20px 0 8px;padding:6px 10px;background:#1e293b;color:#fff;border-radius:6px}
+      .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+      .kpi{border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px}
+      .kpi-label{font-size:9px;color:#64748b;text-transform:uppercase}
+      .kpi-val{font-size:16px;font-weight:700;margin-top:2px}
+      .verde{color:#059669}.vermelho{color:#dc2626}.amarelo{color:#d97706}
+      table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:10px}
+      th{background:#0f172a;color:#fff;padding:5px 8px;text-align:left;font-size:9px;text-transform:uppercase}
+      td{padding:5px 8px;border-bottom:1px solid #f1f5f9}
+      tr:nth-child(even) td{background:#f8fafc}
+      tfoot td{background:#0f172a;color:#fff;font-weight:700}
+      .dep-bloco{border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin-bottom:10px;page-break-inside:avoid}
+      .dep-val{font-size:13px;font-weight:700;color:#059669}
+      footer{margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:9px;color:#64748b;text-align:center}
+      @media print{@page{margin:1.5cm;size:A4}}
+      .no-print{display:block;text-align:center;margin:16px 0}
+      @media print{.no-print{display:none!important}}
+    </style></head><body>
+    <div class="no-print"><button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-size:14px;cursor:pointer;margin-right:10px">🖨️ Imprimir / Salvar PDF</button><button onclick="window.close()" style="background:#ef4444;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:14px;cursor:pointer">✕ Fechar</button></div>
+    <h1>🚛 RL TRANSPORTES — Relatório Financeiro Completo</h1>
+    <p style="font-size:10px;color:#64748b;margin-bottom:16px">Gerado em ${now}</p>
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-label">Total Depositado</div><div class="kpi-val verde">${fmt(dash?.total_depositos)}</div><div style="font-size:9px;color:#64748b">${dash?.qtd_depositos||0} depósitos</div></div>
+      <div class="kpi"><div class="kpi-label">Total Despesas</div><div class="kpi-val vermelho">${fmt(dash?.total_despesas)}</div><div style="font-size:9px;color:#64748b">${dash?.qtd_despesas||0} lançamentos</div></div>
+      <div class="kpi"><div class="kpi-label">Saldo Disponível</div><div class="kpi-val ${saldoTotal>0?'verde':'vermelho'}">${fmt(saldoTotal)}</div></div>
+      <div class="kpi"><div class="kpi-label">Utilização</div><div class="kpi-val amarelo">${dash?.total_depositos>0?Math.round((dash.total_despesas/dash.total_depositos)*100):0}%</div></div>
+    </div>
+    <h2>📋 Despesas (${desp?.length||0})</h2>
+    <table><thead><tr><th>Data</th><th>Fornecedor</th><th>Serviço</th><th>Placa</th><th>NF</th><th>Tipo</th><th>Valor</th><th>Status</th></tr></thead>
+    <tbody>${(desp||[]).map(d=>`<tr><td>${fd(dataReal(d))}</td><td><b>${d.fornecedor||'—'}</b></td><td>${d.servico||'—'}</td><td>${d.placa||'—'}</td><td>${d.nf||'—'}</td><td>${d.tipo_doc||'—'}</td><td class="amarelo" style="font-weight:700">${fmt(d.valor)}</td><td>${d.status||'—'}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="6" style="text-align:right">TOTAL</td><td>${fmt((desp||[]).reduce((s,d)=>s+(d.valor||0),0))}</td><td></td></tr></tfoot></table>
+    <h2>🔗 Conciliação por Depósito</h2>
+    ${(conc||[]).map(dep=>{const td2=(dep.despesas||[]).reduce((s,d)=>s+(d.valor||0),0);const sl=Math.max(0,(dep.valor||0)-td2);return`<div class="dep-bloco"><div style="display:flex;justify-content:space-between;margin-bottom:6px"><div><div class="dep-val">+${fmt(dep.valor)}</div><div style="font-size:10px;color:#64748b">${dep.remetente||'Paulo'} · ${fd(dataReal(dep))}</div></div><div style="text-align:right"><div style="font-weight:700;color:${sl>0?'#059669':'#dc2626'}">Saldo: ${fmt(sl)}</div><div style="font-size:9px;color:#64748b">${(dep.despesas||[]).length} despesas</div></div></div>${(dep.despesas||[]).length?`<table style="margin-bottom:0"><thead><tr><th>Data</th><th>Fornecedor</th><th>Serviço</th><th>Placa</th><th>Valor</th></tr></thead><tbody>${(dep.despesas||[]).map(d=>`<tr><td>${fd(dataReal(d))}</td><td>${d.fornecedor||'—'}</td><td>${d.servico||'—'}</td><td>${d.placa||'—'}</td><td class="vermelho" style="font-weight:600">-${fmt(d.valor)}</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="4" style="text-align:right">Total despesas</td><td>-${fmt(td2)}</td></tr></tfoot></table>`:''}</div>`;}).join('')}
+    <h2>🏢 Fornecedores</h2>
+    <table><thead><tr><th>#</th><th>Fornecedor</th><th>Lançamentos</th><th>Último</th><th>Total Gasto</th></tr></thead>
+    <tbody>${(forn||[]).map((f,i)=>`<tr><td>${i+1}</td><td><b>${f.nome||'—'}</b></td><td>${f.total_ocorrencias||0}</td><td>${fd(f.updated_at)}</td><td class="amarelo" style="font-weight:700">${fmt(f.total_gasto)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="4" style="text-align:right">TOTAL</td><td>${fmt((forn||[]).reduce((s,f)=>s+(f.total_gasto||0),0))}</td></tr></tfoot></table>
+    <h2>💰 Depósitos</h2>
+    <table><thead><tr><th>Data</th><th>Remetente</th><th>Banco/PIX</th><th>Valor</th><th>Saldo</th><th>Status</th></tr></thead>
+    <tbody>${(deps||[]).map(d=>`<tr><td>${fd(dataReal(d))}</td><td>${d.remetente||'—'}</td><td>${d.banco||d.pix||'—'}</td><td class="verde" style="font-weight:700">+${fmt(d.valor)}</td><td class="${d.saldo_restante>0?'amarelo':'vermelho'}" style="font-weight:600">${fmt(d.saldo_restante)}</td><td>${d.status||'—'}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="3" style="text-align:right">TOTAL</td><td>+${fmt((deps||[]).reduce((s,d)=>s+(d.valor||0),0))}</td><td>${fmt(saldoTotal)}</td><td></td></tr></tfoot></table>
+    <footer>RL TRANSPORTES — IA Financeira v3 · Exportação gerada em ${now}</footer>
+    </body></html>`;
+    const blob = new Blob([html],{type:'text/html;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    // Tentar PDF real via servidor; fallback para download HTML
+    try {
+      const r = await fetch(BOT+'/api/gerar-pdf', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ html, nome: `RL_TRANSPORTES_${new Date().toISOString().substring(0,10)}` }) });
+      if(r.ok){
+        const blob = await r.blob();
+        const u2 = URL.createObjectURL(blob);
+        const a2 = document.createElement('a');
+        a2.href=u2; a2.download=`RL_TRANSPORTES_${new Date().toISOString().substring(0,10)}.pdf`;
+        document.body.appendChild(a2); a2.click(); document.body.removeChild(a2); URL.revokeObjectURL(u2);
+      } else { throw new Error('PDF server error'); }
+    } catch(e2) {
+      // fallback: baixar como HTML
+      const blob2 = new Blob([html],{type:'text/html;charset=utf-8'});
+      const u3 = URL.createObjectURL(blob2);
+      const a3 = document.createElement('a');
+      a3.href=u3; a3.download=`RL_TRANSPORTES_${new Date().toISOString().substring(0,10)}.html`;
+      document.body.appendChild(a3); a3.click(); document.body.removeChild(a3); URL.revokeObjectURL(u3);
+    }
+  } finally { if(btn){btn.textContent='📦 Exportar Tudo';btn.disabled=false;} }
+}
+
+// ── REPROCESSAR ZERADAS (despesas e depósitos, revalida com IA, roda em 2º plano) ──
+// Botão existe nas abas Despesas e Depósitos (mesmo job em 2º plano no servidor,
+// por isso os elementos são selecionados por classe — os dois refletem o mesmo status).
+let reprocessPollTimer = null;
+async function reprocessarZeradas() {
+  const btns = document.querySelectorAll('.btnReprocessarZeradas');
+  if(!confirm('Reprocessar despesas e depósitos com valor R$ 0,00, relendo a foto/PDF com IA e atualizando valor, fornecedor/remetente e descrição?\n\nO Gemini gratuito limita a 5 requisições/minuto, então o sistema processa ~1 a cada 13s em segundo plano. Você pode continuar usando o painel enquanto isso.')) return;
+  btns.forEach(btn=>{btn.disabled=true;btn.textContent='⏳ Iniciando...';});
+  try {
+    const r = await post('/api/reprocessar-zeradas', {});
+    if(r?.erro){ alert('Erro: '+r.erro); btns.forEach(btn=>{btn.disabled=false;btn.textContent='🤖 Reprocessar Zeradas';}); return; }
+    iniciarPollReprocesso();
+  } catch(e) {
+    alert('Erro: '+e.message);
+    btns.forEach(btn=>{btn.disabled=false;btn.textContent='🤖 Reprocessar Zeradas';});
+  }
+}
+
+function iniciarPollReprocesso() {
+  const txts = document.querySelectorAll('.reprocessStatusTxt');
+  txts.forEach(txt=>txt.style.display='inline');
+  clearInterval(reprocessPollTimer);
+  reprocessPollTimer = setInterval(async () => {
+    const s = await api('/api/reprocessar-status');
+    if(!s) return;
+    const btns = document.querySelectorAll('.btnReprocessarZeradas');
+    if(s.rodando) {
+      btns.forEach(btn=>{btn.disabled=true;btn.textContent='⏳ Processando...';});
+      const pct = s.total ? Math.round(((s.processados+s.erros+s.semArquivo)/s.total)*100) : 0;
+      txts.forEach(txt=>txt.textContent = `${s.processados+s.erros+s.semArquivo}/${s.total} (${pct}%) · ✅ ${s.processados} (♻️ ${s.reaproveitados||0} sem IA) · ❌ ${s.erros}`);
+    } else {
+      clearInterval(reprocessPollTimer);
+      btns.forEach(btn=>{btn.disabled=false;btn.textContent='🤖 Reprocessar Zeradas';});
+      if(s.concluidoEm) {
+        txts.forEach(txt=>txt.textContent = `Concluído: ✅ ${s.processados} (♻️ ${s.reaproveitados||0} economizados) · ❌ ${s.erros} · 📁 ${s.semArquivo} sem arquivo`);
+        setTimeout(()=>{ txts.forEach(txt=>txt.style.display='none'); }, 15000);
+        carregarDespesas(); carregarDepositos(); carregarDashboard();
+      } else {
+        txts.forEach(txt=>txt.style.display='none');
+      }
+    }
+  }, 4000);
+}
+
+// Se a página for recarregada com um reprocessamento em andamento, retoma o acompanhamento
+(async () => {
+  try {
+    const s = await api('/api/reprocessar-status');
+    if(s?.rodando) iniciarPollReprocesso();
+  } catch(e) {}
+})();
+
+// ── REPROCESSAR HISTORICO DO WHATSAPP ───────────────────────────
+let historicoPollTimer = null;
+async function reprocessarHistorico() {
+  const btn = document.getElementById('btnHistorico');
+  const limite = document.getElementById('historicoLimite').value;
+  btn.disabled = true; btn.textContent = '⏳ Iniciando...';
+  try {
+    const r = await post('/api/processar-historico?limite='+limite, {});
+    if(r?.erro){ alert('Erro: '+r.erro); btn.disabled=false; btn.textContent='📲 Reprocessar Histórico'; return; }
+    iniciarPollHistorico();
+  } catch(e) {
+    alert('Erro: '+e.message);
+    btn.disabled = false; btn.textContent = '📲 Reprocessar Histórico';
+  }
+}
+
+function iniciarPollHistorico() {
+  const btn = document.getElementById('btnHistorico');
+  const txt = document.getElementById('historicoStatusTxt');
+  txt.style.display = 'block';
+  clearInterval(historicoPollTimer);
+  historicoPollTimer = setInterval(async () => {
+    const s = await api('/api/processar-historico-status');
+    if(!s) return;
+    if(s.rodando) {
+      btn.disabled = true; btn.textContent = '⏳ Processando...';
+      txt.textContent = `${s.totalMidias?`${s.processados+s.pulados+s.erros}/${s.totalMidias} mídias`:'Buscando mensagens...'} · ✅ ${s.processados} novas · ⏭️ ${s.pulados} já existiam · ❌ ${s.erros}`;
+    } else {
+      clearInterval(historicoPollTimer);
+      btn.disabled = false; btn.textContent = '📲 Reprocessar Histórico';
+      if(s.concluidoEm) {
+        txt.textContent = `Concluído: ✅ ${s.processados} novas lançadas · ⏭️ ${s.pulados} já existiam · ❌ ${s.erros}`;
+        setTimeout(()=>{ txt.style.display='none'; }, 20000);
+        carregarDespesas(); carregarDepositos(); carregarDashboard();
+      } else {
+        txt.style.display = 'none';
+      }
+    }
+  }, 4000);
+}
+
+(async () => {
+  try {
+    const s = await api('/api/processar-historico-status');
+    if(s?.rodando) iniciarPollHistorico();
+  } catch(e) {}
+})();
+
+// ── RECUPERAR ARQUIVOS AUSENTES (rebusca no WhatsApp pelo horario) ──
+let recuperacaoPollTimer = null;
+async function recuperarArquivos() {
+  const btn = document.getElementById('btnRecuperarArquivos');
+  if(!confirm('Isso vai buscar nas últimas 3000 mensagens do WhatsApp os comprovantes que sumiram do servidor, usando o horário gravado em cada lançamento.\n\nPode levar alguns segundos. Continuar?')) return;
+  btn.disabled = true; btn.textContent = '⏳ Iniciando...';
+  try {
+    const r = await post('/api/recuperar-arquivos-ausentes', {});
+    if(r?.erro){ alert('Erro: '+r.erro); btn.disabled=false; btn.textContent='📲 Recuperar Arquivos Ausentes'; return; }
+    if(r.total===0){ alert('Nenhum arquivo ausente encontrado — tudo certo!'); btn.disabled=false; btn.textContent='📲 Recuperar Arquivos Ausentes'; return; }
+    iniciarPollRecuperacao();
+  } catch(e) {
+    alert('Erro: '+e.message);
+    btn.disabled = false; btn.textContent = '📲 Recuperar Arquivos Ausentes';
+  }
+}
+
+function iniciarPollRecuperacao() {
+  const btn = document.getElementById('btnRecuperarArquivos');
+  const txt = document.getElementById('recuperacaoStatusTxt');
+  txt.style.display = 'inline';
+  clearInterval(recuperacaoPollTimer);
+  recuperacaoPollTimer = setInterval(async () => {
+    const s = await api('/api/recuperar-arquivos-ausentes-status');
+    if(!s) return;
+    if(s.rodando) {
+      btn.disabled = true; btn.textContent = '⏳ Buscando...';
+      txt.textContent = `${s.recuperados+s.naoEncontrados}/${s.totalFaltando} · ✅ ${s.recuperados} recuperados · ❌ ${s.naoEncontrados} não achados`;
+    } else {
+      clearInterval(recuperacaoPollTimer);
+      btn.disabled = false; btn.textContent = '📲 Recuperar Arquivos Ausentes';
+      if(s.concluidoEm) {
+        txt.textContent = `Concluído: ✅ ${s.recuperados} recuperados · ❌ ${s.naoEncontrados} não encontrados`;
+        setTimeout(()=>{ txt.style.display='none'; }, 20000);
+        carregarAuditoria();
+      } else {
+        txt.style.display = 'none';
+      }
+    }
+  }, 3000);
+}
+
+(async () => {
+  try {
+    const s = await api('/api/recuperar-arquivos-ausentes-status');
+    if(s?.rodando) iniciarPollRecuperacao();
+  } catch(e) {}
+})();
+
+// ── LIMPAR TUDO (reset em lote p/ reimportar sem duplicidade) ──
+function limparTudo() {
+  confirmar('⚠️ ATENÇÃO: isso vai APAGAR TODAS as despesas e depósitos lançados, e zerar os totais de fornecedores.\n\nRecomendado: clique em "📦 Exportar Tudo" ANTES para ter um backup (pode ser restaurado depois).\n\nDeseja continuar?', () => {
+    const apagarArquivos = confirm('Deseja também apagar os arquivos (fotos/PDFs) já enviados ao servidor?\n\nOK = apagar arquivos também\nCancelar = manter arquivos, só limpar os lançamentos');
+    executarLimparTudo(apagarArquivos);
+  });
+}
+async function executarLimparTudo(apagarArquivos) {
+  try {
+    const r = await post('/api/limpar-tudo', { apagarArquivos });
+    if(r?.erro){ alert('Erro: '+r.erro); return; }
+    alert(`Tudo limpo!\n\n🗑️ ${r.despesas_removidas} despesas removidas\n🗑️ ${r.depositos_removidos} depósitos removidos${apagarArquivos?`\n🗑️ ${r.arquivos_apagados} arquivos apagados`:''}\n\nAgora você pode reimportar o lote sem risco de duplicidade.`);
+    atualizarTudo();
+  } catch(e) { alert('Erro: '+e.message); }
+}
+
+// ── BUSCA INDEX ────────────────────────────────────────────────
+let buscaIndexData = null;
+async function iniciarBusca() {
+  if(buscaIndexData){renderBuscaIndex(buscaIndexData);return;}
+  let idx = null;
+  try { idx = await api('/api/busca-index'); } catch(e){}
+  if(!idx||(!idx.fornecedores?.length&&!idx.tipos?.length)){
+    const desp = await api('/api/despesas');
+    if(!desp?.length) return;
+    const agg = campo => {
+      const m={};
+      desp.forEach(d=>{const k=d[campo];if(!k)return;if(!m[k])m[k]={nome:k,total:0,qtd:0};m[k].total+=d.valor||0;m[k].qtd++;});
+      return Object.values(m).sort((a,b)=>b.total-a.total);
+    };
+    idx={fornecedores:agg('fornecedor'),tipos:agg('tipo_doc'),placas:agg('placa'),servicos:agg('servico').slice(0,15)};
+  }
+  buscaIndexData=idx;
+  const dl=document.getElementById('buscaSugestoes'); if(dl){dl.innerHTML='';
+  [...(idx.fornecedores||[]),...(idx.tipos||[]),...(idx.placas||[]),...(idx.servicos||[])].forEach(f=>{const o=document.createElement('option');o.value=f.nome;dl.appendChild(o);});}
+  renderBuscaIndex(idx);
+}
+
+function renderBuscaIndex(idx){
+  const el=document.getElementById('buscaIndex'); if(!el)return;
+  const grp=(titulo,cor,items)=>!items?.length?'':`
+    <div style="background:#1e293b;border-radius:10px;border:1px solid #334155;overflow:hidden">
+      <div style="padding:8px 14px;background:#0f172a;font-size:.75rem;font-weight:700;color:${cor};text-transform:uppercase;letter-spacing:.04em">${titulo}</div>
+      <div style="max-height:220px;overflow-y:auto">${items.map(f=>`<div onclick="aplicarChip('${(f.nome||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")}\')" style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;cursor:pointer;border-bottom:1px solid #0f172a" onmouseover="this.style.background='#1a2744'" onmouseout="this.style.background=''"><div><span style="font-size:.82rem;color:#e2e8f0">${f.nome||'—'}</span><span style="font-size:.7rem;color:#475569;margin-left:6px">${f.qtd}x</span></div><span style="font-size:.82rem;font-weight:700;color:#f59e0b">${fmtR$(f.total)}</span></div>`).join('')}</div>
+    </div>`;
+  el.innerHTML=grp('🏢 Fornecedores','#60a5fa',idx.fornecedores)+grp('📂 Tipo de Documento','#34d399',idx.tipos)+grp('🚛 Placas','#a78bfa',idx.placas)+grp('🔧 Serviços','#fb923c',idx.servicos);
+}
+
+function aplicarChip(val){
+  const inp=document.getElementById('campoBusca'); inp.value=val;
+  const el=document.getElementById('buscaIndex'); if(el)el.style.display='none';
+  buscar();
+}
+function limparBusca(){
+  document.getElementById('campoBusca').value='';
+  const de=document.getElementById('buscaDe'); if(de)de.value='';
+  const ate=document.getElementById('buscaAte'); if(ate)ate.value='';
+  document.getElementById('resultadoBusca').innerHTML='';
+  const tot=document.getElementById('buscaTotalizador'); if(tot)tot.style.display='none';
+  const el=document.getElementById('buscaIndex'); if(el)el.style.display='grid';
+}
+function filtroRapido(dias){
+  const hoje = new Date();
+  const ate = hoje.toISOString().substring(0,10);
+  let de;
+  if(dias===0){
+    de = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().substring(0,10);
+  } else {
+    const d = new Date(hoje); d.setDate(d.getDate()-dias);
+    de = d.toISOString().substring(0,10);
+  }
+  document.getElementById('buscaDe').value=de;
+  document.getElementById('buscaAte').value=ate;
+  buscar();
+}
+
+// ── FILTRO DE DATA NA CONCILIAÇÃO ───────────────────────────────
+function filtroRapidoConc(dias){
+  const hoje = new Date();
+  const ate = hoje.toISOString().substring(0,10);
+  let de;
+  if(dias===0){
+    de = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().substring(0,10);
+  } else {
+    const d = new Date(hoje); d.setDate(d.getDate()-dias);
+    de = d.toISOString().substring(0,10);
+  }
+  document.getElementById('concDe').value=de;
+  document.getElementById('concAte').value=ate;
+  carregarConciliacao();
+}
+function limparFiltroConc(){
+  document.getElementById('concDe').value='';
+  document.getElementById('concAte').value='';
+  carregarConciliacao();
+}
+
+// ── FILTRO DE PERIODO NO DASHBOARD ──────────────────────────────
+function filtroRapidoDash(dias){
+  const hoje = new Date();
+  const ate = hoje.toISOString().substring(0,10);
+  let de;
+  if(dias===0){
+    de = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().substring(0,10);
+  } else {
+    const d = new Date(hoje); d.setDate(d.getDate()-dias);
+    de = d.toISOString().substring(0,10);
+  }
+  document.getElementById('dashDe').value=de;
+  document.getElementById('dashAte').value=ate;
+  carregarDashboard();
+}
+function limparFiltroDash(){
+  document.getElementById('dashDe').value='';
+  document.getElementById('dashAte').value='';
+  carregarDashboard();
+}
+function filtroRapidoDesp(dias){
+  const hoje = new Date();
+  const ate = hoje.toISOString().substring(0,10);
+  let de;
+  if(dias===0){
+    de = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().substring(0,10);
+  } else {
+    const d = new Date(hoje); d.setDate(d.getDate()-dias);
+    de = d.toISOString().substring(0,10);
+  }
+  document.getElementById('despDe').value=de;
+  document.getElementById('despAte').value=ate;
+  carregarDespesas();
+}
+function limparFiltroDesp(){
+  document.getElementById('despDe').value='';
+  document.getElementById('despAte').value='';
+  carregarDespesas();
+}
+
+async function reconciliarFifo(){
+  if(!confirm('Isso vai zerar todos os vínculos despesa↔depósito e refazer do zero, na ordem cronológica real (data do comprovante).\n\nUse se aparecerem despesas marcadas como "sem depósito" que na verdade deveriam ter vínculo.\n\nContinuar?')) return;
+  const btn=document.getElementById('btnReconciliarFifo');
+  const textoOriginal=btn.textContent;
+  btn.disabled=true; btn.textContent='⏳ Reconciliando...';
+  try{
+    const r=await post('/api/reconciliar-fifo',{});
+    if(r?.erro){ alert('Erro: '+r.erro); return; }
+    alert(`Reconciliação concluída!\n\n✅ ${r.vinculadas} despesas vinculadas a depósitos\n⚠️ ${r.sem_saldo} sem saldo de depósito suficiente (déficit real)\n\nTotal de comprovantes bancários avaliados: ${r.total}`);
+    carregarConciliacao(); carregarDashboard(); carregarAuditoria();
+  }catch(e){ alert('Erro: '+e.message); }
+  finally{ btn.disabled=false; btn.textContent=textoOriginal; }
+}
+
+// ── TABS ──────────────────────────────────────────────────────
+const tabMap = [0,1,2,7,3,4,5,8,6]; // logical → DOM page index
+function irTab(n) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===[0,1,2,7,3,4,5,8,6].indexOf(n)||tabMap[i]===n||(i===3&&n===7)||(i===7&&n===8)));
+  // simpler: map tab click index to page
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('p'+n)?.classList.add('active');
+  tabAtiva = n;
+  const loaders = {0:carregarDashboard,1:carregarConciliacao,2:carregarDespesas,7:carregarDepositos,3:iniciarBusca,4:carregarAuditoria,5:carregarFornecedores,6:carregarLogs,8:null};
+  if (loaders[n]) loaders[n]();
+}
+function irTabIdx(idx) {
+  const ids = [0,1,2,7,3,4,5,8,6];
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',i===idx));
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('p'+ids[idx])?.classList.add('active');
+  tabAtiva = ids[idx];
+  const loaders = {0:carregarDashboard,1:carregarConciliacao,2:carregarDespesas,7:carregarDepositos,3:null,4:carregarAuditoria,5:carregarFornecedores,6:carregarLogs};
+  if (loaders[tabAtiva]) loaders[tabAtiva]();
+}
+document.querySelectorAll('.tab').forEach((t,i)=>t.onclick=()=>irTabIdx(i));
+
+// ── API ───────────────────────────────────────────────────────
+async function api(rota) {
+  try { const r = await fetch(BOT+rota); if(!r.ok) throw new Error(r.status); return await r.json(); }
+  catch(e) { console.error('API',rota,e); return null; }
+}
+async function patch(rota,body) {
+  try { const r = await fetch(BOT+rota,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); return r.ok; }
+  catch { return false; }
+}
+async function del(rota) {
+  try { const r = await fetch(BOT+rota,{method:'DELETE'}); return r.ok; }
+  catch { return false; }
+}
+async function post(rota,body) {
+  try { const r = await fetch(BOT+rota,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); return await r.json(); }
+  catch(e) { return {erro:e.message}; }
+}
+
+// ── CONFIRM DIALOG ────────────────────────────────────────────
+function confirmar(msg,cb) {
+  document.getElementById('confirmMsg').textContent = msg;
+  document.getElementById('confirmModal').classList.add('open');
+  confirmCb = cb;
+}
+function confirmModal(ok) {
+  document.getElementById('confirmModal').classList.remove('open');
+  if (ok && confirmCb) confirmCb();
+  confirmCb = null;
+}
+
+// ── BADGE ORIGEM ──────────────────────────────────────────────
+function origemBadge(arquivo) {
+  if (!arquivo) return '<span class="badge badge-cinza" title="Lançamento manual ou texto">✏️ Manual</span>';
+  if (arquivo.startsWith('WA_')) return '<span class="badge badge-azul" title="Recebido via WhatsApp">📱 WhatsApp</span>';
+  if (arquivo.startsWith('UP_')) return '<span class="badge badge-roxo" title="Enviado manualmente pelo painel">📤 Upload</span>';
+  return '<span class="badge badge-cinza" title="Origem do sistema">🔧 Sistema</span>';
+}
+
+// ── STATUS ───────────────────────────────────────────────────
+async function verificarStatus() {
+  const cfg = await api('/api/config');
+  if (cfg) {
+    document.getElementById('dotBot').className='status-dot dot-green';
+    document.getElementById('txtBot').textContent='bot online';
+    document.getElementById('dotIA').className=cfg.tem_ia?'status-dot dot-green':'status-dot dot-red';
+    document.getElementById('txtIA').textContent=cfg.tem_ia?'IA ativa':'sem IA';
+  } else {
+    document.getElementById('dotBot').className='status-dot dot-red';
+    document.getElementById('txtBot').textContent='bot offline';
+    document.getElementById('dotIA').className='status-dot dot-red';
+    document.getElementById('txtIA').textContent='offline';
+  }
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────
+async function carregarDashboard() {
+  const [despesasAll,depositosAll,ajustesAll,saldoInicial] = await Promise.all([api('/api/despesas'),api('/api/depositos'),api('/api/ajustes'),api('/api/saldo-inicial')]);
+  if (!despesasAll || !depositosAll) return;
+  const fmt = v=>'R$ '+(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  // Filtro por periodo (data real do comprovante)
+  const dashDe = document.getElementById('dashDe')?.value||'';
+  const dashAte = document.getElementById('dashAte')?.value||'';
+  const dentroDoPeriodo = d => {
+    const dt = (dataReal(d)||'').substring(0,10);
+    if(dashDe && dt < dashDe) return false;
+    if(dashAte && dt > dashAte) return false;
+    return true;
+  };
+  const dentroDoPeriodoAjuste = a => {
+    const dt = (a.data||'').substring(0,10);
+    if(dashDe && dt < dashDe) return false;
+    if(dashAte && dt > dashAte) return false;
+    return true;
+  };
+  const despesas = (dashDe||dashAte) ? despesasAll.filter(dentroDoPeriodo) : despesasAll;
+  const depositos = (dashDe||dashAte) ? depositosAll.filter(dentroDoPeriodo) : depositosAll;
+  const ajustes = (dashDe||dashAte) ? (ajustesAll||[]).filter(dentroDoPeriodoAjuste) : (ajustesAll||[]);
+  const labelEl = document.getElementById('dashPeriodoLabel');
+  if (labelEl) labelEl.textContent = (dashDe||dashAte) ? `Período: ${dashDe?fmtData(dashDe):'início'} → ${dashAte?fmtData(dashAte):'hoje'}` : 'Período: Tudo';
+
+  const despesasReaisTotal = despesas.filter(d=>d.status!=='cancelado'&&ehDespesaReal(d.tipo_doc));
+  // Ajuste manual de saldo conta como deposito ("colocar", valor>0) ou despesa ("tirar", valor<0)
+  // nos totais/cards do dashboard, não só no cálculo isolado do saldo disponível.
+  const ajustesPos = ajustes.filter(a=>(Number(a.valor)||0) > 0);
+  const ajustesNeg = ajustes.filter(a=>(Number(a.valor)||0) < 0);
+  const totalDepositos = depositos.reduce((s,d)=>s+(Number(d.valor)||0),0) + ajustesPos.reduce((s,a)=>s+(Number(a.valor)||0),0);
+  const totalDespesas = despesasReaisTotal.reduce((s,d)=>s+(Number(d.valor)||0),0) + ajustesNeg.reduce((s,a)=>s+Math.abs(Number(a.valor)||0),0);
+
+  // Saldo Disponível: se houver um saldo inicial (extrato), o saldo atual e sempre a
+  // ancora + movimentacao POSTERIOR aquela data — independente do filtro de periodo na
+  // tela (saldo e um valor acumulado, nao uma soma de um recorte). Sem ancora, cai no
+  // comportamento antigo (soma tudo desde o começo).
+  let saldoDisponivel;
+  if (saldoInicial) {
+    const corte = saldoInicial.data.substring(0,10);
+    const ajustesPosCorte = (ajustesAll||[]).filter(a=>(a.data||'').substring(0,10) >= corte && (Number(a.valor)||0)>0).reduce((s,a)=>s+(Number(a.valor)||0),0);
+    const ajustesNegCorte = (ajustesAll||[]).filter(a=>(a.data||'').substring(0,10) >= corte && (Number(a.valor)||0)<0).reduce((s,a)=>s+Math.abs(Number(a.valor)||0),0);
+    const depPos  = (depositosAll||[]).filter(d=>(dataReal(d)||'').substring(0,10) >= corte).reduce((s,d)=>s+(Number(d.valor)||0),0) + ajustesPosCorte;
+    const despPos = (despesasAll||[]).filter(d=>d.status!=='cancelado'&&ehDespesaReal(d.tipo_doc) && (dataReal(d)||'').substring(0,10) >= corte).reduce((s,d)=>s+(Number(d.valor)||0),0) + ajustesNegCorte;
+    saldoDisponivel = saldoInicial.valor + depPos - despPos;
+  } else {
+    saldoDisponivel = totalDepositos - totalDespesas;
+  }
+  const semDeposito = despesasReaisTotal.filter(d=>!d.deposito_id).length;
+  const depositosAtivos = depositos.filter(d=>d.status==='ativo').length + ajustesPos.length;
+  const pct = totalDepositos>0?Math.round((totalDespesas/totalDepositos)*100):0;
+  const saldoColor = saldoDisponivel<0?'vermelho':'verde';
+
+  // Contar origens
+  let waCount=0, upCount=0, manualCount=0;
+  despesas.forEach(d=>{if(!d.arquivo)manualCount++;else if(d.arquivo.startsWith('WA_'))waCount++;else if(d.arquivo.startsWith('UP_'))upCount++;else manualCount++;});
+
+  document.getElementById('kpiCards').innerHTML=`
+    ${saldoInicial?`<div class="card">
+      <div class="origem-tag">⚓ extrato</div>
+      <label>Saldo Inicial</label>
+      <div class="val ${saldoInicial.valor>=0?'verde':'vermelho'}">${fmt(saldoInicial.valor)}</div>
+      <div class="sub">Vale a partir de ${fmtData(saldoInicial.data)}${saldoInicial.descricao?' · '+saldoInicial.descricao:''}</div>
+    </div>`:''}
+    <div class="card">
+      <div class="origem-tag">💰 Entradas</div>
+      <label>Total Depositado</label>
+      <div class="val azul">${fmt(totalDepositos)}</div>
+      <div class="sub">${depositos.length} depósitos${ajustesPos.length?' + '+ajustesPos.length+' ajuste'+(ajustesPos.length>1?'s':''):''} · ${depositosAtivos} ativos</div>
+    </div>
+    <div class="card">
+      <div class="origem-tag">📱${waCount} 📤${upCount} ✏️${manualCount}</div>
+      <label>Total Despesas</label>
+      <div class="val vermelho">${fmt(totalDespesas)}</div>
+      <div class="sub">${despesasReaisTotal.length} lançamentos confirmados${ajustesNeg.length?' + '+ajustesNeg.length+' ajuste'+(ajustesNeg.length>1?'s':''):''}</div>
+    </div>
+    <div class="card">
+      <div class="origem-tag">${semDeposito>0?'⚠️ '+semDeposito+' sem dep.':'✅ conciliado'}</div>
+      <label>Saldo Disponível</label>
+      <div class="val ${saldoColor}">${fmt(saldoDisponivel)}</div>
+    </div>
+    <div class="card">
+      <div class="origem-tag">📊 uso</div>
+      <label>Utilização</label>
+      <div class="val amarelo">${pct}%</div>
+      <div class="sub">do total depositado usado</div>
+    </div>`;
+
+  // Ajustes de saldo entram misturados nas listas de "recentes", como se fossem
+  // uma despesa/deposito de verdade — badge própria (⚙️ Ajuste) pra diferenciar a origem.
+  const ajusteBadge = '<span class="badge badge-cinza" title="Ajuste manual de saldo">⚙️ Ajuste</span>';
+  const despesasParaLista = [
+    ...despesasReaisTotal,
+    ...ajustesNeg.map(a=>({ fornecedor:'Ajuste Manual', descricao:a.descricao, valor:Math.abs(Number(a.valor)||0), arquivo:null, servico:a.descricao||null, tipo_doc:null, placa:null, data:a.data, data_documento:a.data, _isAjuste:true }))
+  ].sort((a,b)=>(dataReal(b)||'').localeCompare(dataReal(a)||''));
+  if (despesasParaLista.length) {
+    document.getElementById('ultimasDespesas').innerHTML=despesasParaLista.slice(0,6).map(d=>`
+      <div style="background:#000000;border-radius:8px;padding:9px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:.83rem;font-weight:600">${d.fornecedor||d.descricao||'—'}</div>
+          <div style="font-size:.73rem;color:#64748b">${d._isAjuste?ajusteBadge:origemBadge(d.arquivo)} ${d.servico||d.tipo_doc||''} ${d.placa?'· '+d.placa:''}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="vermelho" style="font-weight:700">-${fmt(d.valor)}</div>
+          <div style="font-size:.7rem;color:#64748b">${fmtData(dataReal(d))}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  const depositosParaLista = [
+    ...depositos,
+    ...ajustesPos.map(a=>({ remetente:'Ajuste Manual', valor:Number(a.valor)||0, arquivo:null, banco:a.descricao||null, pix:null, status:'ativo', saldo_restante:Number(a.valor)||0, data:a.data, data_documento:a.data, _isAjuste:true }))
+  ].sort((a,b)=>(dataReal(b)||'').localeCompare(dataReal(a)||''));
+  if (depositosParaLista.length) {
+    document.getElementById('ultimosDepositos').innerHTML=depositosParaLista.slice(0,6).map(d=>`
+      <div style="background:#000000;border-radius:8px;padding:9px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:.83rem;font-weight:600">${d.remetente||'Paulo'}</div>
+          <div style="font-size:.73rem;color:#64748b">${d._isAjuste?ajusteBadge:origemBadge(d.arquivo)} ${d.banco||d.pix||''}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="verde" style="font-weight:700">+${fmt(d.valor)}</div>
+          <div style="font-size:.7rem;color:#${d.status==='ativo'?'10b981':'64748b'}">${d.status} · saldo ${fmt(d.saldo_restante)}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  // Agrupa por placa a partir das mesmas despesas ja filtradas pelo periodo escolhido
+  // (dashDe/dashAte) — assim os cards e o detalhe batem exatamente com o periodo na tela.
+  const porPlaca = {};
+  despesasReaisTotal.forEach(d => {
+    if (!d.placa) return;
+    if (!porPlaca[d.placa]) porPlaca[d.placa] = { placa:d.placa, total_gasto:0, total_servicos:0, ultimo_servico:null, itens:[] };
+    const g = porPlaca[d.placa];
+    g.total_gasto += Number(d.valor)||0;
+    g.total_servicos++;
+    const dt = dataReal(d);
+    if (!g.ultimo_servico || dt > g.ultimo_servico) g.ultimo_servico = dt;
+    g.itens.push(d);
+  });
+  placaDespesasMap = porPlaca;
+  if (placaSelecionada && !porPlaca[placaSelecionada]) placaSelecionada = null; // placa some do periodo -> fecha detalhe
+  const placasArr = Object.values(porPlaca).sort((a,b)=>b.total_gasto-a.total_gasto);
+
+  if (placasArr.length) {
+    document.getElementById('gastosPlaca').innerHTML=
+      `<div id="placasGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">`+
+      placasArr.map(p=>`
+        <div class="placa-card" data-placa="${p.placa}" onclick="mostrarDetalhePlaca('${p.placa}')"
+             style="background:#000000;border-radius:8px;padding:10px 14px;cursor:pointer;border:1px solid ${p.placa===placaSelecionada?'var(--azul)':'transparent'}">
+          <div style="font-weight:700;font-size:.95rem;color:var(--azul)">${p.placa}</div>
+          <div class="amarelo" style="font-weight:700;font-size:1.1rem">${fmt(p.total_gasto)}</div>
+          <div style="font-size:.75rem;color:#64748b">${p.total_servicos} serviço(s) · último: ${fmtData(p.ultimo_servico)}</div>
+        </div>`).join('')+
+      `</div><div id="placaDetalhe"></div>`;
+    if (placaSelecionada) renderDetalhePlaca(placaSelecionada);
+  } else {
+    document.getElementById('gastosPlaca').innerHTML = '<div style="color:#64748b;font-size:.85rem;padding:8px 0">Nenhum gasto por placa no período selecionado.</div>';
+  }
+
+  renderListaAjustes([...ajustes].sort((a,b)=>(b.data||'').localeCompare(a.data||'')));
+}
+
+// ── DETALHE DO GASTO POR PLACA (clique no card) ────────────────
+function mostrarDetalhePlaca(placa) {
+  placaSelecionada = (placaSelecionada === placa) ? null : placa;
+  document.querySelectorAll('.placa-card').forEach(el=>{
+    el.style.borderColor = (el.getAttribute('data-placa')===placaSelecionada) ? 'var(--azul)' : 'transparent';
+  });
+  renderDetalhePlaca(placaSelecionada);
+}
+
+function renderDetalhePlaca(placa) {
+  const detalheEl = document.getElementById('placaDetalhe');
+  if (!detalheEl) return;
+  if (!placa) { detalheEl.innerHTML=''; return; }
+  const g = placaDespesasMap[placa];
+  if (!g) { detalheEl.innerHTML=''; return; }
+  const fmt = v=>'R$ '+(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const itens = [...g.itens].sort((a,b)=>(dataReal(b)||'').localeCompare(dataReal(a)||''));
+  detalheEl.innerHTML = `
+    <div style="margin-top:12px;background:#0a0a0a;border:1px solid #262626;border-radius:10px;padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap">
+        <div style="font-weight:700;color:var(--azul)">🚛 ${placa} — o que compõe ${fmt(g.total_gasto)} (${itens.length} lançamento${itens.length===1?'':'s'})</div>
+        <button class="btn btn-sm" onclick="mostrarDetalhePlaca('${placa}')" style="background:#1e293b">Fechar ✕</button>
+      </div>
+      <table style="margin-bottom:0">
+        <thead><tr><th>Data</th><th>Fornecedor</th><th>Serviço</th><th>Tipo</th><th>Comprovante</th><th style="text-align:right">Valor</th></tr></thead>
+        <tbody>${itens.map(d=>{
+          const nomeF = (d.fornecedor||'comprovante').replace(/'/g,"\\'");
+          const fotoEl = d.arquivo
+            ? (d.arquivo.endsWith('.pdf')
+                ? `<div class="pdf-icon" style="width:30px;height:30px;font-size:.52rem" onclick="verFoto(BOT+'/fotos/${d.arquivo}','${nomeF}',true)">PDF</div>`
+                : `<img class="foto-thumb" style="width:30px;height:30px" src="${BOT}/fotos/${d.arquivo}" onclick="verFoto(BOT+'/fotos/${d.arquivo}','${nomeF}',false)">`)
+            : '<span style="color:#475569">—</span>';
+          return `<tr>
+            <td>${fmtData(dataReal(d))}</td>
+            <td>${d.fornecedor||'—'}</td>
+            <td>${d.servico||'—'}</td>
+            <td>${d.tipo_doc||'—'}</td>
+            <td>${fotoEl}</td>
+            <td class="vermelho" style="text-align:right;font-weight:600">-${fmt(d.valor)}</td>
+          </tr>`;
+        }).join('')}</tbody>
+        <tfoot><tr><td colspan="5" style="text-align:right">Total</td><td style="text-align:right">-${fmt(g.total_gasto)}</td></tr></tfoot>
+      </table>
+    </div>`;
+}
+
+// ── AJUSTE MANUAL DE SALDO ──────────────────────────────────────
+function renderListaAjustes(ajustes) {
+  const el = document.getElementById('listaAjustes');
+  if (!el) return;
+  const fmt = v=>'R$ '+(Math.abs(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  if (!ajustes?.length) { el.innerHTML = '<div style="color:#64748b;font-size:.8rem;padding:4px 0">Nenhum ajuste no período.</div>'; return; }
+  el.innerHTML = ajustes.map(a=>`
+    <div style="background:#000000;border-radius:8px;padding:9px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:.83rem;font-weight:600">${a.descricao||'Ajuste manual'}</div>
+        <div style="font-size:.72rem;color:#64748b">${fmtData(a.data)}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="${a.valor>=0?'verde':'vermelho'}" style="font-weight:700">${a.valor>=0?'+':'-'}${fmt(a.valor)}</div>
+        <button class="btn btn-sm" style="background:#7f1d1d" onclick="excluirAjuste(${a.id})" title="Excluir ajuste">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+async function salvarAjuste() {
+  const tipo = document.getElementById('ajusteTipo').value;
+  const valorRaw = parseFloat(document.getElementById('ajusteValor').value);
+  const descricao = document.getElementById('ajusteDescricao').value.trim();
+  if (!valorRaw || valorRaw<=0) { alert('Informe um valor maior que zero.'); return; }
+  const valor = tipo==='tirar' ? -Math.abs(valorRaw) : Math.abs(valorRaw);
+  const r = await post('/api/ajuste', { valor, descricao });
+  if (r?.ok) {
+    document.getElementById('ajusteValor').value = '';
+    document.getElementById('ajusteDescricao').value = '';
+    carregarDashboard();
+  } else {
+    alert('Erro ao salvar ajuste: '+(r?.erro||'desconhecido'));
+  }
+}
+
+function excluirAjuste(id) {
+  confirmar('Excluir este ajuste de saldo?', async () => {
+    const ok = await del('/api/ajuste/'+id);
+    if (ok) carregarDashboard();
+  });
+}
+
+// ── CONCILIACAO ───────────────────────────────────────────────
+async function carregarConciliacao() {
+  const [depsAll, despsAll, ajustesAll, saldoInicial] = await Promise.all([api('/api/depositos'), api('/api/despesas'), api('/api/ajustes'), api('/api/saldo-inicial')]);
+  if (!depsAll || !despsAll) return;
+  const fmt = v=>'R$ '+(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  // Filtro por data de lançamento (data real do comprovante)
+  const concDe = document.getElementById('concDe')?.value||'';
+  const concAte = document.getElementById('concAte')?.value||'';
+  const dentroDoPeriodo = d => {
+    const dt = (dataReal(d)||'').substring(0,10);
+    if(concDe && dt < concDe) return false;
+    if(concAte && dt > concAte) return false;
+    return true;
+  };
+  const dentroDoPeriodoAjuste = a => {
+    const dt = (a.data||'').substring(0,10);
+    if(concDe && dt < concDe) return false;
+    if(concAte && dt > concAte) return false;
+    return true;
+  };
+  const deps = (concDe||concAte) ? depsAll.filter(dentroDoPeriodo) : depsAll;
+  const desps = (concDe||concAte) ? despsAll.filter(dentroDoPeriodo) : despsAll;
+  const ajustes = (concDe||concAte) ? (ajustesAll||[]).filter(dentroDoPeriodoAjuste) : (ajustesAll||[]);
+
+  if (!deps.length && !desps.length && !ajustes.length) { document.getElementById('conciliacaoContainer').innerHTML='<div class="loading">Nenhum registro encontrado no período.</div>'; return; }
+
+  // Ajuste manual conta como deposito ("colocar", valor>0) ou despesa ("tirar", valor<0)
+  // nos totais — mesma regra do Dashboard, pra nao ficar incoerente entre as telas.
+  const ajustesPos = ajustes.filter(a=>(Number(a.valor)||0) > 0);
+  const ajustesNeg = ajustes.filter(a=>(Number(a.valor)||0) < 0);
+  const totalDep = deps.reduce((s,d)=>s+(Number(d.valor)||0),0) + ajustesPos.reduce((s,a)=>s+(Number(a.valor)||0),0);
+  const totalDesp = desps.filter(d=>d.status!=='cancelado'&&ehDespesaReal(d.tipo_doc)).reduce((s,d)=>s+(Number(d.valor)||0),0) + ajustesNeg.reduce((s,a)=>s+Math.abs(Number(a.valor)||0),0);
+
+  // Saldo Disponível: mesma logica do Dashboard — sempre o saldo atual de verdade
+  // (ancora + movimentacao depois da data de corte), nao uma soma do recorte filtrado.
+  // O ajuste entra uma unica vez (embutido em depPos/despPos), nunca somado de novo depois.
+  let saldoDisp;
+  if (saldoInicial) {
+    const corte = saldoInicial.data.substring(0,10);
+    const ajPosCorte = (ajustesAll||[]).filter(a=>(a.data||'').substring(0,10) >= corte && (Number(a.valor)||0)>0).reduce((s,a)=>s+(Number(a.valor)||0),0);
+    const ajNegCorte = (ajustesAll||[]).filter(a=>(a.data||'').substring(0,10) >= corte && (Number(a.valor)||0)<0).reduce((s,a)=>s+Math.abs(Number(a.valor)||0),0);
+    const depPos  = depsAll.filter(d=>(dataReal(d)||'').substring(0,10) >= corte).reduce((s,d)=>s+(Number(d.valor)||0),0) + ajPosCorte;
+    const despPos = despsAll.filter(d=>d.status!=='cancelado'&&ehDespesaReal(d.tipo_doc) && (dataReal(d)||'').substring(0,10) >= corte).reduce((s,d)=>s+(Number(d.valor)||0),0) + ajNegCorte;
+    saldoDisp = saldoInicial.valor + depPos - despPos;
+  } else {
+    const totalDepGeral = depsAll.reduce((s,d)=>s+(Number(d.valor)||0),0) + (ajustesAll||[]).filter(a=>(Number(a.valor)||0)>0).reduce((s,a)=>s+(Number(a.valor)||0),0);
+    const totalDespGeral = despsAll.filter(d=>d.status!=='cancelado'&&ehDespesaReal(d.tipo_doc)).reduce((s,d)=>s+(Number(d.valor)||0),0) + (ajustesAll||[]).filter(a=>(Number(a.valor)||0)<0).reduce((s,a)=>s+Math.abs(Number(a.valor)||0),0);
+    saldoDisp = totalDepGeral - totalDespGeral;
+  }
+
+  // Linhas de TODO o historico (nao so do periodo): o saldo acumulado de cada linha tem que
+  // ser o saldo REAL naquela data. Antes ele so somava o recorte filtrado a partir da ancora
+  // de 06/07 e pulava jul/ago (em 01/10/2026 a coluna terminava em -10.500,71 com o saldo
+  // real em -8.201,40).
+  const real = d => d.status!=='cancelado' && ehDespesaReal(d.tipo_doc);
+  const chaveOrdem = l => (l.data||'').substring(0,10) + ' ' + (l.hora||'99:99:99');
+  const linhasTodas = [
+    ...depsAll.map(d=>({tipo:'deposito',data:dataReal(d),hora:d.hora_documento,valor:Number(d.valor)||0,desc:d.banco||d.pix||d.remetente||'Depósito',sub:d.remetente||'Paulo',arquivo:d.arquivo,id:d.id,noPeriodo:!(concDe||concAte)||dentroDoPeriodo(d)})),
+    ...despsAll.filter(real).map(d=>({tipo:'despesa',data:dataReal(d),hora:d.hora_documento,valor:Number(d.valor)||0,desc:d.fornecedor||'Despesa',sub:(d.servico||'')+(d.placa?' · '+d.placa:''),arquivo:d.arquivo,id:d.id,noPeriodo:!(concDe||concAte)||dentroDoPeriodo(d)})),
+    ...(ajustesAll||[]).filter(a=>(Number(a.valor)||0)!==0).map(a=>{const v=Number(a.valor)||0; return {tipo:v>0?'deposito':'despesa',isAjuste:true,data:a.data,hora:(a.data||'').substring(11,19),valor:Math.abs(v),desc:'Ajuste Manual',sub:a.descricao||'',arquivo:null,id:a.id,noPeriodo:!(concDe||concAte)||dentroDoPeriodoAjuste(a)};})
+  ].sort((a,b)=>chaveOrdem(a)<chaveOrdem(b)?-1:chaveOrdem(a)>chaveOrdem(b)?1:(a.tipo===b.tipo?a.id-b.id:(a.tipo==='deposito'?-1:1)));
+
+  // Saldo acumulado linha a linha: antes da data de corte e so historico informativo
+  // (comeca do zero); ao cruzar a data do saldo inicial, o acumulado "salta" pra ancora
+  // reconciliada e continua dali — igual um extrato bancario apos uma conferencia manual.
+  let saldoAcc=0, ancoraAplicada=false, saldoAnterior=null;
+  const corteLinha = saldoInicial ? saldoInicial.data.substring(0,10) : null;
+  linhasTodas.forEach(l=>{
+    if (corteLinha && !ancoraAplicada && (l.data||'').substring(0,10) >= corteLinha) { saldoAcc = saldoInicial.valor; ancoraAplicada = true; }
+    if (l.noPeriodo && saldoAnterior===null) saldoAnterior = saldoAcc;
+    saldoAcc += l.tipo==='deposito'?l.valor:-l.valor;
+    l.saldoAcc = saldoAcc;
+  });
+  if (saldoAnterior===null) saldoAnterior = saldoAcc;
+  const linhas = linhasTodas.filter(l=>l.noPeriodo);
+  const saldoFinalPeriodo = linhas.length ? linhas[linhas.length-1].saldoAcc : saldoAnterior;
+  // Calculo do saldo acumulado precisa ser do mais antigo pro mais novo (senao a matematica
+  // nao fecha), mas a exibicao na tela mostra do mais novo pro mais antigo — igual o resto
+  // do painel (Ultimas Despesas, Ultimos Depositos etc.)
+  linhas.reverse();
+
+  const fd = v => v ? v.substring(8,10)+'/'+v.substring(5,7)+'/'+v.substring(0,4) : '';
+  const card = (titulo, valor, cor, sub) => `<div style="background:#0f172a;border-radius:10px;padding:14px 18px;border:1px solid ${cor==='#10b981'||cor==='#ef4444'?cor+'66':'#334155'}"><div style="font-size:.7rem;color:#64748b;text-transform:uppercase;letter-spacing:.05em">${titulo}</div><div style="font-size:1.3rem;font-weight:700;color:${cor};margin-top:4px">${valor}</div>${sub?`<div style="font-size:.68rem;color:#64748b;margin-top:3px">${sub}</div>`:''}</div>`;
+  const confere = Math.abs((saldoAnterior + totalDep - totalDesp) - saldoFinalPeriodo) < 0.01;
+  const kpis=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:10px">
+    ${card('Saldo anterior', fmt(saldoAnterior), saldoAnterior>=0?'#10b981':'#ef4444', concDe?'até '+fd(new Date(new Date(concDe+'T12:00:00').getTime()-864e5).toISOString().substring(0,10))+' (antes do período)':'início do histórico')}
+    ${card('Total depositado', fmt(totalDep), '#10b981', 'no período')}
+    ${card('Total despesas', '-'+fmt(totalDesp), '#ef4444', 'no período')}
+    ${card('Saldo final do período', fmt(saldoFinalPeriodo), saldoFinalPeriodo>=0?'#10b981':'#ef4444', concAte?'em '+fd(concAte):'hoje')}
+  </div>
+  <div style="font-size:.75rem;color:${confere?'#64748b':'#f59e0b'};margin:0 2px 18px">
+    ${confere?'✅ Confere':'⚠️ Não confere'}: ${fmt(saldoAnterior)} + ${fmt(totalDep)} − ${fmt(totalDesp)} = ${fmt(saldoAnterior+totalDep-totalDesp)}
+    &nbsp;·&nbsp; Saldo disponível hoje: <b style="color:${saldoDisp>=0?'#10b981':'#ef4444'}">${fmt(saldoDisp)}</b>
+  </div>`;
+
+  const rows=linhas.map(l=>{
+    const isD=l.tipo==='deposito';
+    const cor=isD?'#10b981':'#ef4444';
+    const badge=l.isAjuste
+      ? (isD?'<span class="badge" style="background:#1e3a5f;color:#93c5fd;font-size:.65rem">⚙️ AJUSTE DEPÓSITO</span>':'<span class="badge" style="background:#450a0a;color:#fca5a5;font-size:.65rem">⚙️ AJUSTE DESPESA</span>')
+      : (isD?'<span class="badge badge-verde" style="font-size:.65rem">DEPÓSITO</span>':'<span class="badge badge-vermelho" style="font-size:.65rem">DESPESA</span>');
+    const fotoEl=l.arquivo?(l.arquivo.endsWith('.pdf')?`<div class="pdf-icon" style="width:32px;height:32px;font-size:.55rem" onclick="verFoto(BOT+'/fotos/${l.arquivo}','${l.desc.replace(/'/g,"\\'")}',true)">PDF</div>`:`<img class="foto-thumb" style="width:32px;height:32px" src="${BOT}/fotos/${l.arquivo}" onclick="verFoto(BOT+'/fotos/${l.arquivo}','${l.desc.replace(/'/g,"\\'")}',false)">`): '<span style="color:#475569;font-size:.75rem">—</span>';
+    const sc=l.saldoAcc>=0?'#10b981':'#ef4444';
+    return `<tr style="border-bottom:1px solid #1e293b" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background=''">
+      <td style="padding:10px;white-space:nowrap;font-size:.82rem;color:#94a3b8">${fmtData(l.data)}</td>
+      <td style="padding:10px">${badge}</td>
+      <td style="padding:10px;font-weight:600;color:#e2e8f0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.desc}</td>
+      <td style="padding:10px;font-size:.78rem;color:#64748b;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.sub||'—'}</td>
+      <td style="padding:10px;text-align:right;font-weight:700;color:${cor};white-space:nowrap">${isD?'+':'-'}${fmt(l.valor)}</td>
+      <td style="padding:10px;text-align:right;font-weight:700;color:${sc};white-space:nowrap">${fmt(l.saldoAcc)}</td>
+      <td style="padding:10px;text-align:center">${fotoEl}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('conciliacaoContainer').innerHTML=kpis+`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+    <thead><tr style="border-bottom:2px solid #334155;font-size:.75rem;color:#64748b;text-transform:uppercase">
+      <th style="padding:8px 10px;text-align:left" title="Data real do comprovante">Data Comprov.</th><th style="padding:8px 10px;text-align:left">Tipo</th>
+      <th style="padding:8px 10px;text-align:left">Descrição</th><th style="padding:8px 10px;text-align:left">Detalhe</th>
+      <th style="padding:8px 10px;text-align:right">Valor</th><th style="padding:8px 10px;text-align:right">Saldo</th>
+      <th style="padding:8px 10px;text-align:center">Doc</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+// ── DESPESAS TABLE ────────────────────────────────────────────
+async function carregarDespesas() {
+  const dataAll = await api('/api/despesas');
+  if (!dataAll) return;
+  const fmt = v=>v!=null?'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+
+  // Filtro por data (data real do comprovante)
+  const despDe = document.getElementById('despDe')?.value||'';
+  const despAte = document.getElementById('despAte')?.value||'';
+  const dentroDoPeriodo = d => {
+    const dt = (dataReal(d)||'').substring(0,10);
+    if(despDe && dt < despDe) return false;
+    if(despAte && dt > despAte) return false;
+    return true;
+  };
+  let data = (despDe||despAte) ? dataAll.filter(dentroDoPeriodo) : dataAll;
+  const labelEl = document.getElementById('despPeriodoLabel');
+  if (labelEl) labelEl.textContent = (despDe||despAte) ? `Período: ${despDe?fmtData(despDe):'início'} → ${despAte?fmtData(despAte):'hoje'}` : 'Período: Tudo';
+
+  // Sugestões de autocomplete com os fornecedores unicos ja carregados
+  const sugEl = document.getElementById('despFornecedorSugestoes');
+  if (sugEl) sugEl.innerHTML = [...new Set(dataAll.map(d=>d.fornecedor).filter(Boolean))].sort().map(f=>`<option value="${f.replace(/"/g,'&quot;')}">`).join('');
+
+  // Busca inteligente por fornecedor — soma-se ao filtro de periodo, nao substitui
+  const termoForn = (document.getElementById('despBuscaFornecedor')?.value||'').trim().toLowerCase();
+  if (termoForn) data = data.filter(d => (d.fornecedor||'').toLowerCase().includes(termoForn));
+
+  document.getElementById('countDesp').textContent=`${data.length} despesas`;
+
+  // Card com o total exato do que esta filtrado na tela (periodo + busca por fornecedor)
+  const totalBusca = data.reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const totalEl = document.getElementById('despTotalBusca');
+  if (totalEl) totalEl.textContent = fmt(totalBusca);
+  const countBuscaEl = document.getElementById('despCountBusca');
+  if (countBuscaEl) countBuscaEl.textContent = `${data.length} despesa${data.length!==1?'s':''}${termoForn?' · fornecedor: "'+termoForn+'"':''}`;
+
+  document.getElementById('tbDesp').innerHTML=data.map(d=>{
+    const infoFoto = ((d.fornecedor||'—')+(d.descricao?' — '+d.descricao:'')).replace(/'/g,"\\'");
+    const fotoEl=d.arquivo?(d.arquivo.endsWith('.pdf')?`<div class="pdf-icon" onclick="verFoto(BOT+'/fotos/${d.arquivo}','${infoFoto}',true)">PDF</div>`:`<img class="foto-thumb" src="${BOT}/fotos/${d.arquivo}" onclick="verFoto(BOT+'/fotos/${d.arquivo}','${infoFoto}',false)">`): '—';
+    const badge=d.status==='confirmado'?'badge-verde':d.status==='revisar'?'badge-amarelo':'badge-vermelho';
+    return `<tr id="despesa-${d.id}">
+      <td>${origemBadge(d.arquivo)}</td>
+      <td>${fotoEl}</td>
+      <td style="white-space:nowrap">${fmtData(dataReal(d))}</td>
+      <td style="font-size:.73rem">${d.remetente||'—'}</td>
+      <td><b>${d.fornecedor||'—'}</b></td>
+      <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.servico||'—'}</td>
+      <td>${d.placa||'—'}</td>
+      <td>${d.nf||'—'}</td>
+      <td class="amarelo" style="font-weight:700">${fmt(d.valor)}</td>
+      <td><span class="badge badge-azul">${d.tipo_doc||'outros'}</span></td>
+      <td><span class="badge ${badge}">${d.status||'confirmado'}</span></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-azul btn-sm" onclick="editarDespesa(${d.id},${d.valor||0},'${(d.fornecedor||'').replace(/'/g,"\\'")}','${(d.placa||'').replace(/'/g,"\\'")}')">✏️</button>
+        <button class="btn btn-vermelho btn-sm" onclick="excluirDespesa(${d.id},'${(d.fornecedor||'esta despesa').replace(/'/g,"\\'")}',${d.valor||0})">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── DEPOSITOS TABLE (lista simples) ───────────────────────────
+async function carregarDepositos() {
+  const dataAll = await api('/api/depositos');
+  if (!dataAll) return;
+
+  // Filtro por data (data real do comprovante)
+  const depDe = document.getElementById('depDe')?.value||'';
+  const depAte = document.getElementById('depAte')?.value||'';
+  const dentroDoPeriodo = d => {
+    const dt = (dataReal(d)||'').substring(0,10);
+    if(depDe && dt < depDe) return false;
+    if(depAte && dt > depAte) return false;
+    return true;
+  };
+  let data = (depDe||depAte) ? dataAll.filter(dentroDoPeriodo) : dataAll;
+  const labelEl = document.getElementById('depPeriodoLabel');
+  if (labelEl) labelEl.textContent = (depDe||depAte) ? `Período: ${depDe?fmtData(depDe):'início'} → ${depAte?fmtData(depAte):'hoje'}` : 'Período: Tudo';
+
+  // Sugestões de autocomplete com os depositantes/remetentes unicos ja carregados
+  const sugEl = document.getElementById('depRemetenteSugestoes');
+  if (sugEl) sugEl.innerHTML = [...new Set(dataAll.map(d=>d.remetente).filter(Boolean))].sort().map(r=>`<option value="${r.replace(/"/g,'&quot;')}">`).join('');
+
+  // Busca inteligente por depositante — soma-se ao filtro de periodo, nao substitui
+  const termoRem = (document.getElementById('depBuscaRemetente')?.value||'').trim().toLowerCase();
+  if (termoRem) data = data.filter(d => (d.remetente||'').toLowerCase().includes(termoRem));
+
+  const totalDep = data.reduce((s,d)=>s+(d.valor||0),0);
+  document.getElementById('countDep').textContent=`${data.length} depósito(s) · Total: ${fmtR$(totalDep)}`;
+
+  // Card com o total exato do que esta filtrado na tela (periodo + busca por depositante)
+  const totalEl = document.getElementById('depTotalBusca');
+  if (totalEl) totalEl.textContent = fmtR$(totalDep);
+  const countBuscaEl = document.getElementById('depCountBusca');
+  if (countBuscaEl) countBuscaEl.textContent = `${data.length} depósito${data.length!==1?'s':''}${termoRem?' · depositante: "'+termoRem+'"':''}`;
+
+  document.getElementById('tbDep').innerHTML=data.map(d=>{
+    const fotoEl=d.arquivo?(d.arquivo.endsWith('.pdf')?`<div class="pdf-icon" onclick="verFoto(BOT+'/fotos/${d.arquivo}','Depósito',true)">PDF</div>`:`<img class="foto-thumb" src="${BOT}/fotos/${d.arquivo}" onclick="verFoto(BOT+'/fotos/${d.arquivo}','Depósito',false)">`): '—';
+    return `<tr id="deposito-${d.id}">
+      <td>${origemBadge(d.arquivo)}</td>
+      <td>${fotoEl}</td>
+      <td style="white-space:nowrap">${fmtData(dataReal(d))}</td>
+      <td>${d.remetente||'Paulo'}</td>
+      <td style="font-size:.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis">${d.banco||d.pix||'—'}</td>
+      <td class="verde" style="font-weight:700">${fmtR$(d.valor)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-azul btn-sm" onclick="editarDeposito(${d.id},${d.valor||0},'${(d.remetente||'').replace(/'/g,"\\'")}','${(d.banco||'').replace(/'/g,"\\'")}','${(d.pix||'').replace(/'/g,"\\'")}')">✏️</button>
+        <button class="btn btn-vermelho btn-sm" onclick="excluirDeposito(${d.id},${d.valor||0})">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── FILTRO DE PERIODO NOS DEPOSITOS ─────────────────────────────
+function filtroRapidoDep(dias){
+  const hoje = new Date();
+  const ate = hoje.toISOString().substring(0,10);
+  let de;
+  if(dias===0){
+    de = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().substring(0,10);
+  } else {
+    const d = new Date(hoje); d.setDate(d.getDate()-dias);
+    de = d.toISOString().substring(0,10);
+  }
+  document.getElementById('depDe').value=de;
+  document.getElementById('depAte').value=ate;
+  carregarDepositos();
+}
+function limparFiltroDep(){
+  document.getElementById('depDe').value='';
+  document.getElementById('depAte').value='';
+  carregarDepositos();
+}
+
+// ── EDITAR DESPESA ────────────────────────────────────────────
+function editarDespesa(id,valor,fornecedor,placa) {
+  const v=prompt(`Editar despesa #${id}\nValor atual: R$ ${valor}\nNovo valor:`,valor||'');
+  if(v===null)return;
+  const f=prompt('Fornecedor:',fornecedor);
+  if(f===null)return;
+  const p=prompt('Placa (ex: ABC-1234):',placa);
+  if(p===null)return;
+  const body={};
+  if(v!==''&&!isNaN(parseFloat(v.replace(',','.'))))body.valor=parseFloat(v.replace(',','.'));
+  if(f!=='')body.fornecedor=f;
+  if(p!=='')body.placa=p;
+  patch('/api/despesa/'+id,body).then(ok=>{
+    if(ok){carregarDespesas();carregarDashboard();}
+    else alert('Erro ao salvar.');
+  });
+}
+
+// ── EDITAR DEPOSITO ───────────────────────────────────────────
+function editarDeposito(id,valor,remetente,banco,pix) {
+  const v=prompt(`Editar depósito #${id}\nValor atual: R$ ${valor}\nNovo valor:`,valor||'');
+  if(v===null)return;
+  const r=prompt('Remetente:',remetente);
+  if(r===null)return;
+  const b=prompt('Banco/PIX:',banco||pix||'');
+  if(b===null)return;
+  const body={};
+  if(v!==''&&!isNaN(parseFloat(v.replace(',','.'))))body.valor=parseFloat(v.replace(',','.'));
+  if(r!=='')body.remetente=r;
+  if(b!=='')body.banco=b;
+  patch('/api/deposito/'+id,body).then(ok=>{
+    if(ok){carregarDepositos();carregarConciliacao();carregarDashboard();}
+    else alert('Erro ao salvar.');
+  });
+}
+
+// ── EXCLUIR ───────────────────────────────────────────────────
+function excluirDespesa(id,nome,valor) {
+  confirmar(`Excluir despesa #${id} "${nome}" de R$ ${(valor||0).toFixed(2)}?\n\nO valor será devolvido ao depósito vinculado.`, async()=>{
+    const ok=await del('/api/despesa/'+id);
+    if(ok){ carregarDespesas(); carregarConciliacao(); carregarDashboard(); carregarAuditoria(); }
+    else alert('Erro ao excluir.');
+  });
+}
+
+function excluirDeposito(id,valor) {
+  confirmar(`Excluir depósito #${id} de R$ ${(valor||0).toFixed(2)}?\n\nAs despesas vinculadas ficarão sem depósito (sem_deposito).`, async()=>{
+    const ok=await del('/api/deposito/'+id);
+    if(ok){ carregarDepositos(); carregarConciliacao(); carregarDashboard(); carregarAuditoria(); }
+    else alert('Erro ao excluir.');
+  });
+}
+
+// ── BUSCA ─────────────────────────────────────────────────────
+function buscar() {
+  clearTimeout(buscaTimer);
+  const q  = (document.getElementById('campoBusca')?.value||'').trim();
+  const di = document.getElementById('buscaDe')?.value||'';
+  const df = document.getElementById('buscaAte')?.value||'';
+  const tot = document.getElementById('buscaTotalizador');
+  const idx = document.getElementById('buscaIndex');
+  const temData = di || df;
+  const temQ = q.length >= 1;
+  if(!temQ && !temData){
+    document.getElementById('resultadoBusca').innerHTML='';
+    if(tot)tot.style.display='none';
+    if(idx)idx.style.display='grid';
+    return;
+  }
+  if(idx)idx.style.display='none';
+  if(tot)tot.style.display='none';
+  // Modo conciliação por período (sem texto de busca, só datas)
+  if(!temQ && temData){
+    buscaTimer=setTimeout(()=>carregarPeriodo(di,df),400);
+    return;
+  }
+  // Modo busca normal (com texto)
+  buscaTimer=setTimeout(async()=>{
+    let url='/api/busca?q='+encodeURIComponent(q);
+    if(di) url+='&di='+di;
+    if(df) url+='&df='+df;
+    const data=await api(url);
+    if(!data||!data.length){
+      document.getElementById('resultadoBusca').innerHTML=`<div class="loading">Nenhum resultado encontrado.</div>`;
+      return;
+    }
+    const total=data.reduce((s,d)=>s+(d.valor||0),0);
+    const qtd=data.length;
+    const tiposMap={};
+    data.forEach(d=>{const t=d.tipo_doc||'outros';tiposMap[t]=(tiposMap[t]||0)+(d.valor||0);});
+    const tiposStr=Object.entries(tiposMap).map(([t,v])=>`${t}: ${fmtR$(v)}`).join(' · ');
+    if(tot){
+      document.getElementById('buscaCount').textContent=`${qtd} resultado${qtd!==1?'s':''}`;
+      document.getElementById('buscaTotal').textContent=fmtR$(total);
+      document.getElementById('buscaInfo').textContent=tiposStr;
+      tot.style.display='flex';
+    }
+    document.getElementById('resultadoBusca').innerHTML=`<table>
+      <thead><tr><th>Origem</th><th>Foto</th><th title="Data real do comprovante">Data Comprov.</th><th>Fornecedor</th><th>Placa</th><th>NF</th><th>Valor</th><th>Tipo</th></tr></thead>
+      <tbody>${data.map(d=>`<tr>
+        <td>${origemBadge(d.arquivo)}</td>
+        <td>${d.arquivo?(d.arquivo.endsWith('.pdf')?`<div class="pdf-icon" onclick="verFoto(BOT+'/fotos/${d.arquivo}','${(d.fornecedor||'PDF').replace(/'/g,"\\'")}',true)" style="width:38px;height:38px;font-size:.58rem">PDF</div>`:`<img class="foto-thumb" style="width:38px;height:38px" src="${BOT}/fotos/${d.arquivo}" onclick="verFoto(BOT+'/fotos/${d.arquivo}','${(d.fornecedor||'').replace(/'/g,"\\'")}',false)">`):'—'}</td>
+        <td style="white-space:nowrap">${fmtData(dataReal(d))}</td>
+        <td><b>${d.fornecedor||'—'}</b><br><span style="color:#64748b;font-size:.73rem">${d.servico||''}</span></td>
+        <td>${d.placa||'—'}</td><td>${d.nf||'—'}</td>
+        <td class="amarelo" style="font-weight:700;white-space:nowrap">${fmtR$(d.valor)}</td>
+        <td><span class="badge badge-azul">${d.tipo_doc||'outros'}</span></td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="background:#0f172a">
+        <td colspan="6" style="text-align:right;font-size:.8rem;color:#94a3b8;font-weight:600">TOTAL (${qtd})</td>
+        <td class="amarelo" style="font-weight:800;font-size:.95rem;white-space:nowrap">${fmtR$(total)}</td><td></td>
+      </tr></tfoot></table>`;
+  },400);
+}
+
+// ── CONCILIAÇÃO POR PERÍODO ────────────────────────────────────
+async function carregarPeriodo(di, df) {
+  document.getElementById('resultadoBusca').innerHTML='<div class="loading"><div class="spinner"></div>Calculando período...</div>';
+  const d = await api('/api/periodo?di='+di+'&df='+df);
+  if(!d){document.getElementById('resultadoBusca').innerHTML='<div class="loading">Erro ao carregar.</div>';return;}
+  const saldoPos = d.saldo >= 0;
+  const html = `
+  <div style="margin-bottom:20px">
+    <div style="font-size:.75rem;color:#64748b;text-transform:uppercase;margin-bottom:10px">
+      📊 Conciliação: ${fmtData(di+' ')} → ${fmtData(df+' ')}
+    </div>
+    <!-- KPIs -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px">
+      <div style="background:#0f172a;border-radius:10px;padding:14px 18px;border:1px solid #134e3a">
+        <div style="font-size:.7rem;color:#64748b;text-transform:uppercase">Depositado no período</div>
+        <div style="font-size:1.4rem;font-weight:700;color:#10b981;margin-top:4px">${fmtR$(d.depositos.total)}</div>
+        <div style="font-size:.75rem;color:#475569;margin-top:2px">${d.depositos.qtd} depósito(s)</div>
+      </div>
+      <div style="background:#0f172a;border-radius:10px;padding:14px 18px;border:1px solid #450a0a">
+        <div style="font-size:.7rem;color:#64748b;text-transform:uppercase">Gasto no período</div>
+        <div style="font-size:1.4rem;font-weight:700;color:#ef4444;margin-top:4px">${fmtR$(d.despesas.total)}</div>
+        <div style="font-size:.75rem;color:#475569;margin-top:2px">${d.despesas.qtd} lançamento(s)</div>
+      </div>
+      <div style="background:#0f172a;border-radius:10px;padding:14px 18px;border:1px solid ${saldoPos?'#134e3a':'#450a0a'}">
+        <div style="font-size:.7rem;color:#64748b;text-transform:uppercase">Saldo do período</div>
+        <div style="font-size:1.4rem;font-weight:700;color:${saldoPos?'#10b981':'#ef4444'};margin-top:4px">${fmtR$(d.saldo)}</div>
+        <div style="font-size:.75rem;color:#475569;margin-top:2px">${saldoPos?'Sobra':'Deficit'} no período</div>
+      </div>
+    </div>
+    <!-- Por fornecedor -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <div style="font-size:.75rem;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:8px">🏢 Por Fornecedor</div>
+        ${d.por_fornecedor.length ? d.por_fornecedor.map((f,i)=>`
+        <div onclick="document.getElementById('campoBusca').value='${(f.nome).replace(/'/g,"\\'")}';buscar()" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#111111;border-radius:8px;margin-bottom:6px;cursor:pointer;border:1px solid #1a1a2e" onmouseover="this.style.background='#1a2744'" onmouseout="this.style.background='#111111'">
+          <div>
+            <span style="font-size:.85rem;font-weight:600;color:#e2e8f0">${f.nome}</span>
+            <span style="font-size:.72rem;color:#475569;margin-left:6px">${f.qtd}x</span>
+          </div>
+          <span style="color:#f59e0b;font-weight:700;font-size:.9rem">${fmtR$(f.total)}</span>
+        </div>`).join('') : '<div style="color:#475569;font-size:.83rem;padding:8px">Nenhuma despesa no período</div>'}
+      </div>
+      <div>
+        <div style="font-size:.75rem;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:8px">📂 Por Tipo</div>
+        ${d.por_tipo.map(t=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#111111;border-radius:8px;margin-bottom:6px;border:1px solid #1a1a2e">
+          <span style="font-size:.85rem;color:#e2e8f0">${t.tipo}</span>
+          <div style="text-align:right">
+            <span style="color:#60a5fa;font-weight:700;font-size:.9rem">${fmtR$(t.total)}</span>
+            <span style="font-size:.7rem;color:#475569;margin-left:6px">${t.qtd}x</span>
+          </div>
+        </div>`).join('')}
+        ${d.depositos.itens.length?`
+        <div style="font-size:.75rem;font-weight:700;color:#94a3b8;text-transform:uppercase;margin:12px 0 8px">💰 Depósitos</div>
+        ${d.depositos.itens.map(dep=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#111111;border-radius:8px;margin-bottom:6px;border:1px solid #134e3a">
+          <div>
+            <span style="font-size:.82rem;color:#e2e8f0">${dep.remetente||'Paulo'}</span>
+            <span style="font-size:.7rem;color:#475569;margin-left:6px">${fmtData(dataReal(dep))}</span>
+          </div>
+          <span style="color:#10b981;font-weight:700">+${fmtR$(dep.valor)}</span>
+        </div>`).join('')}`:''}
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('resultadoBusca').innerHTML=html;
+}
+
+// ── AUDITORIA ─────────────────────────────────────────────────
+function renderAlertaRow(a) {
+  const fmt=v=>v!=null?'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2}):'—';
+  const isDup=(a.tipo_alerta||'').includes('Duplicad');
+  const clicavel = !!a.ids;
+  const refEsc=(a.referencia||'').replace(/'/g,"\\'");
+  const semDep = a.tipo_alerta === 'Despesa sem Deposito';
+  return `
+    <div class="alerta-row" style="${isDup?'border-left-color:#ef4444':''}${clicavel?';cursor:pointer':''}" ${clicavel?`onclick="verLancamentosAlerta('${a.tabela}','${a.ids}','${refEsc}','${a.tipo_alerta}')" onmouseover="this.style.background='#1a2744'" onmouseout="this.style.background=''"`:''}>
+      <div>
+        <div class="alerta-tipo" style="${isDup?'color:#f87171':''}">${isDup?'⛔':'⚠️'} ${a.tipo_alerta}</div>
+        <div class="alerta-ref">${a.referencia||'—'} · ${a.ocorrencias} ocorrência(s)</div>
+        <div style="font-size:.73rem;color:#64748b">${fmtData(a.primeira)} ${a.ultima&&a.ultima!==a.primeira?'→ '+fmtData(a.ultima):''}</div>
+        ${semDep?'<div style="font-size:.7rem;color:#64748b;margin-top:2px">O comprovante está correto — só não sobrou saldo depositado suficiente pra vincular esta despesa a um depósito específico</div>':''}
+      </div>
+      <div style="text-align:right">
+        <div class="amarelo" style="font-weight:700">${fmt(a.valor_total)}</div>
+        ${clicavel?'<div style="font-size:.68rem;color:#60a5fa;margin-top:2px">comparar →</div>':''}
+      </div>
+    </div>`;
+}
+
+async function carregarAuditoria() {
+  const data=await api('/api/auditoria');
+  if(!data||!data.length){
+    document.getElementById('fotosDuplicadasSecao').innerHTML='';
+    document.getElementById('alertasAuditoria').innerHTML='<div class="loading" style="color:var(--verde)">✅ Nenhum alerta detectado!</div>';
+    return;
+  }
+
+  // Fotos duplicadas confirmadas (mesma autenticação + dia/hora/minuto/segundo) ficam
+  // num menu proprio, em destaque — é o nivel mais alto de confianca de duplicidade.
+  const fotosDup = data.filter(a => a.tipo_alerta === 'Foto Duplicada Confirmada');
+  const outros   = data.filter(a => a.tipo_alerta !== 'Foto Duplicada Confirmada');
+
+  document.getElementById('fotosDuplicadasSecao').innerHTML = fotosDup.length ? `
+    <div class="secao" style="margin-bottom:16px;border-color:#ef4444">
+      <div class="secao-header" style="color:#f87171">🖼️ Fotos Duplicadas Confirmadas (${fotosDup.length})</div>
+      <div class="secao-body">
+        <div style="margin-bottom:10px;color:#64748b;font-size:.78rem">Mesmo código de autenticação do banco E mesma data/hora/minuto/segundo do comprovante — praticamente certeza de ser a mesma foto reenviada. Clique pra comparar e excluir a cópia extra.</div>
+        ${fotosDup.map(renderAlertaRow).join('')}
+      </div>
+    </div>` : '';
+
+  const qtdDup=outros.filter(a=>(a.tipo_alerta||'').includes('Duplicad')).length;
+  if (!outros.length) { document.getElementById('alertasAuditoria').innerHTML = fotosDup.length ? '' : '<div class="loading" style="color:var(--verde)">✅ Nenhum alerta detectado!</div>'; return; }
+  document.getElementById('alertasAuditoria').innerHTML=`<div style="margin-bottom:12px;color:#64748b;font-size:.83rem">${outros.length} alertas${qtdDup?` · <span style="color:#f87171;font-weight:700">${qtdDup} de duplicidade</span>`:''} · <span style="color:#475569">clique num alerta para comparar os lançamentos</span></div>`+outros.map(renderAlertaRow).join('');
+}
+
+// Mostra os lancamentos de um alerta de auditoria lado a lado, num modal, prontos pra comparar e excluir
+async function verLancamentosAlerta(tabela, idsStr, referencia, tipoAlerta) {
+  if (!idsStr) return;
+  const ids = String(idsStr).split(',').map(s=>parseInt(s.trim())).filter(Boolean);
+  if (!ids.length) return;
+  const todos = await api(tabela==='deposito' ? '/api/depositos' : '/api/despesas');
+  if (!todos) return;
+  const itens = todos.filter(d => ids.includes(d.id));
+  renderLancamentosModal(itens, tabela, referencia, tipoAlerta);
+}
+
+function renderLancamentosModal(itens, tabela, referencia, tipoAlerta) {
+  const fmt = v=>v!=null?'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2}):'—';
+  const isDep = tabela === 'deposito';
+  const semDep = tipoAlerta === 'Despesa sem Deposito';
+  const instrucao = semDep
+    ? 'Esta despesa não tem depósito vinculado no cálculo FIFO — o comprovante está correto, só não sobrou saldo depositado suficiente pra vincular a ela nessa data. Não é duplicidade nem erro.'
+    : `${itens.length} lançamento(s) — clique numa foto pra ver aqui do lado e comparar, exclua o(s) que for(em) duplicado(s). Sem horário no comprovante? Clique em "🔄 Reprocessar" pra tentar buscar de novo.`;
+  const html = `
+    <div style="font-weight:700;font-size:1rem;color:#e2e8f0;margin-bottom:4px">🔍 ${referencia||'Lançamentos'}</div>
+    <div style="font-size:.78rem;color:#64748b;margin-bottom:14px">${instrucao}</div>
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1;min-width:420px;overflow-x:auto"><table style="width:100%;border-collapse:collapse" id="tbLancamentosModal">
+        <thead><tr style="border-bottom:2px solid #334155;font-size:.72rem;color:#64748b;text-transform:uppercase">
+          <th style="padding:6px 8px;text-align:left">Foto</th>
+          <th style="padding:6px 8px;text-align:left">Data</th>
+          <th style="padding:6px 8px;text-align:left">Hora</th>
+          <th style="padding:6px 8px;text-align:left">${isDep?'Remetente':'Fornecedor'}</th>
+          ${isDep?'':'<th style="padding:6px 8px;text-align:left">Serviço</th>'}
+          <th style="padding:6px 8px;text-align:right">Valor</th>
+          <th style="padding:6px 8px;text-align:center">Ações</th>
+        </tr></thead>
+        <tbody>${itens.map(d=>renderLinhaLancamentoModal(d,tabela)).join('')}</tbody>
+      </table></div>
+      <div id="previewLancamentoBox" style="flex:1;min-width:320px;max-width:480px;background:#0a0a0a;border:1px solid #222;border-radius:10px;min-height:400px;display:flex;align-items:center;justify-content:center;position:sticky;top:0">
+        <div style="text-align:center;color:#64748b;font-size:.82rem;padding:20px">📄<br>Clique numa foto na lista<br>pra visualizar aqui</div>
+      </div>
+    </div>`;
+  document.getElementById('lancamentosConteudo').innerHTML = html;
+  document.getElementById('lancamentosModal').classList.add('open');
+}
+
+function renderLinhaLancamentoModal(d, tabela) {
+  const fmt = v=>v!=null?'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2}):'—';
+  const isDep = tabela === 'deposito';
+  const desc=(d.fornecedor||d.remetente||'').replace(/'/g,"\\'");
+  const fotoEl=d.arquivo?(d.arquivo.endsWith('.pdf')?`<div class="pdf-icon" style="width:34px;height:34px;font-size:.55rem" onclick="mostrarPreviewLancamento(BOT+'/fotos/${d.arquivo}','${desc}',true)">PDF</div>`:`<img class="foto-thumb" style="width:34px;height:34px" src="${BOT}/fotos/${d.arquivo}" onclick="mostrarPreviewLancamento(BOT+'/fotos/${d.arquivo}','${desc}',false)">`):'—';
+  return `<tr data-id="${d.id}" style="border-bottom:1px solid #1e293b">
+      <td style="padding:8px">${fotoEl}</td>
+      <td style="padding:8px;white-space:nowrap;font-size:.82rem">${fmtData(dataReal(d))}</td>
+      <td style="padding:8px;white-space:nowrap;font-size:.82rem;color:${d.hora_documento?'#e2e8f0':'#64748b'}">${d.hora_documento||'sem horário'}</td>
+      <td style="padding:8px;font-weight:600">${d.fornecedor||d.remetente||'—'}</td>
+      ${isDep?'':`<td style="padding:8px;font-size:.8rem;color:#94a3b8">${d.servico||'—'}</td>`}
+      <td style="padding:8px;text-align:right;font-weight:700;color:#f59e0b">${fmt(d.valor)}</td>
+      <td style="padding:8px;text-align:center;white-space:nowrap">
+        ${isDep?'':`<button class="btn btn-azul btn-sm" onclick="reprocessarItemModal(${d.id})">🔄 Reprocessar</button> `}
+        <button class="btn btn-vermelho btn-sm" onclick="excluirDoModal('${tabela}',${d.id})">🗑️ Excluir</button>
+      </td>
+    </tr>`;
+}
+
+// Mostra a foto/PDF DENTRO do modal de comparação, ao lado da lista — nao abre por cima
+async function mostrarPreviewLancamento(url, info, isPdf) {
+  const box = document.getElementById('previewLancamentoBox');
+  if (!box) return;
+  box.innerHTML = '<div class="loading" style="padding:20px"><div class="spinner"></div>Carregando...</div>';
+  try {
+    const resp = await fetch(url, { method:'HEAD' });
+    if (!resp.ok) throw new Error('nao encontrado');
+    box.style.display = 'block';
+    box.innerHTML = `<div style="padding:8px 10px;font-size:.78rem;color:#94a3b8;border-bottom:1px solid #222;font-weight:600">${info}</div>` +
+      (isPdf ? `<iframe src="${url}" style="width:100%;height:460px;border:none"></iframe>` : `<img src="${url}" alt="${info}" style="width:100%;max-height:460px;object-fit:contain;display:block">`);
+  } catch(e) {
+    box.innerHTML = `<div style="text-align:center;color:#94a3b8;padding:20px"><div style="font-size:2rem;margin-bottom:8px">📁❌</div><div style="font-weight:600;color:#e2e8f0;margin-bottom:4px">Arquivo não encontrado</div><div style="font-size:.78rem">O comprovante foi removido ou nunca chegou a ser salvo.</div></div>`;
+  }
+}
+
+async function reprocessarItemModal(id) {
+  const btn = event.target;
+  const textoOriginal = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳...';
+  try {
+    const r = await post('/api/reprocessar-item/'+id, {});
+    if (r?.erro) { alert('Erro: '+r.erro); btn.disabled=false; btn.textContent=textoOriginal; return; }
+    const linha = document.querySelector(`#tbLancamentosModal tr[data-id="${id}"]`);
+    if (linha) linha.outerHTML = renderLinhaLancamentoModal(r.despesa, 'despesa');
+    carregarAuditoria(); carregarDespesas(); carregarDashboard();
+  } catch(e) {
+    alert('Erro: '+e.message);
+    btn.disabled = false; btn.textContent = textoOriginal;
+  }
+}
+
+async function excluirDoModal(tabela, id) {
+  if (!confirm('Excluir este lançamento?')) return;
+  const ok = await del(tabela==='deposito' ? '/api/deposito/'+id : '/api/despesa/'+id);
+  if (!ok) { alert('Erro ao excluir.'); return; }
+  document.querySelector(`#tbLancamentosModal tr[data-id="${id}"]`)?.remove();
+  carregarAuditoria(); carregarDashboard();
+  if (tabela==='deposito') carregarDepositos(); else { carregarDespesas(); carregarConciliacao(); }
+  if (!document.querySelector('#tbLancamentosModal tr')) fecharLancamentosModal();
+}
+
+function fecharLancamentosModal() {
+  document.getElementById('lancamentosModal').classList.remove('open');
+  document.getElementById('lancamentosConteudo').innerHTML = '';
+}
+
+// ── FORNECEDORES ──────────────────────────────────────────────
+async function carregarFornecedores() {
+  const data=await api('/api/fornecedores');
+  if(!data||!data.length){document.getElementById('listaFornecedores').innerHTML='<div class="loading">Nenhum fornecedor.</div>';return;}
+  const totalGeral=data.reduce((s,f)=>s+(f.total_gasto||0),0);
+  const countEl=document.getElementById('countForn');
+  if(countEl)countEl.textContent=`${data.length} fornecedores · Total: ${fmtR$(totalGeral)}`;
+  document.getElementById('listaFornecedores').innerHTML=data.map((f,i)=>`
+    <div class="forn-item" onclick="irTab(3);setTimeout(()=>{aplicarChip('${(f.nome||'').replace(/'/g,"\\'")}')},300)" style="cursor:pointer" onmouseover="this.style.background='#1a2744'" onmouseout="this.style.background=''">
+      <div>
+        <div class="forn-nome">${i+1}. ${f.nome}</div>
+        <div style="font-size:.73rem;color:#64748b">${f.total_ocorrencias||0} lançamento(s) · último: ${fmtData(f.updated_at)}</div>
+      </div>
+      <div class="forn-gasto">${fmtR$(f.total_gasto)}</div>
+    </div>`).join('');
+}
+
+// ── LOGS ──────────────────────────────────────────────────────
+async function carregarLogs() {
+  const data=await api('/api/logs');
+  if(!data||!data.length){document.getElementById('listaLogs').innerHTML='<div class="loading">Nenhum log.</div>';return;}
+  document.getElementById('listaLogs').innerHTML=data.map(l=>`
+    <div class="log-row">
+      <span class="log-ts">${l.ts?.substring(11,19)||''}</span>
+      <span class="log-nivel-${l.nivel}">[${l.nivel?.toUpperCase()}]</span>
+      <span>${l.evento}</span>
+    </div>`).join('');
+}
+
+// ── MODAL FOTO/PDF ────────────────────────────────────────────
+async function verFoto(url,info,isPdf) {
+  const modal=document.getElementById('fotoModal');
+  document.getElementById('fotoConteudo').innerHTML='<div class="loading" style="padding:40px"><div class="spinner"></div>Carregando...</div>';
+  document.getElementById('fotoInfo').textContent=info;
+  modal.classList.add('open');
+  try {
+    const resp = await fetch(url, { method:'HEAD' });
+    if (!resp.ok) throw new Error('nao encontrado');
+    document.getElementById('fotoConteudo').innerHTML=isPdf?`<iframe src="${url}"></iframe>`:`<img src="${url}" alt="${info}">`;
+  } catch(e) {
+    document.getElementById('fotoConteudo').innerHTML=`<div style="padding:40px;text-align:center;color:#94a3b8"><div style="font-size:2.5rem;margin-bottom:10px">📁❌</div><div style="font-weight:600;color:#e2e8f0;margin-bottom:6px">Arquivo não encontrado no servidor</div><div style="font-size:.82rem">O comprovante foi removido ou nunca chegou a ser salvo. Os dados do lançamento continuam válidos, só a foto que sumiu.</div></div>`;
+  }
+}
+function fecharModal(e,forcar) {
+  if(forcar||e?.target?.id==='fotoModal'){
+    document.getElementById('fotoModal').classList.remove('open');
+    document.getElementById('fotoConteudo').innerHTML='';
+  }
+}
+
+// ── UPLOAD EM LOTE ────────────────────────────────────────────
+let uploadFila = []; // [{name, base64, mime}]
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadArea').classList.remove('drag');
+  if(e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+}
+
+function handleFiles(files) {
+  if(!files || !files.length) return;
+  const maxMB = 20;
+  const novos = [];
+  for(const f of files){
+    if(f.size > maxMB*1024*1024){ alert(`"${f.name}" é muito grande (máx ${maxMB}MB). Ignorado.`); continue; }
+    novos.push(f);
+  }
+  if(!novos.length) return;
+
+  // Lê todos e adiciona à fila
+  let lidos = 0;
+  novos.forEach(f => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      uploadFila.push({ name: f.name, base64: ev.target.result.split(',')[1], mime: f.type });
+      lidos++;
+      if(lidos === novos.length) renderLista();
+    };
+    reader.readAsDataURL(f);
+  });
+}
+
+function renderLista() {
+  const lista = document.getElementById('uploadLista');
+  const itens = document.getElementById('uploadListaItens');
+  const titulo = document.getElementById('uploadListaTitulo');
+  titulo.textContent = `${uploadFila.length} arquivo(s) prontos para processar:`;
+  itens.innerHTML = uploadFila.map((f,i) => {
+    const icon = f.mime === 'application/pdf' ? '📄' : '🖼️';
+    return `<div id="itemFila_${i}" style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#1e293b;border-radius:6px;font-size:.82rem">
+      <span>${icon}</span>
+      <span style="flex:1;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.name}</span>
+      <span id="statusFila_${i}" style="color:#64748b;font-size:.75rem">aguardando</span>
+    </div>`;
+  }).join('');
+  lista.style.display = 'block';
+  document.getElementById('btnEnviar').disabled = false;
+  document.getElementById('uploadResultado').style.display = 'none';
+  document.getElementById('uploadErro').style.display = 'none';
+}
+
+async function enviarTodos() {
+  if(!uploadFila.length){ alert('Selecione arquivos primeiro.'); return; }
+  const btn = document.getElementById('btnEnviar');
+  const tipo = document.getElementById('uploadTipo').value;
+  const remetente = document.getElementById('uploadRemetente').value || 'Manual';
+  const total = uploadFila.length;
+  let ok = 0, erros = 0;
+  const fmt = v => v ? 'R$ '+parseFloat(v).toLocaleString('pt-BR',{minimumFractionDigits:2}) : '—';
+
+  btn.disabled = true;
+  document.getElementById('uploadErro').style.display = 'none';
+  document.getElementById('uploadResultado').style.display = 'none';
+
+  const prog = document.getElementById('uploadProgresso');
+  const progTexto = document.getElementById('uploadProgressoTexto');
+  const progBar = document.getElementById('uploadProgressoBar');
+  const progLog = document.getElementById('uploadProgressoLog');
+  prog.style.display = 'block';
+  progLog.innerHTML = '';
+
+  function addLog(msg, cor='#94a3b8') {
+    progLog.innerHTML += `<div style="color:${cor}">${msg}</div>`;
+    progLog.scrollTop = progLog.scrollHeight;
+  }
+
+  for(let i = 0; i < total; i++) {
+    const f = uploadFila[i];
+    const pct = Math.round((i/total)*100);
+    progTexto.textContent = `Processando ${i+1} de ${total}: ${f.name}`;
+    progBar.style.width = pct + '%';
+
+    const el = document.getElementById('statusFila_'+i);
+    if(el) { el.textContent = '⏳ enviando...'; el.style.color = '#facc15'; }
+
+    try {
+      const resp = await post('/api/upload-foto', {arquivo: f.base64, mimetype: f.mime, tipo, remetente});
+      if(resp?.ok) {
+        ok++;
+        const d = resp.dados || {};
+        if(el) { el.textContent = '✅ OK'; el.style.color = '#4ade80'; }
+        addLog(`✅ ${f.name} — ${fmt(d.valor)} ${d.fornecedor||d.beneficiario||''}`, '#4ade80');
+      } else {
+        erros++;
+        if(el) { el.textContent = '❌ erro'; el.style.color = '#f87171'; }
+        addLog(`❌ ${f.name} — ${resp?.erro||'falha'}`, '#f87171');
+      }
+    } catch(ex) {
+      erros++;
+      if(el) { el.textContent = '❌ erro'; el.style.color = '#f87171'; }
+      addLog(`❌ ${f.name} — ${ex.message}`, '#f87171');
+    }
+  }
+
+  progBar.style.width = '100%';
+  progTexto.textContent = `Concluído! ✅ ${ok} processados · ❌ ${erros} erros`;
+  btn.disabled = false;
+  btn.textContent = '🤖 Processar todos com IA';
+
+  document.getElementById('uploadResultadoDados').innerHTML =
+    `<div style="display:flex;gap:24px;font-size:.9rem">
+      <span>Total: <b style="color:#e2e8f0">${total}</b></span>
+      <span>✅ Sucesso: <b style="color:#4ade80">${ok}</b></span>
+      ${erros?`<span>❌ Erros: <b style="color:#f87171">${erros}</b></span>`:''}
+    </div>`;
+  document.getElementById('uploadResultado').style.display = 'block';
+  uploadFila = [];
+}
+
+function limparUpload() {
+  uploadFila = [];
+  document.getElementById('uploadLista').style.display = 'none';
+  document.getElementById('uploadListaItens').innerHTML = '';
+  document.getElementById('uploadProgresso').style.display = 'none';
+  document.getElementById('uploadResultado').style.display = 'none';
+  document.getElementById('uploadErro').style.display = 'none';
+  document.getElementById('btnEnviar').disabled = true;
+  document.getElementById('btnEnviar').textContent = '🤖 Processar todos com IA';
+  document.getElementById('uploadInput').value = '';
+}
+
+document.getElementById('uploadTipo').onchange = function(){
+  document.getElementById('uploadRemetente').value = this.value==='deposito' ? 'Paulo' : 'Bruna';
+};
+
+// ── IMPRIMIR PDF ──────────────────────────────────────────────
+function imprimirPainel() {
+  // Garante que dashboard está visível para impressão
+  window.print();
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+function atualizarTudo() {
+  verificarStatus();
+  const loaders={0:carregarDashboard,1:carregarConciliacao,2:carregarDespesas,7:carregarDepositos,4:carregarAuditoria,5:carregarFornecedores,6:carregarLogs};
+  if(loaders[tabAtiva]) loaders[tabAtiva]();
+}
+
+verificarStatus();
+carregarDashboard();
+setInterval(verificarStatus,30000);
+setInterval(()=>{if(tabAtiva===0)carregarDashboard();},60000);
+</script>
+</body>
+</html>

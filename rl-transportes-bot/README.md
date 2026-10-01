@@ -17,6 +17,7 @@ Fluxo: WhatsApp (grupo "RL TRANSPORTES") → leitura do comprovante → SQLite l
 | `bot_v3.js` | Bot principal: WhatsApp, leitura dos comprovantes, SQLite, API/painel na porta 3456 |
 | `leitor_pdf.py` | Lê PIX e boleto do Cora direto do texto do PDF, sem IA e sem custo. Usado antes da IA |
 | `sync_supabase.js` | Espelho completo SQLite → Supabase (upsert + remove o que foi excluído localmente) |
+| `painel_v3.html` | Painel servido em `http://100.125.195.119:3456` (Dashboard, Conciliação, Despesas…) |
 
 ## Proteções adicionadas em 01/10/2026
 
@@ -34,6 +35,16 @@ Contexto: de 20/09 a 27/09/2026 o bot ficou sem WhatsApp, e ao voltar só buscou
 - **Zeradas:** se a IA falhar, o item é tentado de novo automaticamente a cada 2h.
 - **Supabase sempre igual ao SQLite:** espelho ao iniciar, a cada 2h e logo após conciliação
   FIFO, reprocessamento e recuperação de período.
+
+## Conciliação (corrigida em 01/10/2026)
+
+Na aba Conciliação, o saldo não fechava por dois motivos:
+- **A API cortava os dados:** `/api/despesas` devolvia só as 500 mais recentes (`LIMIT 500`). Ficavam de fora
+  105 despesas (R$ 45.801,04), e o "Saldo Disponível" aparecia +R$ 37.179,64 quando o real era -R$ 8.201,40.
+  O limite foi removido de despesas, depósitos e ajustes.
+- **A coluna "Saldo" começava errada:** ela partia da âncora de 06/07 e somava só o período filtrado.
+  Agora o saldo acumulado é calculado sobre todo o histórico, e a tela mostra
+  **Saldo anterior + Depositado − Despesas = Saldo final do período**, com o selo ✅ Confere.
 
 ## Endpoints úteis (porta 3456)
 
