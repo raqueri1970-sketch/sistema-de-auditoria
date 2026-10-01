@@ -1,0 +1,12 @@
+# Credenciais, dados financeiros e sessao do WhatsApp NUNCA vao para o repositorio
+.env
+*.db
+*.db-*
+*.db.bak*
+*.bak*
+fotos/
+.wwebjs_auth/
+.wwebjs_cache/
+node_modules/
+*.log
+lancamentos.json

@@ -1,0 +1,23 @@
+{
+  "name": "rl-transportes-bot",
+  "version": "1.0.0",
+  "description": "Bot WhatsApp RL TRANSPORTES - classifica despesas e receitas por remetente",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.106.0",
+    "@google/generative-ai": "^0.24.1",
+    "@supabase/supabase-js": "^2.108.2",
+    "better-sqlite3": "^12.11.1",
+    "dotenv": "^17.4.2",
+    "qrcode-terminal": "^0.12.0",
+    "tesseract.js": "^5.0.4",
+    "whatsapp-web.js": "^1.34.7"
+  },
+  "allowScripts": {
+    "puppeteer@24.38.0": true,
+    "tesseract.js@5.1.1": true
+  }
+}
