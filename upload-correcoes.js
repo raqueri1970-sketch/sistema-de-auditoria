@@ -86,7 +86,7 @@
     if(ini.charAt(0)==='<')return false;                             // xls em HTML/XML
     return true;
   }
-  function aviso(msg){
+  function aviso(msg,ms){
     try{
       var el=document.getElementById('__upload_aviso');
       if(!el){
@@ -95,7 +95,7 @@
         document.body.appendChild(el);
       }
       el.textContent=msg;el.style.opacity='1';
-      clearTimeout(el._t);el._t=setTimeout(function(){el.style.opacity='0';},3500);
+      clearTimeout(el._t);el._t=setTimeout(function(){el.style.opacity='0';},ms||3500);
     }catch(e){}
   }
 
@@ -193,7 +193,57 @@
     });
   }
 
+  // O navegador guarda só uma referência ao arquivo e lê depois (ao clicar em Processar).
+  // Se nesse meio-tempo o arquivo estiver aberto no Excel, for substituído por um novo
+  // download ou vier do painel de downloads do Chrome, a leitura falha com
+  // "NotReadableError: The requested file could not be read...". Lê na hora e guarda cópia.
+  var COPIADOS=new WeakSet();
+  function copiar(f){
+    if(COPIADOS.has(f))return Promise.resolve(f);
+    return f.arrayBuffer().then(function(buf){
+      var c=new File([buf],f.name,{type:f.type,lastModified:f.lastModified});COPIADOS.add(c);return c;
+    });
+  }
+  function msgLeitura(nomes){
+    return '⚠ Não consegui ler: '+nomes.join(', ')+'. Feche o arquivo no Excel, não arraste do painel de downloads do navegador e selecione de novo pela pasta.';
+  }
+  function copiarLista(lista){
+    var ruins=[];
+    return Promise.all(lista.map(function(f){return copiar(f).catch(function(){ruins.push(f.name);return null;});}))
+      .then(function(cs){if(ruins.length)aviso(msgLeitura(ruins),9000);return cs.filter(Boolean);});
+  }
+  var REPASSADOS=new WeakSet();
+  function lerNaHora(){
+    window.addEventListener('change',function(e){
+      var inp=e.target;
+      if(!inp||inp.tagName!=='INPUT'||inp.type!=='file'||REPASSADOS.has(e))return;
+      var fs=Array.prototype.slice.call(inp.files||[]);
+      if(!fs.length||fs.every(function(f){return COPIADOS.has(f);}))return;
+      e.stopImmediatePropagation();
+      copiarLista(fs).then(function(cs){
+        if(!cs.length){try{inp.value='';}catch(x){}return;}
+        var dt=new DataTransfer();cs.forEach(function(c){dt.items.add(c);});
+        inp.files=dt.files;
+        var ev=new Event('change',{bubbles:true});REPASSADOS.add(ev);inp.dispatchEvent(ev);
+      });
+    },true);
+    window.addEventListener('drop',function(e){
+      if(REPASSADOS.has(e))return;
+      var fs=Array.prototype.slice.call((e.dataTransfer&&e.dataTransfer.files)||[]);
+      if(!fs.length||fs.every(function(f){return COPIADOS.has(f);}))return;
+      e.preventDefault();e.stopImmediatePropagation();
+      var alvo=e.target;
+      copiarLista(fs).then(function(cs){
+        if(!cs.length)return;
+        var dt=new DataTransfer();cs.forEach(function(c){dt.items.add(c);});
+        var ev=new DragEvent('drop',{dataTransfer:dt,bubbles:true,cancelable:true,clientX:e.clientX,clientY:e.clientY});
+        REPASSADOS.add(ev);(alvo&&alvo.isConnected?alvo:document.body).dispatchEvent(ev);
+      });
+    },true);
+  }
+
   function correcoesGerais(aoSoltar){
+    lerNaHora();
     corrigirDOM(document);
     aguardarXLSX();
     soltarSemDownload(aoSoltar);
