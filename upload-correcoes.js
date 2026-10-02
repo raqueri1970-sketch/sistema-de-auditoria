@@ -270,7 +270,18 @@
       if(erros.length)toast('Não identificado: '+erros.join(', ')+' — solte no card certo','err');
       atualizar();
     }
-    if(ehGren)window.onMultiFile=carregar;else window.onFiles=carregar;
+    var ultimaCarga=Promise.resolve();
+    function carregarRegistrando(files){ultimaCarga=carregar(files);return ultimaCarga;}
+    if(ehGren)window.onMultiFile=carregarRegistrando;else window.onFiles=carregarRegistrando;
+    // Arquivos vindos do Portal (Central de Upload / painel): no Grendene o código de
+    // recebimento saía antes de processar — os cards enchiam mas a auditoria não rodava.
+    if(ehGren)window.addEventListener('message',function(ev){
+      if(!ev.data||ev.data.type!=='injectFiles')return;
+      setTimeout(async function(){
+        try{await ultimaCarga;}catch(e){}
+        if(ARQS.v&&typeof processar==='function'){var b=document.getElementById('bproc');if(b)b.disabled=false;processar();}
+      },0);
+    });
 
     // Cards individuais: clicar ou soltar carrega direto naquele cargo.
     SLOTS.forEach(function(k){
@@ -320,15 +331,65 @@
     CAMPANHAS.forEach(function(pid){
       document.querySelectorAll('#up-'+pid+' input[type=file]').forEach(function(i){i.setAttribute('accept',ACCEPT_CAMPANHA);});
     });
-    // Central de Upload Universal: nas campanhas, o cargo vem do nome do arquivo.
-    if(typeof renderUniversalQueue==='function'&&typeof UNIVERSAL_QUEUE!=='undefined'){
-      var renderOriginal=renderUniversalQueue;
-      renderUniversalQueue=function(){
-        try{UNIVERSAL_QUEUE.forEach(function(it){
-          if(it&&it.file&&CAMPANHAS.indexOf(it.pid)>=0){var s=slotPorNome(it.file.name);if(s)it.sid=s;}
-        });}catch(e){}
-        return renderOriginal.apply(this,arguments);
+    // Central de Upload Universal: os 4 relatórios das campanhas têm o mesmo nome-base
+    // ("quantitativos_vendidos_..._GERENTES.csv"), então a pontuação genérica não sabia se eram
+    // Meias ou Grendene (empate → sempre Meias) e o de vendedores podia cair no Comercial.
+    // Cargo vem do nome; campanha vem do nome ou do conteúdo ("GRENDENE" / "MEIA").
+    if(typeof handleUniversalFiles==='function'&&typeof UNIVERSAL_QUEUE!=='undefined'&&typeof renderUniversalQueue==='function'){
+      var handleOriginal=handleUniversalFiles;
+      handleUniversalFiles=async function(fileList){
+        var antes=UNIVERSAL_QUEUE.length;
+        await handleOriginal.apply(this,arguments);
+        try{await ajustarCampanhasNaFila(UNIVERSAL_QUEUE.slice(antes));}catch(e){console.warn('[upload-correcoes] fila universal',e);}
+        renderUniversalQueue();
       };
+    }
+    function palavras(s){
+      return ' '+String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ')+' ';
+    }
+    function campanhaPorTexto(t){
+      t=palavras(t);
+      var g=(t.match(/ grendene /g)||[]).length,m=(t.match(/ meias? /g)||[]).length;
+      return g>m?'gren':m>g?'mei':null;
+    }
+    async function campanhaPorConteudo(f){
+      try{
+        var buf=await f.arrayBuffer(),b=new Uint8Array(buf);
+        // Planilha .xlsx/.xls: lê o texto das células; CSV: o próprio texto.
+        if(window.XLSX&&!ehTexto(b)){
+          var wb=XLSX.read(b,{type:'array'});
+          return campanhaPorTexto(wb.SheetNames.map(function(n){return XLSX.utils.sheet_to_csv(wb.Sheets[n]);}).join('\n'));
+        }
+        return campanhaPorTexto(decodificar(b));
+      }catch(e){}
+      return null;
+    }
+    function baseRelatorio(nome){
+      return norm(nome).replace(/(sub)?gerentes?|regiona(l|is)|regiao|vendedor(es)?|caixas?|csv|xlsx?|txt/g,'').replace(/\d+$/,'');
+    }
+    async function ajustarCampanhasNaFila(itens){
+      var alvos=[];
+      for(var i=0;i<itens.length;i++){
+        var it=itens[i];if(!it||!it.file)continue;
+        var cargo=slotPorNome(it.file.name),n=norm(it.file.name);
+        var ehRelatorio=cargo&&(CAMPANHAS.indexOf(it.pid)>=0||/quantitativ|vendid/.test(n)||!it.pid);
+        if(!ehRelatorio)continue;
+        var camp=/gren/.test(n)?'gren':campanhaPorTexto(it.file.name)||await campanhaPorConteudo(it.file);
+        alvos.push({it:it,cargo:cargo,camp:camp,base:baseRelatorio(it.file.name)});
+      }
+      // Arquivos do mesmo relatório (mesmo nome-base) seguem a campanha que foi identificada.
+      alvos.forEach(function(a){
+        if(a.camp)return;
+        var irmao=alvos.find(function(b){return b.camp&&b.base===a.base;})||alvos.find(function(b){return b.camp;});
+        if(irmao)a.camp=irmao.camp;
+      });
+      alvos.forEach(function(a){
+        var certo=!!a.camp;
+        a.it.pid=a.camp||(CAMPANHAS.indexOf(a.it.pid)>=0?a.it.pid:'mei');
+        a.it.sid=a.cargo;
+        // Campanha não identificada → confiança baixa (amarelo) para a pessoa conferir.
+        a.it.confidence=certo?Math.max(a.it.confidence||0,0.9):0.3;
+      });
     }
 
     // Injeta esta correção dentro do HTML de cada módulo antes de virar blob.
