@@ -1597,4 +1597,6 @@ tick();setInterval(tick,30000);
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){closeSB();document.getElementById('pdfm').style.display='none';} });
 document.getElementById('pdfm').addEventListener('click',function(e){if(e.target===this)this.style.display='none';});
 setTimeout(function(){toast('🏪 Portal Esposende v4.2 — Pronto!');},500);
-</script></body></html>
+</script><!-- Campanhas Meias/Grendene: carregar todos os relatórios (.csv) de uma vez e não baixar ao soltar -->
+<script src="campanhas-upload-patch.js?v=20261002-1"></script>
+</body></html>
