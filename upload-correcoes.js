@@ -269,22 +269,53 @@
     var sub=document.querySelector('.dz-sub');
     if(sub&&ehGren)sub.textContent='Selecione de 1 a 4 arquivos de uma vez (.xlsx / .xls / .csv)';
 
-    // CSV lido como texto (o cálculo das campanhas já trata "1.234,56" no toN).
+    // Ajustes nas linhas lidas, antes do cálculo:
+    // 1) Loja: o arquivo de Gerentes vem com "05","06"…"09" e o de Vendedores com 5,6…9.
+    //    "05" ≠ "5" → o total da loja não era encontrado e as lojas 5 a 9 ficavam sem valor
+    //    correto. Normaliza o código da loja (tira zeros à esquerda) em todos os arquivos.
+    // 2) Linha de Gerente/Subgerente sem nome (ex.: loja 14 com valor e sem nome) era
+    //    descartada em silêncio — o valor pago sumia da auditoria. Agora entra marcada.
+    function normalizarLinhas(rows){
+      if(!rows||!rows.length)return rows;
+      var hI=(typeof hdr==='function')?hdr(rows):0;
+      var h=(rows[hI]||[]).map(norm);
+      var colsLoja=[];h.forEach(function(c,i){if(/^(emp|empresa|loja|filial|codloja|codempresa)$/.test(c))colsLoja.push(i);});
+      var iNome=h.indexOf('nome');
+      var ehInformado=h.some(function(c){return c==='vl'||c.indexOf('valorsubgerente')===0;});
+      for(var i=hI+1;i<rows.length;i++){
+        var r=rows[i];if(!r)continue;
+        colsLoja.forEach(function(j){
+          var s=String(r[j]==null?'':r[j]).trim();
+          if(/^\d+(\.0+)?$/.test(s))r[j]=String(parseInt(s,10));
+        });
+        if(ehInformado&&iNome>=0&&String(r[iNome]==null?'':r[iNome]).trim()===''&&
+           r.some(function(c,j){return j!==iNome&&colsLoja.indexOf(j)<0&&String(c==null?'':c).trim()!=='';}))
+          r[iNome]='(SEM NOME NA PLANILHA)';
+      }
+      return rows;
+    }
     var lerOriginal=window.lerXLSX;
     window.lerXLSX=function(file){
-      if(!/\.(csv|txt)$/i.test(file&&file.name||''))return lerOriginal(file);
-      return file.arrayBuffer().then(function(buf){return parseCSV(decodificar(buf));});
+      var p=/\.(csv|txt)$/i.test(file&&file.name||'')
+        ?file.arrayBuffer().then(function(buf){return parseCSV(decodificar(buf));})
+        :lerOriginal(file);
+      return p.then(normalizarLinhas);
     };
-    // Grendene lia "1.234,56" como 1.234 e "1.200" pares como 1,2.
-    if(ehGren){
-      window.toN=function(v){
-        if(v===''||v==null)return 0;
-        if(typeof v==='number')return isNaN(v)?0:v;
-        var s=String(v).replace(/[R$\s]/g,'');
-        if(s.indexOf(',')>=0||/^-?\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,'').replace(',','.');
-        var n=parseFloat(s);return isNaN(n)?0:n;
-      };
-    }
+    // Valores: o Linx exporta "806.00" (ponto decimal) no arquivo de Gerentes/Subgerentes e
+    // "245,5" (vírgula) no de Regionais. O toN do Meias removia todo ponto → "806.00" virava
+    // 80600. O do Grendene lia "1.234,56" como 1,234. Regra única: o último separador é o
+    // decimal; "1.200" (ponto + 3 dígitos, sem vírgula) é milhar.
+    window.toN=function(v){
+      if(v===''||v==null)return 0;
+      if(typeof v==='number')return isNaN(v)?0:v;
+      var s=String(v).replace(/[R$\s"]/g,'');
+      var neg=/^\(.*\)$/.test(s);s=s.replace(/[()]/g,'');
+      var c=s.lastIndexOf(','),d=s.lastIndexOf('.');
+      if(c>=0&&d>=0)s=c>d?s.replace(/\./g,'').replace(',','.'):s.replace(/,/g,'');
+      else if(c>=0)s=s.split(',').length>2?s.replace(/,/g,''):s.replace(',','.');
+      else if(/^-?\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,'');
+      var n=parseFloat(s);n=isNaN(n)?0:n;return neg?-n:n;
+    };
 
     async function slotPorConteudo(f){
       try{
