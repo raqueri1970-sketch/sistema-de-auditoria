@@ -135,3 +135,21 @@ create or replace trigger trg_custo_trava_cadastro
 update public.ajuste_estoque_entrada
    set status='CANCELADO', marca_fonte='TESTE: cancelado em 05/10/2026 (pedido de teste do CPF Ricardo Aqueri)'
  where id in (1883,1911,2700,2701,1400) and status='ERRO' and executado_em is null;
+
+-- 10. Codigos inexistentes/invalidos no Seta, com ERRO e nunca executados: cancelados
+update public.ajuste_estoque_entrada
+   set status='CANCELADO', marca_fonte='EXCLUIDO: codigo inexistente/invalido no Seta, nunca executado (cancelado em 05/10/2026)'
+ where id in (1822,1627,1695,1770,1745,2807,2913,3040,3190,1630) and status='ERRO' and executado_em is null;
+
+-- 11. Marcas provaveis aplicadas (pedido do usuario)
+with m(id, base, ev) as (values
+ (1782,'21333','provavel: 21333 MISSISSIPI (codigo com um 3 a menos)'),
+ (1755,'22197','provavel: 22197 OLYMPIKUS (numeracao incompleta)'),
+ (1428,'15588','provavel: 15588 HAVAIANAS (numeracao incompleta)'),
+ (642 ,'1095' ,'provavel: 1095 CARTAGO MINI tam 28 (msg: 10951-28)')),
+r as (select m.id, m.ev, i.marca, i.descricao, (select c.custo from private.ajuste_custo_de(m.base, null) c) custo
+ from m cross join lateral private.ajuste_produto_info(m.base, null) i)
+update public.ajuste_estoque_entrada e set marca=r.marca, marca_fonte=r.ev, descricao_produto=r.descricao,
+ custo_unitario=coalesce(e.custo_unitario, r.custo),
+ custo_fonte=case when e.custo_unitario is null and r.custo is not null then 'provavel' else e.custo_fonte end
+from r where e.id=r.id;
