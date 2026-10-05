@@ -130,3 +130,8 @@ end $function$;
 create or replace trigger trg_custo_trava_cadastro
   before insert or update on public.ajuste_custo_produto
   for each row execute function private.ajuste_custo_trava_cadastro();
+
+-- 9. Pedidos de teste (CPF Ricardo Aqueri), com ERRO e nunca executados no Seta: cancelados
+update public.ajuste_estoque_entrada
+   set status='CANCELADO', marca_fonte='TESTE: cancelado em 05/10/2026 (pedido de teste do CPF Ricardo Aqueri)'
+ where id in (1883,1911,2700,2701,1400) and status='ERRO' and executado_em is null;
