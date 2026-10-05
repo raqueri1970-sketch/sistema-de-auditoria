@@ -153,3 +153,22 @@ update public.ajuste_estoque_entrada e set marca=r.marca, marca_fonte=r.ev, desc
  custo_unitario=coalesce(e.custo_unitario, r.custo),
  custo_fonte=case when e.custo_unitario is null and r.custo is not null then 'provavel' else e.custo_fonte end
 from r where e.id=r.id;
+
+-- 12. Guard: excecao administrativa CONCLUIDO -> CANCELADO somente com a chave de sessao
+--     app.ajuste_excluir_painel='on' ligada na propria transacao (o app/portal nao acessa).
+--     Funcao public.guard_ajuste_estoque_entrada recriada com:
+--       if old.status in ('CONCLUIDO','CANCELADO') and new.status is distinct from old.status
+--          and not (old.status='CONCLUIDO' and new.status='CANCELADO'
+--                   and coalesce(current_setting('app.ajuste_excluir_painel', true),'')='on')
+--       then raise exception 'SEGURANCA: pedido % ja e final ...'
+--     (demais regras inalteradas; aplicada como migration guard_ajuste_excecao_excluir_painel)
+
+-- 13. 9 ajustes concluidos a mao no Seta, sem produto identificavel: tirados do painel
+--     (registro preservado para auditoria)
+do $$ begin
+  perform set_config('app.ajuste_excluir_painel','on', true);
+  update public.ajuste_estoque_entrada
+     set status='CANCELADO',
+         marca_fonte='EXCLUIDO DO PAINEL: feito a mao no Seta, produto nao identificado (05/10/2026)'
+   where id in (2184,2230,2679,2684,888,1162,2718,894,3070) and status='CONCLUIDO' and marca is null;
+end $$;
