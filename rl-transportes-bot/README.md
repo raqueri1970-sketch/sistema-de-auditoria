@@ -17,6 +17,8 @@ Fluxo: WhatsApp (grupo "RL TRANSPORTES") → leitura do comprovante → SQLite l
 | `bot_v3.js` | Bot principal: WhatsApp, leitura dos comprovantes, SQLite, API/painel na porta 3456 |
 | `leitor_pdf.py` | Lê PIX e boleto do Cora direto do texto do PDF, sem IA e sem custo. Usado antes da IA |
 | `sync_supabase.js` | Espelho completo SQLite → Supabase (upsert + remove o que foi excluído localmente) |
+| `conciliacao_semanal.js` | Compara o sistema com os fechamentos semanais manuscritos da Bruna (somente leitura) |
+| `AUDITORIA_2026-10-06.md` | Relatório da auditoria de 06/10/2026: correções feitas e pendências |
 
 ## Proteções adicionadas em 01/10/2026
 
