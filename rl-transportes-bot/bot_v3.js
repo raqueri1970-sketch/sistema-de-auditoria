@@ -537,18 +537,91 @@ async function processarMidia(msg, nomeRemetente) {
   finally { if (prefMsg) msgsEmProcessamento.delete(prefMsg); }
 }
 
+// Download alternativo, direto na pagina do WhatsApp Web, para quando msg.downloadMedia()
+// da lib falha. BUG REAL (01-06/10/2026): os depositos do Paulo (02/10) e do Rafael (05/10 e
+// 06/10) davam "Erro baixar midia: t" (erro minificado do WA Web) em toda varredura, enquanto
+// os PDFs da Bruna baixavam normal. Como o retry era sempre pelo mesmo caminho, esses
+// depositos nunca entravam. Aqui: (1) pede ao WA Web para baixar como se o usuario tivesse
+// clicado (isso tambem pede ao celular de quem mandou reenviar midia expirada), espera
+// resolver, (2) le o arquivo ja resolvido da memoria do WA Web e, se nao der, (3) baixa do
+// CDN testando o tipo de midia (o tipo entra na chave de decriptacao). Devolve o motivo
+// exato de cada falha em 'info' para o log.
+async function baixarMidiaPelaPagina(msg, esperaMs = 30000) {
+  if (!client.pupPage || !msg?.id?._serialized) return { info: { erro: 'pagina do WhatsApp indisponivel' } };
+  return client.pupPage.evaluate(async (msgId, esperaMs) => {
+    const info = { etapas: [] };
+    const serr = e => {
+      try {
+        return { nome: e?.name, msg: e?.message, status: e?.status, texto: String(e),
+                 campos: e && typeof e === 'object' ? Object.keys(e).slice(0, 8) : [],
+                 pilha: String(e?.stack || '').split('\n').slice(0, 3).join(' | ') };
+      } catch (_) { return { texto: 'erro nao serializavel' }; }
+    };
+    const C = window.require('WAWebCollections');
+    let m = C.Msg.get(msgId);
+    if (!m) { try { m = (await C.Msg.getMessagesById([msgId]))?.messages?.[0]; } catch (e) { info.etapas.push({ getMessagesById: serr(e) }); } }
+    if (!m) { info.erro = 'mensagem nao encontrada no WhatsApp Web'; return { info }; }
+    Object.assign(info, { tipo: m.type, mimetype: m.mimetype, tamanho: m.size, nomeArquivo: m.filename,
+      temDirectPath: !!m.directPath, temMediaKey: !!m.mediaKey, visualizacaoUnica: !!m.isViewOnce,
+      etapaInicial: m.mediaData?.mediaStage });
+    const paraBase64 = async buf => window.WWebJS.arrayBufferToBase64Async(buf);
+    const resposta = (via, data) => ({ info: { ...info, via }, data, mimetype: m.mimetype, filename: m.filename });
+
+    try { await m.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1, isUserInitiated: true }); }
+    catch (e) { info.etapas.push({ downloadMediaInterno: serr(e) }); }
+    const limite = Date.now() + esperaMs;
+    while (Date.now() < limite && m.mediaData && m.mediaData.mediaStage !== 'RESOLVED' && !String(m.mediaData.mediaStage).includes('ERROR')) {
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    info.etapaDepois = m.mediaData?.mediaStage;
+
+    try {
+      const mb = m.mediaData?.mediaBlob;
+      let blob = null;
+      if (mb && typeof mb.forceToBlob === 'function') blob = await mb.forceToBlob();
+      else if (mb instanceof Blob) blob = mb;
+      else if (mb && mb._blob instanceof Blob) blob = mb._blob;
+      if (blob && blob.size) return resposta('memoria', await paraBase64(await blob.arrayBuffer()));
+      if (mb) info.etapas.push({ memoria: 'blob vazio' });
+    } catch (e) { info.etapas.push({ memoria: serr(e) }); }
+
+    if (!m.directPath || !m.mediaKey) { info.erro = 'mensagem sem directPath/mediaKey'; return { info }; }
+    const qpl = { addAnnotations() { return this; }, addPoint() { return this; } };
+    const tipoPorMime = String(m.mimetype || '').startsWith('image/') ? 'image' : 'document';
+    for (const type of [...new Set([m.type, tipoPorMime, 'image', 'document'])].filter(Boolean)) {
+      try {
+        const buf = await window.require('WAWebDownloadManager').downloadManager.downloadAndMaybeDecrypt({
+          directPath: m.directPath, encFilehash: m.encFilehash, filehash: m.filehash, mediaKey: m.mediaKey,
+          mediaKeyTimestamp: m.mediaKeyTimestamp, type, signal: new AbortController().signal, downloadQpl: qpl });
+        return resposta(`cdn:${type}`, await paraBase64(buf));
+      } catch (e) { info.etapas.push({ [`cdn_${type}`]: serr(e) }); }
+    }
+    return { info };
+  }, msg.id._serialized, esperaMs);
+}
+
 async function processarMidiaInterno(msg, nomeRemetente) {
-  let media;
+  let media, erroLib = null;
   const dataMsg = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleString('pt-BR') : '?';
   for (let t = 1; t <= 3 && !media; t++) {
-    try { media = await msg.downloadMedia(); }
+    try { media = await msg.downloadMedia(); if (!media) break; }
     catch (e) {
-      if (t < 3) { await new Promise(r => setTimeout(r, 3000 * t)); continue; }
-      log(`Erro baixar midia (msg de ${nomeRemetente} em ${dataMsg}, id ${msg.id?.id||'?'}): ${e.message}`, 'error');
+      erroLib = e;
+      if (t < 3) await new Promise(r => setTimeout(r, 3000 * t));
+    }
+  }
+  if (!media) {
+    let alt = null;
+    try { alt = await baixarMidiaPelaPagina(msg); }
+    catch (e) { alt = { info: { erro: `download alternativo falhou: ${e.message}` } }; }
+    if (alt?.data) {
+      media = { data: alt.data, mimetype: alt.mimetype || 'application/octet-stream', filename: alt.filename };
+      log(`Midia de ${nomeRemetente} (${dataMsg}) baixada pelo caminho alternativo (${alt.info?.via}) — lib falhou: ${erroLib ? erroLib.message : 'midia vazia'}`, 'warn');
+    } else {
+      log(`Erro baixar midia (msg de ${nomeRemetente} em ${dataMsg}, id ${msg.id?.id||'?'}): ${erroLib ? erroLib.message : 'midia vazia'} — caminho alternativo tambem falhou`, 'error', alt?.info || null);
       return 'erro_download';
     }
   }
-  if (!media) { log(`Midia vazia (msg de ${nomeRemetente} em ${dataMsg})`, 'warn'); return 'erro_download'; }
 
   const isImagem = media.mimetype.startsWith('image/');
   const isPdf    = media.mimetype === 'application/pdf';
@@ -1131,12 +1204,12 @@ const server = http.createServer((req, res) => {
   }
 
   if (url === '/api/depositos') {
-    const rows = db.prepare(`SELECT * FROM depositos ORDER BY data DESC LIMIT 200`).all();
+    const rows = db.prepare(`SELECT * FROM depositos ORDER BY data DESC`).all();
     return jsonResp(res, rows.map(r=>({...r, ocr_json: r.ocr_json?JSON.parse(r.ocr_json):null})));
   }
 
   if (url === '/api/ajustes') {
-    const rows = db.prepare(`SELECT * FROM ajustes ORDER BY data DESC LIMIT 200`).all();
+    const rows = db.prepare(`SELECT * FROM ajustes ORDER BY data DESC`).all();
     return jsonResp(res, rows);
   }
 
@@ -1168,7 +1241,10 @@ const server = http.createServer((req, res) => {
   }
 
   if (url === '/api/despesas') {
-    const rows = db.prepare(`SELECT * FROM despesas ORDER BY data DESC LIMIT 500`).all();
+    // SEM LIMIT: a Conciliacao e o Dashboard do painel calculam saldo no navegador com esta
+    // lista. Com LIMIT 500, em 01/10/2026 ficavam de fora 105 despesas (R$ 45.801,04) e o
+    // "Saldo Disponivel" aparecia +R$ 37.179,64 quando o real era -R$ 8.201,40.
+    const rows = db.prepare(`SELECT * FROM despesas ORDER BY data DESC`).all();
     return jsonResp(res, rows.map(r=>({...r, ocr_json: r.ocr_json?JSON.parse(r.ocr_json):null})));
   }
 

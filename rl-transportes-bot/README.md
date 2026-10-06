@@ -35,6 +35,24 @@ Contexto: de 20/09 a 27/09/2026 o bot ficou sem WhatsApp, e ao voltar só buscou
 - **Supabase sempre igual ao SQLite:** espelho ao iniciar, a cada 2h e logo após conciliação
   FIFO, reprocessamento e recuperação de período.
 
+## Correção de 06/10/2026 — depósitos parados desde 30/09
+
+Sintoma: a aba Depósitos parou em 30/09. Os comprovantes da Bruna (despesas) entravam, mas os
+do Paulo (02/10) e do Rafael (05/10 e 06/10) davam `Erro baixar midia: t` em toda varredura.
+
+Causa: `msg.downloadMedia()` do whatsapp-web.js 1.34.7 falha em algumas mídias com um erro
+minificado do WhatsApp Web. O retry repetia sempre o mesmo caminho, então esses depósitos nunca
+eram lançados.
+
+Correção (`baixarMidiaPelaPagina` em `bot_v3.js`): quando a lib falha, o bot baixa direto na
+página do WhatsApp Web: (1) pede o download como se o usuário clicasse (também pede ao celular de
+quem mandou para reenviar mídia expirada), (2) lê o arquivo já resolvido da memória e (3) baixa
+do CDN testando o tipo de mídia. Se ainda falhar, o log de ERRO traz em `dados` o motivo exato
+de cada tentativa (etapa da mídia, status HTTP etc.).
+
+Também sincronizados com o PC: `/api/despesas`, `/api/depositos` e `/api/ajustes` sem LIMIT
+(com LIMIT 500 o saldo da Conciliação saía errado).
+
 ## Endpoints úteis (porta 3456)
 
 | Endpoint | Uso |
