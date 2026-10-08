@@ -15,6 +15,7 @@ Fluxo: WhatsApp (grupo "RL TRANSPORTES") → leitura do comprovante → SQLite l
 | Arquivo | O que faz |
 |---|---|
 | `bot_v3.js` | Bot principal: WhatsApp, leitura dos comprovantes, SQLite, API/painel na porta 3456 |
+| `obras_bot.js` | Módulo Obras (08/10/2026): grupo "Adm Obras Esposende" → `obras_comprovantes` + bucket `obras-comprovantes`. Carregado pelo `bot_v3.js`, mesma sessão |
 | `leitor_pdf.py` | Lê PIX e boleto do Cora direto do texto do PDF, sem IA e sem custo. Usado antes da IA |
 | `sync_supabase.js` | Espelho completo SQLite → Supabase (upsert + remove o que foi excluído localmente) |
 
