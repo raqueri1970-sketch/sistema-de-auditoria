@@ -172,7 +172,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   const dataOk = d => (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= '2024-01-01' && d <= '2030-12-31') ? d : null;
 
   // Processa UMA mensagem com mídia. Retorna 'ja_lancada' | 'duplicada' | 'erro_download' | 'ignorada' | n (itens lançados)
-  async function processar(msg, nomeRemetente, { simular = false } = {}) {
+  async function processar(msg, nomeRemetente, { simular = false, numero = null } = {}) {
     if (!sb) throw new Error('Supabase indisponivel');
     if (await jaLancada(msg)) return 'ja_lancada';
     if (simular) return 'faltando';
@@ -192,7 +192,9 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     const { data: dupHash } = await sb.from('obras_comprovantes').select('id,wa_msg_id').eq('arquivo_hash', hash).limit(1);
     const waData = new Date(ts).toISOString();
     const caminho = `wa/${waData.substring(0, 7)}/${nome}`;
-    const base = { origem: 'whatsapp', remetente: nomeRemetente, wa_data: waData, legenda: (msg.body || '').substring(0, 500) || null,
+    // Contas a pagar (08/10/2026): todo recibo novo entra "a_pagar" e fecha por semana, por número de quem mandou.
+    const base = { origem: 'whatsapp', remetente: nomeRemetente, remetente_numero: numero, situacao_pagamento: 'a_pagar',
+      wa_data: waData, legenda: (msg.body || '').substring(0, 500) || null,
       arquivo_nome: nome, arquivo_path: caminho, arquivo_hash: hash };
 
     if (dupHash && dupHash.length) {
@@ -238,10 +240,18 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
 
   async function onMessage(msg, chat) {
     if (!msg.hasMedia) return;
-    const c = await msg.getContact();
-    const nome = c.pushname || c.name || c.number || 'Desconhecido';
-    L(`Midia de ${nome}`);
-    return enfileirar(() => processar(msg, nome).catch(e => L(`Erro processando midia de ${nome}: ${e.message}`, 'error')));
+    const { nome, numero } = await contatoDe(msg);
+    L(`Midia de ${nome} (${numero || 'sem numero'})`);
+    return enfileirar(() => processar(msg, nome, { numero }).catch(e => L(`Erro processando midia de ${nome}: ${e.message}`, 'error')));
+  }
+
+  // Nome para exibir + número (só dígitos, com DDI) — o número é a chave do fechamento semanal.
+  async function contatoDe(m) {
+    try {
+      const c = await m.getContact();
+      const numero = String(c.number || c.id?.user || '').replace(/\D/g, '') || null;
+      return { nome: c.pushname || c.name || c.number || 'Desconhecido', numero };
+    } catch (e) { return { nome: 'Desconhecido', numero: null }; }
   }
 
   async function mensagensPeriodo(deMs, ateMs) {
@@ -264,9 +274,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     return msgs.filter(m => m.hasMedia && m.timestamp * 1000 >= deMs && m.timestamp * 1000 <= ateMs);
   }
   let ultimaBusca = null;
-  async function nomeDe(m) {
-    try { const c = await m.getContact(); return c.pushname || c.name || c.number || 'Desconhecido'; } catch (e) { return 'Desconhecido'; }
-  }
+  async function nomeDe(m) { return (await contatoDe(m)).nome; }
   function periodo(qs) {
     const p = new URLSearchParams(qs);
     const de = p.get('de') || new Date(Date.now() - 30 * 864e5).toISOString().substring(0, 10);
@@ -308,7 +316,8 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
               importacao.total = msgs.length;
               for (const m of msgs.sort((a, b) => a.timestamp - b.timestamp)) {
                 try {
-                  const r = await processar(m, await nomeDe(m), { simular });
+                  const ct = await contatoDe(m);
+                  const r = await processar(m, ct.nome, { simular, numero: ct.numero });
                   if (r === 'ja_lancada') importacao.ja++; else if (r === 'duplicada') importacao.duplicadas++;
                   else if (r === 'erro_download') importacao.erros++; else if (r === 'faltando') importacao.faltando++;
                   else if (typeof r === 'number') { importacao.lancadas++; importacao.itens += r; }
