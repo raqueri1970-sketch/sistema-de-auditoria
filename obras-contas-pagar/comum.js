@@ -1,7 +1,11 @@
 // Comum às telas de Obras (Contas a Pagar, Presidente, Financeiro, Relatórios): login do Portal, formatação, PDF e utilidades.
 const SB_URL = 'https://rdztzurfesnobfkazgpm.supabase.co';
 const SB_KEY = 'sb_publishable_4LHSO4TrP7F4m4tpJyH44g_BGmfC92h';
-const sb = supabase.createClient(SB_URL, SB_KEY, {auth: {persistSession: true, autoRefreshToken: true, storageKey: 'obras-fluxo-auth'}});
+// Dentro do Portal (mesmo endereço github.io) usa a MESMA sessão do Portal: não pede login de novo.
+const NO_PORTAL = /github\.io$/.test(location.hostname);
+const EMBUTIDO = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
+if (EMBUTIDO) document.documentElement.classList.add('embutido');
+const sb = supabase.createClient(SB_URL, SB_KEY, {auth: {persistSession: true, autoRefreshToken: true, ...(NO_PORTAL ? {} : {storageKey: 'obras-fluxo-auth'})}});
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const brl = v => Number(v || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
@@ -33,6 +37,7 @@ function toast(m, ms = 4000) { const t = $('toast'); t.textContent = m; t.style.
 
 // Menu entre as telas do módulo
 function menu(ativo) {
+  if (EMBUTIDO) return '';  // dentro do módulo Obras do Portal o menu é o do próprio módulo
   const itens = [['contas', '../obras-contas-pagar/', 'Contas a pagar'], ['presidente', '../obras-presidente/', 'Presidente'],
     ['financeiro', '../obras-financeiro/', 'Financeiro'], ['relatorios', '../obras-relatorios/', 'Relatórios e PDF']];
   return `<nav class="nav">${itens.map(([k, h, t]) => `<a href="${h}" class="${k === ativo ? 'on' : ''}">${t}</a>`).join('')}</nav>`;
