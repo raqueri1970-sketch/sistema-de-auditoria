@@ -130,3 +130,6 @@ a{color:#93c5fd}
 @media (max-width:620px){.desp{grid-template-columns:30px 1fr}.desp .vals{grid-column:2;text-align:left;min-width:0}.desp .pagar{width:100%}
   .rodape .tot{font-size:19px}.kpi .v{font-size:23px}.big{font-size:26px}.g2{grid-template-columns:1fr}}
 @media print{body{background:#fff;color:#000}.nav,.btn,.rodape{display:none}}
+/* Embutido no módulo Obras & Reformas do Portal: sem menu próprio, sem "Sair" (sair é pelo Portal) */
+.embutido body{padding-top:14px;background:var(--bg)}
+.embutido [onclick="sair()"]{display:none}
