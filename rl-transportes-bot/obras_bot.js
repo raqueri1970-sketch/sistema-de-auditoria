@@ -307,8 +307,9 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   }
 
   // Fila serial: WhatsApp + IA uma de cada vez (evita corrida no dedup e estouro de limite)
-  let fila = Promise.resolve();
-  const enfileirar = fn => (fila = fila.then(fn, fn));
+  let fila = Promise.resolve(), naFila = 0;
+  // Erro numa tarefa nunca vira "unhandled rejection" (no Node 24 isso derruba o processo inteiro, inclusive a RL).
+  const enfileirar = fn => { naFila++; const p = fila.then(fn, fn).finally(() => naFila--).catch(e => L(`Tarefa da fila falhou: ${e.message}`, 'warn')); fila = p; return p; };
 
   async function onMessage(msg, chat) {
     if (!msg.hasMedia) return;
@@ -433,5 +434,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   }
 
   L(`Modulo Obras ativo — grupo "${GRUPO}", IA ${anthropic ? MODELO : '-'} / ${gemini ? 'gemini' : '-'}`);
-  return { ehGrupo, onMessage, http, _lerComIA: lerComIA, _relerPendentes: relerPendentes, _varrerPerdidas: varrerPerdidas };
+  return { ehGrupo, onMessage, http, _lerComIA: lerComIA, _relerPendentes: relerPendentes, _varrerPerdidas: varrerPerdidas,
+    _fila: () => naFila,
+    _estadoIA: () => [anthropic && !claudeSemCredito ? 'claude' : (anthropic ? 'claude SEM CREDITO' : null), gemini ? 'gemini' : null].filter(Boolean).join(' + ') || 'nenhuma' };
 };

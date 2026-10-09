@@ -750,6 +750,9 @@ const client = new Client({
 let obras = null;
 try { obras = require('./obras_bot')({ client, log, sb, baixarMidiaPelaPagina }); }
 catch (e) { log(`Modulo Obras nao carregou: ${e.message}`, 'warn'); }
+// Health check (09/10/2026): publica o estado em capturador_status a cada 1 min. So le; nunca derruba o bot.
+try { require('./capturador_status')({ client, sb, db, obras, log }); }
+catch (e) { log(`Health check nao carregou: ${e.message}`, 'warn'); }
 
 client.on('qr', qr => {
   qrcode.generate(qr, { small: true }, qrAscii => {

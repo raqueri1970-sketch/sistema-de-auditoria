@@ -68,6 +68,10 @@ a{color:#93c5fd}
     <div class="row"><button class="btn" onclick="carregar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button></div>
   </div>
 
+  <div id="alertaSaude"></div>
+  <h2>Saúde do capturador (WhatsApp → Supabase)</h2>
+  <div class="grid" id="saude"></div>
+
   <h2>Resumo geral</h2>
   <div class="grid" id="kpis"></div>
 
@@ -94,7 +98,38 @@ const dBR = d => d ? d.split('-').reverse().slice(0, 2).join('/') : '';
 const CATS = {materiais_insumos:'Materiais e insumos', alimentacao:'Alimentação', transporte_combustivel:'Transporte/combustível',
   estacionamento:'Estacionamento', frete:'Frete', mao_de_obra_prestador:'Mão de obra/prestador', hospedagem:'Hospedagem',
   equipamento_manutencao:'Equipamentos/manutenção', taxas:'Taxas', diversos:'Diversos'};
-let D = null, TIMER = null;
+let D = null, TIMER = null, D_SAUDE = null;
+
+const haQuanto = iso => { if (!iso) return '—'; const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  return m < 1 ? 'agora' : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.round(m / 60)} h` : new Date(iso).toLocaleString('pt-BR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}); };
+function renderSaude() {
+  const box = $('saude'), al = $('alertaSaude');
+  if (!D_SAUDE) { box.innerHTML = '<div class="card mut small">Status indisponível para este usuário.</div>'; al.innerHTML = ''; return; }
+  if (!D_SAUDE.length) { box.innerHTML = '<div class="card k-bad kpi"><div class="l">Capturador</div><div class="v">SEM SINAL</div><div class="n">nenhuma instância publicou status ainda</div></div>'; return; }
+  const problemas = [];
+  box.innerHTML = D_SAUDE.map(s => {
+    const minutos = (Date.now() - new Date(s.atualizado_em)) / 60000;
+    const online = minutos <= 3, wa = s.whatsapp_estado === 'CONNECTED';
+    const iaRuim = /SEM CREDITO|nenhuma/i.test(s.ia || '');
+    if (!online) problemas.push(`Capturador ${s.instancia} OFFLINE desde ${haQuanto(s.atualizado_em)}`);
+    else if (!wa) problemas.push(`WhatsApp DESCONECTADO em ${s.instancia}`);
+    if (online && !s.supabase_ok) problemas.push('Supabase com erro');
+    if (iaRuim) problemas.push(`IA: ${s.ia}`);
+    const lin = (l, v, cls = '') => `<div class="row" style="justify-content:space-between;font-size:14px;margin:3px 0"><span class="mut">${l}</span><b class="${cls}">${v}</b></div>`;
+    return `<div class="card ${!online || !wa ? 'k-bad' : ''}"><div class="row" style="justify-content:space-between"><b>${esc(s.instancia)}</b>
+      <span class="chip ${online ? 's-paga' : 's-fechada'}">${online ? 'ONLINE' : 'OFFLINE'}</span></div>
+      ${lin('WhatsApp', wa ? 'CONECTADO' : esc(s.whatsapp_estado || 'DESCONECTADO'))}
+      ${lin('Supabase', s.supabase_ok ? 'OK' : 'ERRO')}
+      ${lin('IA', esc(s.ia || '—'))}
+      ${lin('Última mensagem recebida', haQuanto(s.ultima_mensagem))}
+      ${lin('Último comprovante processado', haQuanto(s.ultimo_comprovante))}
+      ${lin('Fila / pendentes de leitura', `${s.fila_pendente || 0} / ${s.pendentes_leitura || 0}`)}
+      ${lin('Erros nas últimas 24h', s.erros_24h ?? '—')}
+      ${s.ultimo_erro ? `<div class="small mut" style="margin-top:6px">Último erro: ${esc(s.ultimo_erro)}</div>` : ''}
+      <div class="small mut" style="margin-top:6px">status ${haQuanto(s.atualizado_em)} · ligado ${haQuanto(s.iniciado_em)}</div></div>`;
+  }).join('');
+  al.innerHTML = problemas.length ? `<div class="card k-bad" style="margin-top:14px;border-color:#dc2626"><b style="color:#fca5a5">⚠ Atenção:</b> ${problemas.map(esc).join(' · ')}</div>` : '';
+}
 
 function toast(m, ms = 3500) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', ms); }
 function hojeBR() { return new Date(new Date().toLocaleString('en-US', {timeZone: 'America/Sao_Paulo'})); }
@@ -118,6 +153,8 @@ function fmtNum(n) { const m = /^55(\d{2})(\d{4,5})(\d{4})$/.exec(n || ''); retu
 
 async function carregar() {
   try {
+    const st = await sb.from('capturador_status').select('*').order('atualizado_em', {ascending: false});
+    D_SAUDE = st.error ? null : st.data;
     const [res, rem, comp] = await Promise.all([
       todos(() => sb.from('obras_contas_pagar_resumo').select('*').order('semana_inicio', {ascending: false})),
       todos(() => sb.from('obras_remetentes').select('numero,nome,obra_id,ativo').order('numero')),
@@ -146,6 +183,7 @@ function pessoas() {
 }
 
 function render() {
+  renderSaude();
   const semAtual = segunda(hojeBR());
   const naoPagas = D.res.filter(s => s.status !== 'paga');
   const totalPagar = naoPagas.reduce((a, s) => a + Number(s.valor_reembolso), 0);
