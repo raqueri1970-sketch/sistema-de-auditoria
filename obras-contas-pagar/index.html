@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Obras · Contas a Pagar</title>
+<meta name="theme-color" content="#0b1020">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{--bg:#0b1020;--card:#141a2e;--card2:#1b2340;--line:#27304f;--txt:#e8ecf7;--mut:#9aa5c4;--ok:#22c55e;--warn:#f5b301;--bad:#ef4444;--pri:#3b82f6;--pri2:#2563eb}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{padding:calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 24px);max-width:1180px;margin:0 auto}
+h1{font-size:22px;margin:0}h2{font-size:14px;margin:24px 0 10px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.sub{color:var(--mut);font-size:13px;margin-top:2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.pgrid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
+.kpi .v{font-size:24px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .l{font-size:13px;color:var(--mut)}.kpi .n{font-size:12px;color:var(--mut);margin-top:4px}
+.k-pagar{border-color:#b45309}.k-pagar .v{color:#fcd34d}.k-ok .v{color:#86efac}.k-bad .v{color:#fca5a5}
+.btn{appearance:none;border-radius:10px;padding:9px 12px;font-size:14px;font-weight:600;color:#fff;background:var(--card2);border:1px solid var(--line);cursor:pointer}
+.btn:disabled{opacity:.45;cursor:default}
+.b-ok{background:#15803d;border-color:#16a34a}.b-pri{background:var(--pri2);border-color:var(--pri)}.b-warn{background:#a16207;border-color:#ca8a04}
+.chip{font-size:12px;padding:3px 9px;border-radius:999px;font-weight:700;white-space:nowrap}
+.s-aberta{background:#1e3a8a;color:#bfdbfe}.s-fechada{background:#78350f;color:#fcd34d}.s-aprovada{background:#312e81;color:#c7d2fe}.s-paga{background:#14532d;color:#86efac}
+.pname{font-weight:800;font-size:18px}.pnum{color:var(--mut);font-size:13px}
+.big{font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;margin:8px 0 2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.sem{border-top:1px solid var(--line);padding:12px 0 4px;margin-top:10px}
+.sem .h{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0}
+.mini div{background:var(--card2);border-radius:10px;padding:6px 8px}.mini b{display:block;font-variant-numeric:tabular-nums}.mini span{font-size:11px;color:var(--mut)}
+.warnline{font-size:13px;color:#fcd34d;margin:4px 0}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--mut);font-weight:600}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+.tw{overflow-x:auto}
+.mut{color:var(--mut)}.small{font-size:13px}
+input{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0f1530;color:var(--txt);font-size:16px;margin:6px 0 12px}
+.err{color:#fca5a5;font-size:14px;min-height:20px}
+.toast{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 16px);background:#111827;border:1px solid var(--line);border-radius:12px;padding:14px;font-weight:600;display:none;z-index:9;max-width:600px;margin:0 auto}
+.hidden{display:none}
+a{color:#93c5fd}
+.bar{height:8px;border-radius:6px;background:var(--card2);overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:#f59e0b}
+</style>
+</head>
+<body>
+
+<div id="vLogin" class="hidden" style="max-width:420px;margin:40px auto">
+  <h1>🏗️ Obras · Contas a Pagar</h1><div class="sub">Entre com o mesmo usuário do Portal Esposende</div>
+  <div class="card" style="margin-top:16px">
+    <label class="small">Email do Portal</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label class="small">Senha</label><input id="lSenha" type="password" autocomplete="current-password">
+    <div id="lErr" class="err"></div>
+    <button class="btn b-pri" style="width:100%;padding:14px" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div><h1>🏗️ Obras · Contas a Pagar</h1>
+      <div class="sub">Recibos do grupo “Adm Obras Esposende” · fecha toda semana (segunda a domingo) para reembolso · <span id="atual"></span></div></div>
+    <div class="row"><button class="btn" onclick="carregar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button></div>
+  </div>
+
+  <h2>Resumo geral</h2>
+  <div class="grid" id="kpis"></div>
+
+  <h2>Contas a pagar por pessoa</h2>
+  <div class="pgrid" id="pessoas"></div>
+
+  <h2>Atenção</h2>
+  <div class="grid" id="alertas"></div>
+
+  <h2>Por categoria (a pagar)</h2>
+  <div class="card" id="cats"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const SB_URL = 'https://rdztzurfesnobfkazgpm.supabase.co';
+const SB_KEY = 'sb_publishable_4LHSO4TrP7F4m4tpJyH44g_BGmfC92h';
+const sb = supabase.createClient(SB_URL, SB_KEY, {auth: {persistSession: true, autoRefreshToken: true, storageKey: 'obras-contas-pagar-auth'}});
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const brl = v => Number(v || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+const dBR = d => d ? d.split('-').reverse().slice(0, 2).join('/') : '';
+const CATS = {materiais_insumos:'Materiais e insumos', alimentacao:'Alimentação', transporte_combustivel:'Transporte/combustível',
+  estacionamento:'Estacionamento', frete:'Frete', mao_de_obra_prestador:'Mão de obra/prestador', hospedagem:'Hospedagem',
+  equipamento_manutencao:'Equipamentos/manutenção', taxas:'Taxas', diversos:'Diversos'};
+let D = null, TIMER = null;
+
+function toast(m, ms = 3500) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', ms); }
+function hojeBR() { return new Date(new Date().toLocaleString('en-US', {timeZone: 'America/Sao_Paulo'})); }
+function segunda(d) {
+  const x = new Date(d); x.setDate(x.getDate() - (x.getDay() + 6) % 7);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+}
+// O Supabase devolve no máximo 1000 linhas por consulta: busca em páginas.
+async function todos(montar) {
+  const out = [];
+  for (let de = 0; ; de += 1000) {
+    const {data, error} = await montar().range(de, de + 999);
+    if (error) throw error;
+    out.push(...data);
+    if (data.length < 1000) return out;
+  }
+}
+let ARQ = [];
+function ddd(num) { const m = /^55(\d{2})/.exec(num || ''); return m ? m[1] : null; }
+function fmtNum(n) { const m = /^55(\d{2})(\d{4,5})(\d{4})$/.exec(n || ''); return m ? `+55 ${m[1]} ${m[2]}-${m[3]}` : (n || ''); }
+
+async function carregar() {
+  try {
+    const [res, rem, comp] = await Promise.all([
+      todos(() => sb.from('obras_contas_pagar_resumo').select('*').order('semana_inicio', {ascending: false})),
+      todos(() => sb.from('obras_remetentes').select('numero,nome,obra_id,ativo').order('numero')),
+      todos(() => sb.from('obras_comprovantes').select('id,valor,status,situacao_pagamento,categoria').order('id'))
+    ]);
+    D = {res, rem, comp};
+    render();
+    $('atual').textContent = 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+  } catch (e) {
+    if (/JWT|not authenticated|permission/i.test(e.message)) { await sb.auth.signOut(); mostrarLogin('Sessão expirada ou sem permissão.'); return; }
+    toast('Erro ao carregar: ' + e.message, 6000);
+  }
+}
+
+// Agrupa por PESSOA: os números cadastrados viram o nome; sem cadastro, vale o número/nome que veio do WhatsApp.
+function pessoas() {
+  const nomeDe = {}; for (const r of D.rem) nomeDe[r.numero] = r.nome;
+  const P = {};
+  const add = (nome, num) => (P[nome] = P[nome] || {nome, numeros: new Set(), semanas: []}, num && P[nome].numeros.add(num), P[nome]);
+  for (const r of D.rem) if (r.ativo) add(r.nome, r.numero);
+  for (const s of D.res) { const nome = nomeDe[s.responsavel] || s.nome || s.responsavel; add(nome, /^\d+$/.test(s.responsavel) ? s.responsavel : null).semanas.push(s); }
+  return Object.values(P).map(p => {
+    const abertas = p.semanas.filter(s => s.status !== 'paga');
+    return {...p, apagar: abertas.reduce((a, s) => a + Number(s.valor_reembolso), 0), despesas: abertas.reduce((a, s) => a + Number(s.total_despesas), 0)};
+  }).sort((a, b) => b.apagar - a.apagar || a.nome.localeCompare(b.nome));
+}
+
+function render() {
+  const semAtual = segunda(hojeBR());
+  const naoPagas = D.res.filter(s => s.status !== 'paga');
+  const totalPagar = naoPagas.reduce((a, s) => a + Number(s.valor_reembolso), 0);
+  const semanaAtual = D.res.filter(s => s.semana_inicio === semAtual).reduce((a, s) => a + Number(s.total_despesas), 0);
+  const fechadas = naoPagas.filter(s => s.status === 'fechada' || s.status === 'aprovada');
+  const aPagarComp = D.comp.filter(c => c.situacao_pagamento === 'a_pagar');
+  const qtdRecibos = aPagarComp.filter(c => c.status === 'lancado').length;
+  const pend = aPagarComp.filter(c => c.status === 'pendente_leitura').length;
+  const dup = aPagarComp.filter(c => c.status === 'duplicada').length;
+  const orc = aPagarComp.filter(c => c.status === 'orcamento');
+  const pagoHist = D.comp.filter(c => c.situacao_pagamento === 'pago' && c.status === 'lancado').reduce((a, c) => a + Number(c.valor), 0);
+  const k = (cls, l, v, n) => `<div class="card kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div>${n ? `<div class="n">${n}</div>` : ''}</div>`;
+  $('kpis').innerHTML =
+    k('k-pagar', 'Total a pagar (reembolso)', brl(totalPagar), `${naoPagas.length} semana(s) em aberto`) +
+    k('', 'Semana atual', brl(semanaAtual), `desde ${dBR(semAtual)} · fecha domingo`) +
+    k('', 'Semanas fechadas aguardando pagamento', String(fechadas.length), brl(fechadas.reduce((a, s) => a + Number(s.valor_reembolso), 0))) +
+    k('', 'Recibos a pagar', String(qtdRecibos), 'despesas realizadas') +
+    k('', 'Orçamentos (não somam)', brl(orc.reduce((a, c) => a + Number(c.valor), 0)), `${orc.length} documento(s)`) +
+    k('k-ok', 'Histórico já pago', brl(pagoHist), 'prestações até 08/10/2026');
+
+  const ps = pessoas();
+  $('pessoas').innerHTML = ps.map(cardPessoa).join('') || '<div class="card mut">Nenhum responsável cadastrado.</div>';
+
+  $('alertas').innerHTML =
+    k(pend ? 'k-bad' : '', 'Pendentes de leitura da IA', String(pend), pend ? 'a IA não conseguiu ler; abra o recibo e confira' : 'tudo lido') +
+    k('', 'Duplicados encontrados', String(dup), 'foto/PDF reenviado — não somado') +
+    k(fechadas.length ? 'k-pagar' : '', 'Semanas fechadas sem pagamento', String(fechadas.length), fechadas.length ? 'aprovar e pagar o reembolso' : 'em dia');
+
+  const porCat = {}; for (const c of aPagarComp) if (c.status === 'lancado') porCat[c.categoria] = (porCat[c.categoria] || 0) + Number(c.valor);
+  const max = Math.max(1, ...Object.values(porCat));
+  $('cats').innerHTML = Object.keys(porCat).length ? Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([c, v]) =>
+    `<div style="margin:8px 0"><div class="row" style="justify-content:space-between"><span>${esc(CATS[c] || c)}</span><b>${brl(v)}</b></div><div class="bar"><i style="width:${(v / max * 100).toFixed(1)}%"></i></div></div>`).join('')
+    : '<span class="mut">Nenhum recibo a pagar ainda. Os recibos enviados no grupo a partir de agora aparecem aqui.</span>';
+}
+
+function cardPessoa(p) {
+  const nums = [...p.numeros].filter(n => n.length >= 12);
+  const principal = nums.sort((a, b) => b.length - a.length)[0];
+  const regiao = principal ? `DDD ${ddd(principal)} · ${fmtNum(principal)}` : 'número ainda não identificado';
+  const semanas = p.semanas.slice().sort((a, b) => b.semana_inicio.localeCompare(a.semana_inicio));
+  const corpo = semanas.length ? semanas.map(s => cardSemana(s)).join('') : '<div class="sem mut small">Nenhum recibo a pagar.</div>';
+  return `<div class="card"><div class="row" style="justify-content:space-between"><div><div class="pname">${esc(p.nome)}</div><div class="pnum">${esc(regiao)}</div></div></div>
+    <div class="small mut" style="margin-top:10px">A pagar (todas as semanas em aberto)</div><div class="big">${brl(p.apagar)}</div>
+    <div class="small mut">despesas ${brl(p.despesas)}</div>${corpo}</div>`;
+}
+
+function cardSemana(s) {
+  const id = btoa(unescape(encodeURIComponent(s.responsavel + '|' + s.semana_inicio))).replace(/=/g, '');
+  const avisos = [];
+  if (s.qtd_pendente_leitura) avisos.push(`${s.qtd_pendente_leitura} pendente(s) de leitura`);
+  if (s.qtd_duplicados) avisos.push(`${s.qtd_duplicados} duplicado(s) não somado(s)`);
+  if (s.qtd_orcamentos) avisos.push(`${s.qtd_orcamentos} orçamento(s) ${brl(s.total_orcamentos)} não somado(s)`);
+  const pode = s.status !== 'paga';
+  return `<div class="sem"><div class="h"><b>Semana ${dBR(s.semana_inicio)} a ${dBR(s.semana_fim)}</b><span class="chip s-${esc(s.status)}">${esc(s.status.toUpperCase())}</span></div>
+    <div class="mini"><div><b>${brl(s.total_despesas)}</b><span>${s.qtd_comprovantes} recibo(s)</span></div><div><b>${brl(s.valor_adiantado)}</b><span>adiantado</span></div><div><b>${brl(s.valor_reembolso)}</b><span>reembolsar</span></div></div>
+    ${avisos.map(a => `<div class="warnline">⚠ ${esc(a)}</div>`).join('')}
+    <div class="row">
+      <button class="btn" onclick="verRecibos('${id}')">Recibos</button>
+      ${pode ? `<button class="btn" onclick="adiantamento('${id}')">Adiantamento</button>` : ''}
+      ${pode && s.status !== 'aprovada' ? `<button class="btn b-warn" onclick="acao('${id}','aprovada')">Aprovar</button>` : ''}
+      ${pode ? `<button class="btn b-ok" onclick="acao('${id}','paga')">Marcar paga</button>` : `<span class="small mut">paga em ${s.pago_em ? new Date(s.pago_em).toLocaleDateString('pt-BR') : ''}</span>`}
+    </div><div id="r_${id}"></div></div>`;
+}
+
+function semanaPorId(id) { return D.res.find(s => btoa(unescape(encodeURIComponent(s.responsavel + '|' + s.semana_inicio))).replace(/=/g, '') === id); }
+
+async function acao(id, status) {
+  const s = semanaPorId(id); if (!s) return;
+  const msg = status === 'paga'
+    ? `Marcar como PAGA a semana ${dBR(s.semana_inicio)}–${dBR(s.semana_fim)} (${brl(s.valor_reembolso)})?\nOs recibos dela passam para "pago".`
+    : `Aprovar a semana ${dBR(s.semana_inicio)}–${dBR(s.semana_fim)} (${brl(s.valor_reembolso)})?`;
+  if (!confirm(msg)) return;
+  const {error} = await sb.rpc('obras_conta_pagar_definir', {p_responsavel: s.responsavel, p_semana: s.semana_inicio, p_status: status});
+  if (error) return toast('Não foi possível: ' + (/row-level|permission/i.test(error.message) ? 'seu usuário não tem permissão para aprovar/pagar.' : error.message), 6000);
+  toast(status === 'paga' ? 'Semana marcada como paga.' : 'Semana aprovada.'); carregar();
+}
+
+async function adiantamento(id) {
+  const s = semanaPorId(id); if (!s) return;
+  const v = prompt(`Valor adiantado na semana ${dBR(s.semana_inicio)}–${dBR(s.semana_fim)} (R$):`, String(s.valor_adiantado || 0).replace('.', ','));
+  if (v == null) return;
+  const n = Number(String(v).replace(/\./g, '').replace(',', '.'));
+  if (!isFinite(n) || n < 0) return toast('Valor inválido.');
+  const {error} = await sb.rpc('obras_conta_pagar_definir', {p_responsavel: s.responsavel, p_semana: s.semana_inicio, p_adiantado: n});
+  if (error) return toast('Não foi possível: ' + error.message, 6000);
+  toast('Adiantamento registrado.'); carregar();
+}
+
+async function verRecibos(id) {
+  const box = $('r_' + id); if (box.innerHTML) { box.innerHTML = ''; return; }
+  const s = semanaPorId(id); if (!s) return;
+  box.innerHTML = '<div class="small mut">Carregando…</div>';
+  let q = sb.from('obras_comprovantes').select('id,data_despesa,hora_documento,fornecedor,descricao,categoria,valor,status,tipo_doc,forma_pagamento,arquivo_path,confianca_ocr')
+    .eq('situacao_pagamento', 'a_pagar').eq('semana_ref', s.semana_inicio).order('data_despesa');
+  q = /^\d+$/.test(s.responsavel) ? q.eq('remetente_numero', s.responsavel) : q.is('remetente_numero', null).eq('remetente', s.responsavel);
+  const {data, error} = await q;
+  if (error) { box.innerHTML = `<div class="err">${esc(error.message)}</div>`; return; }
+  box.innerHTML = `<div class="tw"><table><tr><th>Data</th><th>Fornecedor / descrição</th><th>Categoria</th><th class="r">Valor</th><th></th></tr>${data.map(c => `
+    <tr><td>${dBR(c.data_despesa)}${c.hora_documento ? `<div class="mut">${esc(c.hora_documento)}</div>` : ''}</td>
+    <td>${esc(c.fornecedor || '—')}<div class="mut">${esc(c.descricao || '')}</div>${c.status !== 'lancado' ? `<span class="chip s-fechada">${esc(c.status)}</span>` : ''}</td>
+    <td>${esc(CATS[c.categoria] || c.categoria)}</td><td class="r">${c.status === 'lancado' ? brl(c.valor) : `<span class="mut">${brl(c.valor)}</span>`}</td>
+    <td>${c.arquivo_path ? `<a href="#" onclick="abrir(${ARQ.push(c.arquivo_path) - 1});return false">ver</a>` : ''}</td></tr>`).join('')}</table></div>`;
+}
+
+async function abrir(i) {
+  const path = ARQ[i]; if (!path) return;
+  const {data, error} = await sb.storage.from('obras-comprovantes').createSignedUrl(path, 300);
+  if (error) return toast('Arquivo indisponível: ' + error.message, 5000);
+  window.open(data.signedUrl, '_blank', 'noopener');
+}
+
+function mostrarLogin(m) { $('vApp').classList.add('hidden'); $('vLogin').classList.remove('hidden'); $('lErr').textContent = m || ''; clearInterval(TIMER); }
+function mostrarApp() { $('vLogin').classList.add('hidden'); $('vApp').classList.remove('hidden'); carregar(); clearInterval(TIMER); TIMER = setInterval(carregar, 60000); }
+async function entrar() {
+  $('lErr').textContent = '';
+  const r = await sb.auth.signInWithPassword({email: $('lEmail').value.trim(), password: $('lSenha').value});
+  if (r.error) { $('lErr').textContent = 'Email ou senha incorretos.'; return; }
+  mostrarApp();
+}
+async function sair() { await sb.auth.signOut(); mostrarLogin(); }
+(async () => { const s = await sb.auth.getSession(); if (s.data && s.data.session) mostrarApp(); else mostrarLogin(); })();
+</script>
+</body>
+</html>
