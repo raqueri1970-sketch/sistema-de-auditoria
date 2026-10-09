@@ -39,3 +39,37 @@ a{color:#93c5fd}
 .bar{height:8px;border-radius:6px;background:var(--card2);overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:#f59e0b}
 .pix{font-family:ui-monospace,Menlo,Consolas,monospace;background:#0f1530;border:1px solid var(--line);border-radius:10px;padding:8px 10px;word-break:break-all}
 .vazio{padding:28px;text-align:center;color:var(--mut)}
+.s-cinza{background:#334155;color:#cbd5e1}
+.nav{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 4px}
+.nav a{padding:8px 12px;border-radius:999px;background:var(--card);border:1px solid var(--line);color:var(--txt);text-decoration:none;font-size:14px;font-weight:600}
+.nav a.on{background:var(--pri2);border-color:var(--pri)}
+select,textarea{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0f1530;color:var(--txt);font-size:16px;margin:6px 0 12px;font-family:inherit}
+label{font-size:13px;color:var(--mut)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-start;justify-content:center;z-index:20;padding:5vh 12px;overflow:auto}
+.mbox{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;width:100%;max-width:520px}
+.mbox h3{margin:0 0 10px}
+.clic{cursor:pointer;transition:border-color .15s}.clic:hover{border-color:var(--pri)}
+.voltar{background:none;border:none;color:#93c5fd;font-size:15px;font-weight:600;cursor:pointer;padding:6px 0}
+/* lista de despesas do Presidente */
+.semh{display:flex;align-items:center;gap:10px;justify-content:space-between;background:var(--card2);border-radius:12px;padding:10px 12px;margin:16px 0 6px;flex-wrap:wrap}
+.desp{display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:start;padding:12px 6px;border-bottom:1px solid var(--line)}
+.desp.off{opacity:.55}
+.desp input[type=checkbox],.semh input[type=checkbox]{width:22px;height:22px;margin:2px 0 0;accent-color:#22c55e}
+.desp .forn{font-weight:700}.desp .det{font-size:13px;color:var(--mut)}
+.desp .vals{text-align:right;font-variant-numeric:tabular-nums;min-width:150px}
+.desp .vals b{font-size:16px}
+.desp .pagar{width:120px;padding:8px;margin:6px 0 0;text-align:right;font-size:15px;border-radius:10px}
+.desp .just{margin:6px 0 0;padding:8px;font-size:14px}
+.acoes{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:13px}
+.acoes a{cursor:pointer}
+.rodape{position:sticky;bottom:0;background:#0f1530f2;border:1px solid var(--pri);border-radius:16px;padding:12px 14px;margin-top:14px;backdrop-filter:blur(6px);z-index:5}
+.rodape .tot{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--txt)}
+.chk input{width:20px;height:20px;margin:0;accent-color:#22c55e}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs button{appearance:none;border:1px solid var(--line);background:var(--card);color:var(--txt);border-radius:12px;padding:10px 12px;font-weight:600;cursor:pointer;font-size:14px}
+.tabs button.on{background:var(--pri2);border-color:var(--pri)}
+.filtros{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
+.filtros input,.filtros select{margin:4px 0 0}
+tfoot td{font-weight:800;border-top:2px solid var(--line)}
+@media (max-width:620px){.desp{grid-template-columns:30px 1fr}.desp .vals{grid-column:2;text-align:left;min-width:0}.desp .pagar{width:100%}.rodape .tot{font-size:19px}}

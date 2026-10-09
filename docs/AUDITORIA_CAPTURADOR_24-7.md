@@ -258,3 +258,29 @@ aguardando confirmação**.
 - Views `obras_contas_pagar_resumo` (risco normal/atenção/crítico) e `obras_fluxo_caixa_prestador`.
 - Telas: `obras-presidente/`, `obras-financeiro/`, `obras-contas-pagar/` (auditor, fluxo de caixa, vincular números).
 - Testado no banco (transação desfeita): aprovar → pagar → pós-auditoria; bloqueios de papel, de crítico e de atalho.
+
+---
+
+## 09/10/2026 (tarde) — Pagamento por despesa, parcial, saldo devedor acumulado, relatórios e PDF
+
+**Pedido:** na tela do Presidente aparece um card com o total de cada prestador; clicando, mostra todas as despesas que formam o valor,
+com uma caixa para marcar o que paga. Pode pagar parcial; o que for pago sai como pago em todo o sistema e o resto continua como
+contas a pagar em aberto, acumulando com as outras semanas. Relatórios e PDF no módulo. O administrador pode mexer manualmente.
+
+**Banco** (`supabase/migrations/20261009b_obras_pagamento_por_item.sql`, só acréscimos, aplicado e testado com rollback):
+- `obras_pagamentos` (lote numerado), `obras_pagamento_itens` (despesa + valor pago nela → permite parcial), `obras_adiantamentos`, `obras_pagamento_eventos` (histórico).
+- Views: `obras_despesas_pagamento` (por despesa: pago, reservado, saldo, situação, alertas do Auditor), `obras_saldo_prestador` (saldo devedor acumulado),
+  `obras_fluxo_semanal` (despesas × pagamentos × adiantamentos × saldo acumulado por semana).
+- Funções: `obras_presidente_pagar` (modo "ja_paguei" ou "financeiro"; despesa com ponto crítico só com justificativa; não paga além do saldo;
+  desconta adiantamento), `obras_pagamento_registrar` (Financeiro), `obras_pagamento_anexar`, `obras_pagamento_cancelar`, `obras_despesa_recusar`,
+  `obras_adiantamento_registrar/cancelar`, `obras_despesa_ajustar` (só administrador, guarda antes/depois). Pós-auditoria automática de cada pagamento.
+- Situação "recusado" acrescentada em `obras_comprovantes.situacao_pagamento`. Fluxo antigo por semana (`obras_presidente_decidir`/`obras_financeiro_pagar`) fica sem uso.
+
+**Teste no banco (rollback):** saldo 640 − adiant. 50 → 590; crítico sem justificativa bloqueado; R$250 numa despesa de R$200 bloqueado;
+aprovou 100 + 120 (parcial de 200) − adiant. 50 = 170 → Financeiro pagou → LOJA A paga, LOJA B parcial 120/80;
+Presidente "já paguei" 80 + 300 → tudo pago, saldo 0; recusada fora do saldo; fluxo semanal fecha em 0; histórico completo.
+
+**Telas:** `obras-presidente` (cards → despesas por semana com caixa de marcar, valor editável para parcial, rodapé com "pagar agora" e
+"continua em aberto", "Já paguei" ou "Aprovar e enviar ao Financeiro", recusar, ajustar, adiantamento, PIX, PDF), `obras-financeiro`
+(lotes aprovados, PIX, comprovante obrigatório, pendências, adiantamentos), `obras-relatorios` (6 relatórios com filtro de prestador/período,
+PDF e planilha), `obras-contas-pagar` (visão geral nova). Testadas com Playwright: sem erros, sem rolagem lateral no celular, 8 PDFs gerados.

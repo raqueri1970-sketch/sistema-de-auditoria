@@ -26,15 +26,12 @@
 <div id="vApp" class="hidden">
   <div class="top">
     <div><h1>🏗️ Obras · Contas a Pagar</h1>
-      <div class="sub">Recibos do grupo “Adm Obras Esposende” · fecha toda semana (segunda a domingo) · Presidente aprova → Financeiro paga → Auditor confere · <span id="atual"></span></div></div>
-    <div class="row"><a class="btn" href="../obras-presidente/">Tela do Presidente</a><a class="btn" href="../obras-financeiro/">Tela do Financeiro</a>
-      <button class="btn" onclick="carregar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button></div>
+      <div class="sub">Recibos do grupo “Adm Obras Esposende” · o que entra pelo WhatsApp vira conta a pagar · Presidente escolhe o que paga → Financeiro paga → Auditor confere · <span id="atual"></span></div></div>
+    <div class="row"><button class="btn" onclick="carregar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button></div>
   </div>
+  <div id="menu"></div>
 
   <div id="alertaSaude"></div>
-  <h2>Saúde do capturador (WhatsApp → Supabase)</h2>
-  <div class="grid" id="saude"></div>
-
   <h2>Resumo geral</h2>
   <div class="grid" id="kpis"></div>
 
@@ -47,11 +44,14 @@
   <h2>Fluxo de caixa por prestador</h2>
   <div class="card" id="fluxo"></div>
 
+  <h2>Em aberto por categoria</h2>
+  <div class="card" id="cats"></div>
+
   <h2>Números de WhatsApp a identificar</h2>
   <div class="card" id="desconhecidos"></div>
 
-  <h2>Por categoria (a pagar)</h2>
-  <div class="card" id="cats"></div>
+  <h2>Saúde do capturador (WhatsApp → Supabase)</h2>
+  <div class="grid" id="saude"></div>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -60,22 +60,18 @@
 let D = null, TIMER = null, VER_HISTORICO = false;
 const haQuanto = iso => { if (!iso) return '—'; const m = Math.round((Date.now() - new Date(iso)) / 60000);
   return m < 1 ? 'agora' : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.round(m / 60)} h` : dtBR(iso); };
-function hojeBR() { return new Date(new Date().toLocaleString('en-US', {timeZone: 'America/Sao_Paulo'})); }
-function segunda(d) { const x = new Date(d); x.setDate(x.getDate() - (x.getDay() + 6) % 7);
-  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; }
+function segunda() { const x = new Date(hojeISO() + 'T12:00:00'); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x.toISOString().slice(0, 10); }
 function fmtNum(n) { const m = /^55(\d{2})(\d{4,5})(\d{4})$/.exec(n || ''); return m ? `DDD ${m[1]} · +55 ${m[1]} ${m[2]}-${m[3]}` : null; }
+const soma = (a, f) => a.reduce((t, x) => t + Number((typeof f === 'function' ? f(x) : x[f]) || 0), 0);
 
 async function carregar() {
   try {
     const st = await sb.from('capturador_status').select('*').order('atualizado_em', {ascending: false});
-    const [res, rem, comp, ach, fluxo] = await Promise.all([
-      todos(() => sb.from('obras_contas_pagar_resumo').select('*').order('semana_inicio', {ascending: false})),
+    const [saldos, rem, desp, pags, adis, fluxo] = await Promise.all([carregarSaldos(),
       todos(() => sb.from('obras_remetentes').select('numero,nome,obra_id,ativo,pix_chave').order('numero')),
-      todos(() => sb.from('obras_comprovantes').select('id,valor,status,situacao_pagamento,categoria,responsavel,remetente,remetente_numero,fornecedor,data_despesa').order('id')),
-      todos(() => sb.from('obras_auditoria_achados').select('id,comprovante_id,conta_id,regra,nivel,mensagem,criado_em').eq('resolvido', false).order('nivel', {ascending: false})),
-      todos(() => sb.from('obras_fluxo_caixa_prestador').select('*').order('semana', {ascending: false}))
-    ]);
-    D = {saude: st.error ? null : st.data, res, rem, comp, ach, fluxo};
+      carregarDespesas(), carregarPagamentos(), carregarAdiantamentos(),
+      todos(() => sb.from('obras_fluxo_semanal').select('*').order('prestador').order('semana'))]);
+    D = {saude: st.error ? null : st.data, saldos, rem, desp, pags, adis, fluxo};
     render();
     $('atual').textContent = 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
   } catch (e) {
@@ -104,110 +100,74 @@ function renderSaude() {
       ${s.ultimo_erro ? `<div class="small mut" style="margin-top:6px">Último erro: ${esc(s.ultimo_erro)}</div>` : ''}
       <div class="small mut" style="margin-top:6px">status ${haQuanto(s.atualizado_em)} · ligado ${haQuanto(s.iniciado_em)}</div></div>`;
   }).join('');
-  al.innerHTML = problemas.length ? `<div class="card k-bad" style="margin-top:14px"><b style="color:#fca5a5">⚠ Atenção:</b> ${problemas.map(esc).join(' · ')}</div>` : '';
+  al.innerHTML = problemas.length ? `<div class="card k-bad" style="margin-top:14px"><b style="color:#fca5a5">⚠ Capturador:</b> ${problemas.map(esc).join(' · ')}</div>` : '';
 }
 
 function render() {
   renderSaude();
-  const semAtual = segunda(hojeBR());
-  const abertas = D.res.filter(s => !['paga', 'auditada'].includes(s.status));
+  const semAtual = segunda(), mes = hojeISO().slice(0, 7);
   const k = (cls, l, v, n) => `<div class="card kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div>${n ? `<div class="n">${n}</div>` : ''}</div>`;
-  const soma = (arr, f) => arr.reduce((a, s) => a + Number(s[f] || 0), 0);
-  const aPagarComp = D.comp.filter(c => c.situacao_pagamento === 'a_pagar');
-  const orc = aPagarComp.filter(c => c.status === 'orcamento');
-  const criticosAbertos = D.ach.filter(a => a.nivel === 'critico' && (aPagarComp.some(c => c.id === a.comprovante_id) || a.conta_id)).length;
+  const lanc = D.desp.filter(d => d.status === 'lancado'), abertos = D.desp.filter(d => Number(d.saldo) > 0);
+  const orc = D.desp.filter(d => d.status === 'orcamento' && d.situacao_pagamento === 'a_pagar');
+  const crit = soma(abertos, 'criticos'), pagosMes = D.pags.filter(p => ['pago', 'auditado', 'pendencia'].includes(p.status) && (p.pago_em || '').slice(0, 7) === mes);
   $('kpis').innerHTML =
-    k('k-pagar', 'Total a pagar (reembolso)', brl(soma(abertas, 'valor_reembolso')), `${abertas.length} semana(s) em aberto`) +
-    k('', 'Semana atual', brl(soma(D.res.filter(s => s.semana_inicio === semAtual), 'total_despesas')), `desde ${dBR(semAtual)} · fecha domingo`) +
-    k('', 'Aguardando Presidente', brl(soma(D.res.filter(s => s.status === 'fechada'), 'valor_reembolso')), `${D.res.filter(s => s.status === 'fechada').length} semana(s)`) +
-    k('', 'Com o Financeiro', brl(soma(D.res.filter(s => s.status === 'aprovada'), 'valor_aprovado')), `${D.res.filter(s => s.status === 'aprovada').length} aprovada(s)`) +
-    k(criticosAbertos ? 'k-bad' : '', 'Pontos críticos do Auditor', String(criticosAbertos), 'em despesas ainda não pagas') +
-    k('', 'Orçamentos (não somam)', brl(orc.reduce((a, c) => a + Number(c.valor), 0)), `${orc.length} documento(s)`) +
-    k('k-ok', 'Histórico já pago', brl(D.comp.filter(c => c.situacao_pagamento === 'pago' && c.status === 'lancado').reduce((a, c) => a + Number(c.valor), 0)), 'prestações + pagamentos auditados');
+    k('k-pagar', 'Total a pagar', brl(soma(D.saldos, 'saldo_devedor')), `${abertos.length} despesa(s) em aberto · acumulado de todas as semanas`) +
+    k('', 'Entrou nesta semana', brl(soma(lanc.filter(d => d.semana === semAtual), 'valor')), `desde ${dBR(semAtual)}`) +
+    k('', 'Com o Financeiro', brl(soma(D.pags.filter(p => p.status === 'aprovado'), 'valor_aprovado')), 'aprovado pelo Presidente, aguardando pagamento') +
+    k('k-ok', 'Pago neste mês', brl(soma(pagosMes, 'valor_pago')), `${pagosMes.length} pagamento(s)`) +
+    k(crit ? 'k-bad' : '', 'Pontos críticos do Auditor', String(crit), 'em despesas ainda não pagas') +
+    k('', 'Orçamentos (não somam)', brl(soma(orc, 'valor')), `${orc.length} documento(s)`) +
+    k('', 'Histórico já pago', brl(soma(lanc, 'valor_pago')), 'tudo o que já foi pago');
 
-  // Um card por prestador: cadastrados (obras_remetentes) + quem aparecer nas contas
-  const nomes = [...new Set([...D.rem.filter(r => r.ativo).map(r => r.nome), ...D.res.map(s => s.responsavel)])];
-  const cards = nomes.map(nome => {
-    const sem = D.res.filter(s => s.responsavel === nome);
-    return {nome, sem, apagar: soma(sem.filter(s => !['paga', 'auditada'].includes(s.status)), 'valor_reembolso')};
-  }).sort((a, b) => b.apagar - a.apagar || a.nome.localeCompare(b.nome));
-  $('pessoas').innerHTML = cards.map(cardPessoa).join('') || '<div class="card vazio">Nenhum prestador.</div>';
+  const lista = D.saldos.slice().sort((a, b) => b.saldo_devedor - a.saldo_devedor || a.prestador.localeCompare(b.prestador));
+  window.PREST = lista.map(s => s.prestador);
+  $('pessoas').innerHTML = lista.map((s, i) => {
+    const tel = D.rem.filter(r => r.nome === s.prestador).map(r => fmtNum(r.numero)).find(Boolean);
+    const semAtualV = soma(lanc.filter(d => d.prestador === s.prestador && d.semana === semAtual), 'valor');
+    return `<div class="card"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${Number(s.saldo_devedor) ? riscoChip(s.risco) : '<span class="chip r-normal">EM DIA</span>'}</div>
+      <div class="pnum">${esc(tel || 'número ainda não identificado')}${s.pix_chave ? ' · PIX cadastrado' : ' · <span style="color:#fcd34d">sem PIX cadastrado</span>'}</div>
+      <div class="small mut" style="margin-top:10px">Total a pagar</div><div class="big">${brl(s.saldo_devedor)}</div>
+      <div class="mini"><div><b>${brl(s.em_aberto)}</b><span>${s.itens_abertos} em aberto</span></div><div><b>${brl(s.adiantamento_disponivel)}</b><span>adiantamento</span></div>
+        <div><b>${brl(s.com_financeiro)}</b><span>com o Financeiro</span></div></div>
+      <div class="mini"><div><b>${brl(semAtualV)}</b><span>nesta semana</span></div><div><b>${brl(s.total_pago)}</b><span>já pago</span></div><div><b>${brl(s.total_despesas)}</b><span>total de despesas</span></div></div>
+      ${s.criticos ? `<div class="crit">⚠ ${s.criticos} ponto(s) crítico(s) do Auditor</div>` : ''}${s.pagamentos_pendencia ? `<div class="crit">⚠ ${s.pagamentos_pendencia} pagamento(s) com pendência</div>` : ''}
+      ${s.ultimo_pagamento ? `<div class="small mut">Último pagamento ${dtBR(s.ultimo_pagamento)}</div>` : ''}
+      <div class="row" style="margin-top:8px"><a class="btn b-pri" href="../obras-presidente/?p=${encodeURIComponent(s.prestador)}">Ver despesas / pagar</a>
+        <button class="btn" onclick="extrato(${i})">PDF do extrato</button></div></div>`;
+  }).join('') || '<div class="card vazio">Nenhum prestador.</div>';
 
-  renderAuditor(aPagarComp);
-  renderFluxo();
-  renderDesconhecidos();
-
-  const porCat = {}; for (const c of aPagarComp) if (c.status === 'lancado') porCat[c.categoria] = (porCat[c.categoria] || 0) + Number(c.valor);
+  renderAuditor(); renderFluxo(); renderDesconhecidos();
+  const porCat = {}; for (const d of abertos) porCat[d.categoria] = (porCat[d.categoria] || 0) + Number(d.saldo);
   const max = Math.max(1, ...Object.values(porCat));
   $('cats').innerHTML = Object.keys(porCat).length ? Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([c, v]) =>
     `<div style="margin:8px 0"><div class="row" style="justify-content:space-between"><span>${esc(CATS[c] || c)}</span><b>${brl(v)}</b></div><div class="bar"><i style="width:${(v / max * 100).toFixed(1)}%"></i></div></div>`).join('')
-    : '<span class="mut">Nenhum recibo a pagar.</span>';
+    : '<span class="mut">Nada em aberto.</span>';
 }
 
-function cardPessoa(p) {
-  const tel = D.rem.filter(r => r.nome === p.nome).map(r => fmtNum(r.numero)).find(Boolean);
-  const pix = D.rem.some(r => r.nome === p.nome && r.pix_chave);
-  const corpo = p.sem.length ? p.sem.slice().sort((a, b) => b.semana_inicio.localeCompare(a.semana_inicio)).map(cardSemana).join('') : '<div class="sem mut small">Nenhum recibo a pagar.</div>';
-  return `<div class="card"><div class="pname">${esc(p.nome)}</div><div class="pnum">${esc(tel || 'número ainda não identificado')}${pix ? ' · PIX cadastrado' : ' · <span style="color:#fcd34d">sem PIX cadastrado</span>'}</div>
-    <div class="small mut" style="margin-top:10px">A pagar (semanas em aberto)</div><div class="big">${brl(p.apagar)}</div>${corpo}</div>`;
+async function extrato(i) {
+  const p = PREST[i];
+  try { toast('Gerando PDF…'); await pdfExtrato(p, D.desp.filter(d => d.prestador === p), D.pags.filter(x => x.prestador === p), D.adis.filter(a => a.prestador === p), D.saldos.find(s => s.prestador === p)); }
+  catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); }
 }
 
-function cardSemana(s) {
-  const i = D.res.indexOf(s);
-  const avisos = [];
-  if (s.criticos) avisos.push(`<div class="crit">⚠ ${s.criticos} ponto(s) crítico(s) do Auditor</div>`);
-  if (s.atencoes) avisos.push(`<div class="warn">⚠ ${s.atencoes} ponto(s) de atenção do Auditor</div>`);
-  if (s.qtd_pendente_leitura) avisos.push(`<div class="warn">⚠ ${s.qtd_pendente_leitura} pendente(s) de leitura</div>`);
-  if (s.qtd_duplicados) avisos.push(`<div class="warn">${s.qtd_duplicados} duplicado(s) não somado(s)</div>`);
-  if (s.qtd_orcamentos) avisos.push(`<div class="warn">${s.qtd_orcamentos} orçamento(s) ${brl(s.total_orcamentos)} não somado(s)</div>`);
-  if (s.motivo_devolucao && s.status === 'pendencia') avisos.push(`<div class="crit">Devolvida pelo Presidente: ${esc(s.motivo_devolucao)}</div>`);
-  if (s.auditoria_resultado) avisos.push(`<div class="${s.status === 'auditada' ? 'small mut' : 'crit'}">Auditoria: ${esc(s.auditoria_resultado)}</div>`);
-  const passos = [s.aprovado_por && `aprovado por ${esc(s.aprovado_por)} ${dtBR(s.aprovada_em)}`, s.pago_por && `pago por ${esc(s.pago_por)} ${dtBR(s.pago_em)}`,
-    s.auditada_em && `auditado ${dtBR(s.auditada_em)}`].filter(Boolean);
-  return `<div class="sem"><div class="h"><b>Semana ${dBR(s.semana_inicio)} a ${dBR(s.semana_fim)}</b><span class="row">${riscoChip(s.risco)} ${statusChip(s.status)}</span></div>
-    <div class="mini"><div><b>${brl(s.total_despesas)}</b><span>${s.qtd_comprovantes} recibo(s)</span></div><div><b>${brl(s.valor_adiantado)}</b><span>adiantado</span></div><div><b>${brl(s.valor_reembolso)}</b><span>reembolsar</span></div></div>
-    ${avisos.join('')}${passos.length ? `<div class="small mut">${passos.join(' · ')}</div>` : ''}
-    <div class="row" style="margin-top:6px"><button class="btn" onclick="verRecibos(${i})">Recibos</button>
-      ${['aberta', 'fechada'].includes(s.status) ? `<button class="btn" onclick="adiantamento(${i})">Adiantamento</button>` : ''}
-      ${s.comprovante_url ? linkArquivo(s.comprovante_url, 'comprovante do pagamento') : ''}</div><div id="r_${i}"></div></div>`;
-}
-
-async function verRecibos(i) {
-  const box = $('r_' + i); if (box.innerHTML) { box.innerHTML = ''; return; }
-  const s = D.res[i]; box.innerHTML = '<div class="small mut">Carregando…</div>';
-  try { box.innerHTML = tabelaRecibos(await recibosDaSemana(s.responsavel, s.semana_inicio, s.conta_id)); }
-  catch (e) { box.innerHTML = `<div class="err">${esc(msgErro(e))}</div>`; }
-}
-
-async function adiantamento(i) {
-  const s = D.res[i];
-  const v = prompt(`Valor adiantado para ${s.responsavel} na semana ${dBR(s.semana_inicio)}–${dBR(s.semana_fim)} (R$):`, String(s.valor_adiantado || 0).replace('.', ','));
-  if (v == null) return;
-  const n = Number(String(v).replace(/\./g, '').replace(',', '.'));
-  if (!isFinite(n) || n < 0) return toast('Valor inválido.');
-  const {error} = await sb.rpc('obras_conta_pagar_definir', {p_responsavel: s.responsavel, p_semana: s.semana_inicio, p_adiantado: n});
-  if (error) return toast(msgErro(error), 6000);
-  toast('Adiantamento registrado.'); carregar();
-}
-
-const REGRAS = {duplicidade_autenticacao: 'Pagamento repetido (mesma autenticação)', duplicidade_valor_data_fornecedor: 'Possível duplicidade',
-  arquivo_repetido: 'Comprovante repetido', sem_comprovante: 'Sem documento', leitura_baixa_confianca: 'Leitura duvidosa',
-  valor_atipico: 'Valor fora do padrão', sem_obra: 'Sem obra', data_incoerente: 'Data incoerente', pix_pessoa_fisica_material: 'PIX p/ pessoa física',
-  fornecedor_varias_vezes_dia: 'Fornecedor repetido no dia', pos_auditoria: 'Pagamento com pendência'};
-function renderAuditor(aPagarComp) {
-  const mapa = Object.fromEntries(D.comp.map(c => [c.id, c]));
-  const lista = D.ach.filter(a => a.conta_id || VER_HISTORICO || (mapa[a.comprovante_id] && mapa[a.comprovante_id].situacao_pagamento === 'a_pagar'));
-  const crit = lista.filter(a => a.nivel === 'critico').length;
-  const resumo = Object.entries(lista.reduce((m, a) => (m[a.regra] = (m[a.regra] || 0) + 1, m), {})).map(([r, n]) => `${esc(REGRAS[r] || r)}: <b>${n}</b>`).join(' · ');
+const REGRAS = {duplicidade_autenticacao: 'Pagamento repetido', duplicidade_valor_data_fornecedor: 'Possível duplicidade', arquivo_repetido: 'Comprovante repetido',
+  sem_comprovante: 'Sem documento', leitura_baixa_confianca: 'Leitura duvidosa', valor_atipico: 'Valor fora do padrão', sem_obra: 'Sem obra', data_incoerente: 'Data incoerente',
+  pix_pessoa_fisica_material: 'PIX p/ pessoa física', fornecedor_varias_vezes_dia: 'Fornecedor repetido no dia'};
+function renderAuditor() {
+  const ds = D.desp.filter(d => (d.achados || []).length && (VER_HISTORICO || Number(d.saldo) > 0));
+  const lista = []; for (const d of ds) for (const a of d.achados) lista.push({...a, d});
+  lista.sort((a, b) => (b.nivel === 'critico') - (a.nivel === 'critico'));
+  const pend = D.pags.filter(p => p.status === 'pendencia');
+  const crit = lista.filter(a => a.nivel === 'critico').length + pend.length;
   $('auditor').innerHTML = `<div class="row" style="justify-content:space-between"><div>${riscoChip(crit ? 'critico' : lista.length ? 'atencao' : 'normal')}
       <span class="small mut">${VER_HISTORICO ? 'Todas as despesas (inclui histórico pago)' : 'Despesas ainda não pagas'} · ${lista.length} ponto(s)</span></div>
-      <button class="btn" onclick="VER_HISTORICO=!VER_HISTORICO;render()">${VER_HISTORICO ? 'Só o que vai ser pago' : 'Ver histórico pago também'}</button></div>
-    <div class="small" style="margin:8px 0">${resumo || '<span class="mut">Nenhum ponto em aberto.</span>'}</div>
-    ${lista.length ? `<div class="tw"><table><tr><th>Nível</th><th>Despesa</th><th>O que o Auditor viu</th><th></th></tr>${lista.slice(0, 150).map(a => {
-      const c = mapa[a.comprovante_id];
-      return `<tr><td>${riscoChip(a.nivel)}</td><td class="small">${c ? `${esc(c.responsavel || '')}<div class="mut">${dBR(c.data_despesa)} · ${esc(c.fornecedor || '')} · ${brl(c.valor)}</div>` : '<span class="mut">pagamento da semana</span>'}</td>
-        <td class="small">${esc(a.mensagem)}</td><td><button class="btn" onclick="resolver('${a.id}')">Resolver</button></td></tr>`; }).join('')}</table></div>
-      ${lista.length > 150 ? `<div class="small mut">Mostrando 150 de ${lista.length}.</div>` : ''}` : ''}`;
+      <div class="row"><button class="btn" onclick="VER_HISTORICO=!VER_HISTORICO;render()">${VER_HISTORICO ? 'Só o que vai ser pago' : 'Ver histórico pago também'}</button>
+      <a class="btn" href="../obras-relatorios/?rel=auditor">Relatório / PDF</a></div></div>
+    ${pend.map(p => `<div class="crit" style="margin-top:8px">⚠ Pagamento nº ${p.numero} (${esc(p.prestador)}, ${brl(p.valor_pago)}): ${esc(p.auditoria_resultado || '')}</div>`).join('')}
+    ${lista.length ? `<div class="tw"><table><tr><th>Nível</th><th>Despesa</th><th>O que o Auditor viu</th><th></th></tr>${lista.slice(0, 150).map((a, i) =>
+      `<tr><td>${riscoChip(a.nivel)}</td><td class="small">${esc(a.d.prestador || '')}<div class="mut">${dBR(a.d.data_despesa)} · ${esc(a.d.fornecedor || '')} · ${brl(a.d.valor)} · ${(SIT[a.d.situacao] || [''])[0]}</div>
+        <div>${linkArquivo(a.d.arquivo_path, 'ver comprovante')}</div></td><td class="small">${esc(a.mensagem)}</td><td><button class="btn" onclick="resolver('${a.id}')">Resolver</button></td></tr>`).join('')}</table></div>
+      ${lista.length > 150 ? `<div class="small mut">Mostrando 150 de ${lista.length}. O relatório traz todos.</div>` : ''}` : '<div class="small mut" style="margin-top:8px">Nenhum ponto em aberto.</div>'}`;
 }
 
 async function resolver(id) {
@@ -221,20 +181,20 @@ async function resolver(id) {
 function renderFluxo() {
   const porPrest = {};
   for (const f of D.fluxo) (porPrest[f.prestador] = porPrest[f.prestador] || []).push(f);
-  const blocos = Object.entries(porPrest).map(([p, linhas]) => {
-    const tot = linhas.reduce((a, f) => ({d: a.d + Number(f.despesas), pg: a.pg + Number(f.despesas_pagas), ap: a.ap + Number(f.despesas_a_pagar), ad: a.ad + Number(f.adiantado)}), {d: 0, pg: 0, ap: 0, ad: 0});
-    return `<details style="margin:8px 0"><summary><b>${esc(p)}</b> · despesas ${brl(tot.d)} · pagas ${brl(tot.pg)} · <b style="color:#fcd34d">a pagar ${brl(tot.ap - tot.ad)}</b> · ${linhas.length} semana(s)</summary>
-      <div class="tw"><table><tr><th>Semana</th><th class="r">Despesas</th><th class="r">Pagas</th><th class="r">A pagar</th><th class="r">Adiantado</th><th class="r">Reembolso pago</th><th>Situação</th></tr>
-      ${linhas.slice(0, 52).map(f => `<tr><td>${dBR(f.semana)}–${dBR(f.semana_fim)}</td><td class="r">${brl(f.despesas)}</td><td class="r">${brl(f.despesas_pagas)}</td><td class="r">${brl(f.despesas_a_pagar)}</td>
-        <td class="r">${brl(f.adiantado)}</td><td class="r">${f.reembolso_pago != null ? brl(f.reembolso_pago) : '—'}</td><td>${STATUS[f.situacao] ? statusChip(f.situacao) : esc(f.situacao)}</td></tr>`).join('')}</table></div></details>`;
+  const blocos = Object.entries(porPrest).map(([p, l]) => {
+    const pago = soma(l, x => Number(x.pago_legado) + Number(x.pagamentos)), saldo = l.length ? Number(l[l.length - 1].saldo_acumulado) : 0;
+    return `<details style="margin:8px 0"><summary><b>${esc(p)}</b> · despesas ${brl(soma(l, 'despesas'))} · pago ${brl(pago)} · adiant. ${brl(soma(l, 'adiantamentos'))} · <b style="color:#fcd34d">saldo ${brl(saldo)}</b> · ${l.length} semana(s)</summary>
+      <div class="tw"><table><tr><th>Semana</th><th class="r">Despesas</th><th class="r">Pago</th><th class="r">Adiantamento</th><th class="r">Recusado</th><th class="r">Saldo a pagar</th></tr>
+      ${l.slice().reverse().slice(0, 52).map(f => `<tr><td>${dBR(f.semana)}–${dBR(f.semana_fim)}</td><td class="r">${brl(f.despesas)}</td><td class="r">${brl(Number(f.pago_legado) + Number(f.pagamentos))}</td>
+        <td class="r">${brl(f.adiantamentos)}</td><td class="r">${brl(f.recusado)}</td><td class="r"><b>${brl(f.saldo_acumulado)}</b></td></tr>`).join('')}</table></div></details>`;
   });
-  $('fluxo').innerHTML = blocos.join('') || '<span class="mut">Sem movimento.</span>';
+  $('fluxo').innerHTML = (blocos.join('') || '<span class="mut">Sem movimento.</span>') + '<div style="margin-top:8px"><a class="btn" href="../obras-relatorios/?rel=fluxo">Relatório / PDF do fluxo de caixa</a></div>';
 }
 
 function renderDesconhecidos() {
   const conhecidos = new Set(D.rem.map(r => r.numero));
   const desc = {};
-  for (const c of D.comp) if (c.remetente_numero && !conhecidos.has(c.remetente_numero)) {
+  for (const c of D.desp) if (c.remetente_numero && !conhecidos.has(c.remetente_numero)) {
     const k = c.remetente_numero; desc[k] = desc[k] || {numero: k, nome: c.remetente, qtd: 0, valor: 0}; desc[k].qtd++; desc[k].valor += c.status === 'lancado' ? Number(c.valor) : 0;
   }
   const lista = Object.values(desc);
@@ -255,7 +215,7 @@ async function vincular(i) {
   toast(`Vinculado. ${data || 0} recibo(s) a pagar atualizado(s).`); carregar();
 }
 
-iniciarLogin(() => { carregar(); clearInterval(TIMER); TIMER = setInterval(carregar, 60000); });
+iniciarLogin(() => { $('menu').innerHTML = menu('contas'); carregar(); clearInterval(TIMER); TIMER = setInterval(carregar, 60000); });
 </script>
 </body>
 </html>
