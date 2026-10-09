@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Obras · Contas a Pagar</title>
+<meta name="theme-color" content="#0b1020">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="comum.css">
+</head>
+<body>
+
+<div id="vLogin" class="hidden" style="max-width:420px;margin:40px auto">
+  <h1>🏗️ Obras · Contas a Pagar</h1><div class="sub">Entre com o mesmo usuário do Portal Esposende</div>
+  <div class="card" style="margin-top:16px">
+    <label class="small">Email do Portal</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label class="small">Senha</label><input id="lSenha" type="password" autocomplete="current-password">
+    <div id="lErr" class="err"></div>
+    <button class="btn b-pri" style="width:100%;padding:14px" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div><h1>🏗️ Obras · Contas a Pagar</h1>
+      <div class="sub">Recibos do grupo “Adm Obras Esposende” · o que entra pelo WhatsApp vira conta a pagar · Presidente escolhe o que paga → Financeiro paga → Auditor confere · <span id="atual"></span></div></div>
+    <div class="row"><button class="btn" onclick="carregar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button></div>
+  </div>
+  <div id="menu"></div>
+
+  <div id="alertaSaude"></div>
+  <h2>Resumo geral</h2>
+  <div class="grid" id="kpis"></div>
+
+  <h2>Contas a pagar por prestador</h2>
+  <div class="pgrid" id="pessoas"></div>
+
+  <h2>Agente Auditor</h2>
+  <div class="card" id="auditor"></div>
+
+  <h2>Fluxo de caixa por prestador</h2>
+  <div class="card" id="fluxo"></div>
+
+  <h2>Em aberto por categoria</h2>
+  <div class="card" id="cats"></div>
+
+  <h2>Números de WhatsApp a identificar</h2>
+  <div class="card" id="desconhecidos"></div>
+
+  <h2>Saúde do capturador (WhatsApp → Supabase)</h2>
+  <div class="grid" id="saude"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="comum.js"></script>
+<script>
+let D = null, TIMER = null, VER_HISTORICO = false;
+const haQuanto = iso => { if (!iso) return '—'; const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  return m < 1 ? 'agora' : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.round(m / 60)} h` : dtBR(iso); };
+function segunda() { const x = new Date(hojeISO() + 'T12:00:00'); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x.toISOString().slice(0, 10); }
+function fmtNum(n) { const m = /^55(\d{2})(\d{4,5})(\d{4})$/.exec(n || ''); return m ? `DDD ${m[1]} · +55 ${m[1]} ${m[2]}-${m[3]}` : null; }
+const soma = (a, f) => a.reduce((t, x) => t + Number((typeof f === 'function' ? f(x) : x[f]) || 0), 0);
+
+async function carregar() {
+  try {
+    const st = await sb.from('capturador_status').select('*').order('atualizado_em', {ascending: false});
+    const [saldos, rem, desp, pags, adis, fluxo] = await Promise.all([carregarSaldos(),
+      todos(() => sb.from('obras_remetentes').select('numero,nome,obra_id,ativo,pix_chave').order('numero')),
+      carregarDespesas(), carregarPagamentos(), carregarAdiantamentos(),
+      todos(() => sb.from('obras_fluxo_semanal').select('*').order('prestador').order('semana'))]);
+    D = {saude: st.error ? null : st.data, saldos, rem, desp, pags, adis, fluxo};
+    render();
+    $('atual').textContent = 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+  } catch (e) {
+    if (/JWT|not authenticated/i.test(e.message)) { await sb.auth.signOut(); semPermissao('Sessão expirada.'); return; }
+    toast('Erro ao carregar: ' + msgErro(e), 6000);
+  }
+}
+
+function renderSaude() {
+  const box = $('saude'), al = $('alertaSaude');
+  if (!D.saude) { box.innerHTML = '<div class="card mut small">Status indisponível para este usuário.</div>'; al.innerHTML = ''; return; }
+  if (!D.saude.length) { box.innerHTML = '<div class="card k-bad kpi"><div class="l">Capturador</div><div class="v">SEM SINAL</div><div class="n">nenhuma instância publicou status ainda</div></div>'; al.innerHTML = ''; return; }
+  const problemas = [];
+  box.innerHTML = D.saude.map(s => {
+    const online = (Date.now() - new Date(s.atualizado_em)) / 60000 <= 3, wa = s.whatsapp_estado === 'CONNECTED';
+    if (!online) problemas.push(`Capturador ${s.instancia} OFFLINE desde ${haQuanto(s.atualizado_em)}`);
+    else if (!wa) problemas.push(`WhatsApp DESCONECTADO em ${s.instancia}`);
+    if (online && !s.supabase_ok) problemas.push('Supabase com erro');
+    if (/SEM CREDITO|nenhuma/i.test(s.ia || '')) problemas.push(`IA: ${s.ia}`);
+    const lin = (l, v) => `<div class="row" style="justify-content:space-between;font-size:14px;margin:3px 0"><span class="mut">${l}</span><b>${v}</b></div>`;
+    return `<div class="card ${!online || !wa ? 'k-bad' : ''}"><div class="row" style="justify-content:space-between"><b>${esc(s.instancia)}</b>
+      <span class="chip ${online ? 's-auditada' : 's-pendencia'}">${online ? 'ONLINE' : 'OFFLINE'}</span></div>
+      ${lin('WhatsApp', wa ? 'CONECTADO' : esc(s.whatsapp_estado || 'DESCONECTADO'))}${lin('Supabase', s.supabase_ok ? 'OK' : 'ERRO')}${lin('IA', esc(s.ia || '—'))}
+      ${lin('Última mensagem recebida', haQuanto(s.ultima_mensagem))}${lin('Último comprovante processado', haQuanto(s.ultimo_comprovante))}
+      ${lin('Fila / pendentes de leitura', `${s.fila_pendente || 0} / ${s.pendentes_leitura || 0}`)}${lin('Erros nas últimas 24h', s.erros_24h ?? '—')}
+      ${s.ultimo_erro ? `<div class="small mut" style="margin-top:6px">Último erro: ${esc(s.ultimo_erro)}</div>` : ''}
+      <div class="small mut" style="margin-top:6px">status ${haQuanto(s.atualizado_em)} · ligado ${haQuanto(s.iniciado_em)}</div></div>`;
+  }).join('');
+  al.innerHTML = problemas.length ? `<div class="card k-bad" style="margin-top:14px"><b style="color:#fca5a5">⚠ Capturador:</b> ${problemas.map(esc).join(' · ')}</div>` : '';
+}
+
+function render() {
+  renderSaude();
+  const semAtual = segunda(), mes = hojeISO().slice(0, 7);
+  const k = (cls, l, v, n) => `<div class="card kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div>${n ? `<div class="n">${n}</div>` : ''}</div>`;
+  const lanc = D.desp.filter(d => d.status === 'lancado'), abertos = D.desp.filter(d => Number(d.saldo) > 0);
+  const orc = D.desp.filter(d => d.status === 'orcamento' && d.situacao_pagamento === 'a_pagar');
+  const crit = soma(abertos, 'criticos'), pagosMes = D.pags.filter(p => ['pago', 'auditado', 'pendencia'].includes(p.status) && (p.pago_em || '').slice(0, 7) === mes);
+  $('kpis').innerHTML =
+    k('k-pagar', 'Total a pagar', brl(soma(D.saldos, 'saldo_devedor')), `${abertos.length} despesa(s) em aberto · acumulado de todas as semanas`) +
+    k('', 'Entrou nesta semana', brl(soma(lanc.filter(d => d.semana === semAtual), 'valor')), `desde ${dBR(semAtual)}`) +
+    k('', 'Com o Financeiro', brl(soma(D.pags.filter(p => p.status === 'aprovado'), 'valor_aprovado')), 'aprovado pelo Presidente, aguardando pagamento') +
+    k('k-ok', 'Pago neste mês', brl(soma(pagosMes, 'valor_pago')), `${pagosMes.length} pagamento(s)`) +
+    k(crit ? 'k-bad' : '', 'Pontos críticos do Auditor', String(crit), 'em despesas ainda não pagas') +
+    k('', 'Orçamentos (não somam)', brl(soma(orc, 'valor')), `${orc.length} documento(s)`) +
+    k('', 'Histórico já pago', brl(soma(lanc, 'valor_pago')), 'tudo o que já foi pago');
+
+  const lista = D.saldos.slice().sort((a, b) => b.saldo_devedor - a.saldo_devedor || a.prestador.localeCompare(b.prestador));
+  window.PREST = lista.map(s => s.prestador);
+  $('pessoas').innerHTML = lista.map((s, i) => {
+    const tel = D.rem.filter(r => r.nome === s.prestador).map(r => fmtNum(r.numero)).find(Boolean);
+    const semAtualV = soma(lanc.filter(d => d.prestador === s.prestador && d.semana === semAtual), 'valor');
+    return `<div class="card"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${Number(s.saldo_devedor) ? riscoChip(s.risco) : '<span class="chip r-normal">EM DIA</span>'}</div>
+      <div class="pnum">${esc(tel || 'número ainda não identificado')}${s.pix_chave ? ' · PIX cadastrado' : ' · <span style="color:#fcd34d">sem PIX cadastrado</span>'}</div>
+      <div class="small mut" style="margin-top:10px">Total a pagar</div><div class="big">${brl(s.saldo_devedor)}</div>
+      <div class="mini"><div><b>${brl(s.em_aberto)}</b><span>${s.itens_abertos} em aberto</span></div><div><b>${brl(s.adiantamento_disponivel)}</b><span>adiantamento</span></div>
+        <div><b>${brl(s.com_financeiro)}</b><span>com o Financeiro</span></div></div>
+      <div class="mini"><div><b>${brl(semAtualV)}</b><span>nesta semana</span></div><div><b>${brl(s.total_pago)}</b><span>já pago</span></div><div><b>${brl(s.total_despesas)}</b><span>total de despesas</span></div></div>
+      ${s.criticos ? `<div class="crit">⚠ ${s.criticos} ponto(s) crítico(s) do Auditor</div>` : ''}${s.pagamentos_pendencia ? `<div class="crit">⚠ ${s.pagamentos_pendencia} pagamento(s) com pendência</div>` : ''}
+      ${s.ultimo_pagamento ? `<div class="small mut">Último pagamento ${dtBR(s.ultimo_pagamento)}</div>` : ''}
+      <div class="row" style="margin-top:8px"><a class="btn b-pri" href="../obras-presidente/?p=${encodeURIComponent(s.prestador)}">Ver despesas / pagar</a>
+        <button class="btn" onclick="extrato(${i})">PDF do extrato</button></div></div>`;
+  }).join('') || '<div class="card vazio">Nenhum prestador.</div>';
+
+  renderAuditor(); renderFluxo(); renderDesconhecidos();
+  const porCat = {}; for (const d of abertos) porCat[d.categoria] = (porCat[d.categoria] || 0) + Number(d.saldo);
+  const max = Math.max(1, ...Object.values(porCat));
+  $('cats').innerHTML = Object.keys(porCat).length ? Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([c, v]) =>
+    `<div style="margin:8px 0"><div class="row" style="justify-content:space-between"><span>${esc(CATS[c] || c)}</span><b>${brl(v)}</b></div><div class="bar"><i style="width:${(v / max * 100).toFixed(1)}%"></i></div></div>`).join('')
+    : '<span class="mut">Nada em aberto.</span>';
+}
+
+async function extrato(i) {
+  const p = PREST[i];
+  try { toast('Gerando PDF…'); await pdfExtrato(p, D.desp.filter(d => d.prestador === p), D.pags.filter(x => x.prestador === p), D.adis.filter(a => a.prestador === p), D.saldos.find(s => s.prestador === p)); }
+  catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); }
+}
+
+const REGRAS = {duplicidade_autenticacao: 'Pagamento repetido', duplicidade_valor_data_fornecedor: 'Possível duplicidade', arquivo_repetido: 'Comprovante repetido',
+  sem_comprovante: 'Sem documento', leitura_baixa_confianca: 'Leitura duvidosa', valor_atipico: 'Valor fora do padrão', sem_obra: 'Sem obra', data_incoerente: 'Data incoerente',
+  pix_pessoa_fisica_material: 'PIX p/ pessoa física', fornecedor_varias_vezes_dia: 'Fornecedor repetido no dia'};
+function renderAuditor() {
+  const ds = D.desp.filter(d => (d.achados || []).length && (VER_HISTORICO || Number(d.saldo) > 0));
+  const lista = []; for (const d of ds) for (const a of d.achados) lista.push({...a, d});
+  lista.sort((a, b) => (b.nivel === 'critico') - (a.nivel === 'critico'));
+  const pend = D.pags.filter(p => p.status === 'pendencia');
+  const crit = lista.filter(a => a.nivel === 'critico').length + pend.length;
+  $('auditor').innerHTML = `<div class="row" style="justify-content:space-between"><div>${riscoChip(crit ? 'critico' : lista.length ? 'atencao' : 'normal')}
+      <span class="small mut">${VER_HISTORICO ? 'Todas as despesas (inclui histórico pago)' : 'Despesas ainda não pagas'} · ${lista.length} ponto(s)</span></div>
+      <div class="row"><button class="btn" onclick="VER_HISTORICO=!VER_HISTORICO;render()">${VER_HISTORICO ? 'Só o que vai ser pago' : 'Ver histórico pago também'}</button>
+      <a class="btn" href="../obras-relatorios/?rel=auditor">Relatório / PDF</a></div></div>
+    ${pend.map(p => `<div class="crit" style="margin-top:8px">⚠ Pagamento nº ${p.numero} (${esc(p.prestador)}, ${brl(p.valor_pago)}): ${esc(p.auditoria_resultado || '')}</div>`).join('')}
+    ${lista.length ? `<div class="tw"><table><tr><th>Nível</th><th>Despesa</th><th>O que o Auditor viu</th><th></th></tr>${lista.slice(0, 150).map((a, i) =>
+      `<tr><td>${riscoChip(a.nivel)}</td><td class="small">${esc(a.d.prestador || '')}<div class="mut">${dBR(a.d.data_despesa)} · ${esc(a.d.fornecedor || '')} · ${brl(a.d.valor)} · ${(SIT[a.d.situacao] || [''])[0]}</div>
+        <div>${linkArquivo(a.d.arquivo_path, 'ver comprovante')}</div></td><td class="small">${esc(a.mensagem)}</td><td><button class="btn" onclick="resolver('${a.id}')">Resolver</button></td></tr>`).join('')}</table></div>
+      ${lista.length > 150 ? `<div class="small mut">Mostrando 150 de ${lista.length}. O relatório traz todos.</div>` : ''}` : '<div class="small mut" style="margin-top:8px">Nenhum ponto em aberto.</div>'}`;
+}
+
+async function resolver(id) {
+  const obs = prompt('Como foi resolvido? (fica registrado com o seu nome)');
+  if (!obs) return;
+  const {error} = await sb.rpc('obras_resolver_achado', {p_id: id, p_observacao: obs});
+  if (error) return toast(msgErro(error), 6000);
+  toast('Ponto resolvido.'); carregar();
+}
+
+function renderFluxo() {
+  const porPrest = {};
+  for (const f of D.fluxo) (porPrest[f.prestador] = porPrest[f.prestador] || []).push(f);
+  const blocos = Object.entries(porPrest).map(([p, l]) => {
+    const pago = soma(l, x => Number(x.pago_legado) + Number(x.pagamentos)), saldo = l.length ? Number(l[l.length - 1].saldo_acumulado) : 0;
+    return `<details style="margin:8px 0"><summary><b>${esc(p)}</b> · despesas ${brl(soma(l, 'despesas'))} · pago ${brl(pago)} · adiant. ${brl(soma(l, 'adiantamentos'))} · <b style="color:#fcd34d">saldo ${brl(saldo)}</b> · ${l.length} semana(s)</summary>
+      <div class="tw"><table><tr><th>Semana</th><th class="r">Despesas</th><th class="r">Pago</th><th class="r">Adiantamento</th><th class="r">Recusado</th><th class="r">Saldo a pagar</th></tr>
+      ${l.slice().reverse().slice(0, 52).map(f => `<tr><td>${dBR(f.semana)}–${dBR(f.semana_fim)}</td><td class="r">${brl(f.despesas)}</td><td class="r">${brl(Number(f.pago_legado) + Number(f.pagamentos))}</td>
+        <td class="r">${brl(f.adiantamentos)}</td><td class="r">${brl(f.recusado)}</td><td class="r"><b>${brl(f.saldo_acumulado)}</b></td></tr>`).join('')}</table></div></details>`;
+  });
+  $('fluxo').innerHTML = (blocos.join('') || '<span class="mut">Sem movimento.</span>') + '<div style="margin-top:8px"><a class="btn" href="../obras-relatorios/?rel=fluxo">Relatório / PDF do fluxo de caixa</a></div>';
+}
+
+function renderDesconhecidos() {
+  const conhecidos = new Set(D.rem.map(r => r.numero));
+  const desc = {};
+  for (const c of D.desp) if (c.remetente_numero && !conhecidos.has(c.remetente_numero)) {
+    const k = c.remetente_numero; desc[k] = desc[k] || {numero: k, nome: c.remetente, qtd: 0, valor: 0}; desc[k].qtd++; desc[k].valor += c.status === 'lancado' ? Number(c.valor) : 0;
+  }
+  const lista = Object.values(desc);
+  window.DESC = lista;
+  $('desconhecidos').innerHTML = lista.length ? `<div class="small mut">O WhatsApp mandou estes números/códigos sem cadastro. Vincule ao prestador certo para o fluxo de caixa ficar separado.</div>
+    <div class="tw"><table><tr><th>Número / código</th><th>Nome no WhatsApp</th><th class="r">Recibos</th><th></th></tr>${lista.map((d, i) =>
+      `<tr><td>${esc(fmtNum(d.numero) || d.numero)}</td><td>${esc(d.nome || '')}</td><td class="r">${d.qtd} · ${brl(d.valor)}</td><td><button class="btn" onclick="vincular(${i})">Vincular</button></td></tr>`).join('')}</table></div>`
+    : '<span class="mut small">Todos os remetentes estão identificados.</span>';
+}
+
+async function vincular(i) {
+  const numero = window.DESC[i].numero, sugestao = window.DESC[i].nome || '';
+  const nomes = [...new Set(D.rem.map(r => r.nome))].join(', ');
+  const nome = prompt(`A qual prestador pertence ${numero}?\nCadastrados: ${nomes}`, sugestao);
+  if (!nome) return;
+  const {data, error} = await sb.rpc('obras_vincular_remetente', {p_numero: numero, p_nome: nome});
+  if (error) return toast(msgErro(error), 6000);
+  toast(`Vinculado. ${data || 0} recibo(s) a pagar atualizado(s).`); carregar();
+}
+
+iniciarLogin(() => { $('menu').innerHTML = menu('contas'); carregar(); clearInterval(TIMER); TIMER = setInterval(carregar, 60000); });
+</script>
+</body>
+</html>

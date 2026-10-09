@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Obras · Financeiro</title>
+<meta name="theme-color" content="#0b1020">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css">
+</head>
+<body>
+
+<div id="vLogin" class="hidden" style="max-width:420px;margin:40px auto">
+  <h1>Financeiro · Obras</h1><div class="sub">Pagamentos aprovados pelo Presidente · entre com o seu usuário do Portal</div>
+  <div class="card" style="margin-top:16px">
+    <label>Email</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label>Senha</label><input id="lSenha" type="password" autocomplete="current-password">
+    <div id="lErr" class="err"></div>
+    <button class="btn b-pri" style="width:100%;padding:14px" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div><h1>Financeiro · Obras &amp; Reformas</h1><div class="sub" id="quem"></div></div>
+    <div class="row"><button class="btn" onclick="carregar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button></div>
+  </div>
+  <div id="menu"></div>
+
+  <div class="grid" style="margin-top:14px" id="kpis"></div>
+
+  <h2>Para pagar (aprovado pelo Presidente)</h2>
+  <div class="pgrid" id="pagar"></div>
+
+  <h2>Pagos com pendência (falta comprovante ou valor diferente)</h2>
+  <div class="pgrid" id="pend"></div>
+
+  <h2>Adiantamentos</h2>
+  <div class="card" id="adiant"></div>
+
+  <h2>Pagamentos feitos</h2>
+  <div class="card" id="pagos"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="../obras-contas-pagar/comum.js"></script>
+<script>
+let PAGS = [], ITENS = [], DESP = [], SALDOS = [], ADIS = [], PAP = {};
+
+async function carregar() {
+  try {
+    [PAGS, ITENS, SALDOS, ADIS] = await Promise.all([carregarPagamentos(), carregarItens(), carregarSaldos(), carregarAdiantamentos()]);
+    const ids = [...new Set(ITENS.filter(i => PAGS.some(p => p.id === i.pagamento_id && ['aprovado', 'pendencia'].includes(p.status))).map(i => i.comprovante_id))];
+    DESP = [];
+    for (let k = 0; k < ids.length; k += 150) DESP.push(...await carregarDespesas(q => q.in('id', ids.slice(k, k + 150))));
+  } catch (e) { return toast('Erro ao carregar: ' + msgErro(e), 6000); }
+  render();
+}
+
+function render() {
+  const pagar = PAGS.filter(p => p.status === 'aprovado'), pend = PAGS.filter(p => p.status === 'pendencia');
+  const pagos = PAGS.filter(p => ['pago', 'auditado', 'pendencia'].includes(p.status));
+  const mes = hojeISO().slice(0, 7), soma = (a, f) => a.reduce((t, x) => t + Number(x[f] || 0), 0);
+  const k = (cls, l, v, n) => `<div class="card kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
+  $('kpis').innerHTML = k('k-pagar', 'Para pagar agora', brl(soma(pagar, 'valor_aprovado')), `${pagar.length} pagamento(s)`)
+    + k(pend.length ? 'k-bad' : '', 'Com pendência', String(pend.length), pend.length ? 'anexar/corrigir comprovante' : 'nenhuma')
+    + k('k-ok', 'Pago neste mês', brl(soma(pagos.filter(p => (p.pago_em || '').slice(0, 7) === mes), 'valor_pago')), `${pagos.filter(p => p.status === 'auditado').length} auditado(s) no total`)
+    + k('', 'Total ainda em aberto (prestadores)', brl(soma(SALDOS, 'saldo_devedor')), 'aguardando decisão do Presidente');
+  $('pagar').innerHTML = pagar.length ? pagar.map(cardPag).join('') : '<div class="card vazio">Nada aprovado aguardando pagamento.</div>';
+  $('pend').innerHTML = pend.length ? pend.map(cardPag).join('') : '<div class="card vazio">Nenhuma pendência.</div>';
+  renderAdiant();
+  $('pagos').innerHTML = pagos.length ? `<div class="tw"><table><tr><th>Nº</th><th>Prestador</th><th class="r">Pago</th><th>Situação</th><th>Pago por</th><th></th></tr>
+    ${pagos.slice(0, 40).map(p => `<tr><td>${p.numero}</td><td>${esc(p.prestador)}</td><td class="r">${brl(p.valor_pago)}</td><td>${pagChip(p.status)}</td>
+      <td class="small">${esc(p.pago_por || '')}<div class="mut">${dtBR(p.pago_em)}</div></td>
+      <td class="small"><div class="acoes"><a onclick="baixarRecibo('${p.id}')">PDF</a>${linkArquivo(p.comprovante_path, 'comprovante')}</div></td></tr>`).join('')}</table></div>`
+    : '<div class="mut small">Nenhum pagamento ainda.</div>';
+}
+
+function cardPag(p) {
+  const its = ITENS.filter(i => i.pagamento_id === p.id), pend = p.status === 'pendencia';
+  const temPix = !!p.pix_chave, temConta = p.banco && p.conta;
+  return `<div class="card ${pend ? 'k-bad' : ''}"><div class="row" style="justify-content:space-between"><div><div class="pname">${esc(p.favorecido || p.prestador)}</div>
+      <div class="pnum">Pagamento nº ${p.numero} · ${esc(p.prestador)}</div></div>${pagChip(p.status)}</div>
+    <div class="small mut" style="margin-top:10px">${pend ? 'Valor pago' : 'Valor a pagar'}</div><div class="big">${brl(pend ? p.valor_pago : p.valor_aprovado)}</div>
+    <div class="small mut">${its.length} despesa(s) · ${brl(p.valor_itens)}${Number(p.valor_abatido) ? ` − adiantamento ${brl(p.valor_abatido)}` : ''} · aprovado por ${esc(p.aprovado_por || '—')} ${dtBR(p.aprovado_em)}</div>
+    ${p.observacao ? `<div class="small" style="margin-top:4px">Obs.: ${esc(p.observacao)}</div>` : ''}
+    ${temPix ? `<div class="small mut" style="margin-top:10px">PIX ${esc(p.pix_tipo || '')}</div><div class="pix">${esc(p.pix_chave)}</div>
+      <button class="btn" style="margin-top:6px" onclick="copiar('${p.id}')">Copiar chave PIX</button>` : ''}
+    ${temConta ? `<div class="small" style="margin-top:8px">Banco ${esc(p.banco)} · Ag ${esc(p.agencia || '')} · Conta ${esc(p.conta)}</div>` : ''}
+    ${!temPix && !temConta ? `<div class="warn" style="margin-top:10px">⚠ Sem PIX/conta do prestador — informe em “PIX / conta”.</div>` : ''}
+    ${pend ? `<div class="crit" style="margin-top:8px">Auditor: ${esc(p.auditoria_resultado || '')}</div>` : ''}
+    <details style="margin-top:8px"><summary class="small">Ver as ${its.length} despesa(s)</summary>${tabelaItens(its)}</details>
+    <div class="row" style="margin-top:10px">${PAP.financeiro || PAP.presidente ? `<button class="btn b-ok" onclick="pagar('${p.id}')">${pend ? 'Anexar / corrigir comprovante' : 'Anexar comprovante e confirmar pagamento'}</button>
+      <button class="btn" onclick="modalPix(PAGS.find(x => x.id === '${p.id}').prestador)">PIX / conta</button>` : ''}<button class="btn" onclick="baixarRecibo('${p.id}')">PDF</button></div></div>`;
+}
+
+function tabelaItens(its) {
+  return `<div class="tw"><table><tr><th>Data</th><th>Fornecedor</th><th class="r">Recibo</th><th class="r">Pagar</th><th></th></tr>${its.map(i => {
+    const d = DESP.find(x => x.id === i.comprovante_id) || {};
+    return `<tr><td>${dBR(d.data_despesa)}</td><td>${esc(d.fornecedor || '—')}<div class="mut">${esc(CATS[d.categoria] || '')}</div></td><td class="r">${brl(d.valor)}</td>
+      <td class="r">${brl(i.valor)}${Number(i.valor) < Number(d.valor) - 0.005 ? '<div class="mut">parcial</div>' : ''}</td><td>${linkArquivo(d.arquivo_path)}</td></tr>`; }).join('')}</table></div>`;
+}
+
+async function copiar(id) { try { await navigator.clipboard.writeText(PAGS.find(x => x.id === id).pix_chave); toast('Chave PIX copiada.'); } catch (e) { toast('Não foi possível copiar.'); } }
+async function baixarRecibo(id) { try { toast('Gerando PDF…'); await pdfPagamento(id); } catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); } }
+
+function pagar(id) {
+  const p = PAGS.find(x => x.id === id), pend = p.status === 'pendencia';
+  abrirModal(`<h3>${pend ? 'Corrigir' : 'Confirmar'} pagamento nº ${p.numero}</h3><div class="small">${esc(p.favorecido || p.prestador)} · aprovado ${brl(p.valor_aprovado)}</div>
+    <label>Valor pago</label><input id="mVal" inputmode="decimal" value="${Number(p.valor_pago ?? p.valor_aprovado).toFixed(2).replace('.', ',')}">
+    ${pend ? '' : `<label>Forma</label><select id="mForma">${Object.entries(FORMAS).map(([k, v]) => `<option value="${k}" ${k === (p.forma_pagamento || (p.pix_chave ? 'pix' : 'transferencia')) ? 'selected' : ''}>${v}</option>`).join('')}</select>`}
+    <label>Comprovante (foto ou PDF) — obrigatório</label><input id="mArq" type="file" accept="image/*,application/pdf">
+    ${pend ? '' : '<label>Observação (opcional)</label><input id="mObs" maxlength="300">'}
+    <div class="err" id="mErr"></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn" onclick="fecharModal()">Voltar</button><button class="btn b-ok" id="mOk" onclick="pagarOk('${id}')">Confirmar pagamento</button></div>`);
+}
+async function pagarOk(id) {
+  const p = PAGS.find(x => x.id === id), pend = p.status === 'pendencia', v = num($('mVal').value), arq = $('mArq').files[0];
+  if (!(v > 0)) return $('mErr').textContent = 'Valor inválido.';
+  if (!arq) return $('mErr').textContent = 'Escolha o arquivo do comprovante.';
+  if (Math.abs(v - Number(p.valor_aprovado)) > 0.01 && !confirm(`O valor (${brl(v)}) é diferente do aprovado (${brl(p.valor_aprovado)}). O Auditor vai marcar pendência. Continuar?`)) return;
+  $('mOk').disabled = true; $('mOk').textContent = 'Enviando…';
+  try {
+    const path = await enviarComprovante(id, arq);
+    const r = pend ? await sb.rpc('obras_pagamento_anexar', {p_pag: id, p_comprovante_path: path, p_valor: v})
+      : await sb.rpc('obras_pagamento_registrar', {p_pag: id, p_valor: v, p_comprovante_path: path, p_forma: $('mForma').value, p_observacao: $('mObs').value.trim() || null});
+    if (r.error) throw r.error;
+    const res = Array.isArray(r.data) ? r.data[0] : r.data; fecharModal();
+    toast(res && res.status === 'auditado' ? 'Pagamento registrado e AUDITADO. As despesas já aparecem como pagas.' : 'Pagamento registrado, mas o Auditor apontou: ' + (res && res.auditoria_resultado || ''), 8000);
+    carregar();
+  } catch (e) { $('mOk').disabled = false; $('mOk').textContent = 'Confirmar pagamento'; $('mErr').textContent = msgErro(e); }
+}
+
+function renderAdiant() {
+  const pode = PAP.financeiro || PAP.presidente, lista = ADIS.slice(0, 30);
+  $('adiant').innerHTML = `${pode ? `<div class="row" style="justify-content:space-between"><span class="small mut">Valor pago antes ao prestador: é descontado sozinho no próximo pagamento.</span>
+      <button class="btn b-pri" onclick="modalAdiant()">Registrar adiantamento</button></div>` : ''}
+    ${lista.length ? `<div class="tw"><table><tr><th>Data</th><th>Prestador</th><th class="r">Valor</th><th>Obs.</th><th></th></tr>${lista.map(a => `<tr${a.cancelado ? ' class="mut"' : ''}>
+      <td>${dBRano(a.data)}</td><td>${esc(a.prestador)}</td><td class="r">${brl(a.valor)}</td><td class="small">${esc(a.observacao || '')}<div class="mut">${esc(a.registrado_por || '')}</div></td>
+      <td class="small"><div class="acoes">${linkArquivo(a.comprovante_path, 'comprovante')}${pode && !a.cancelado ? `<a onclick="cancelarAdiant('${a.id}')">cancelar</a>` : ''}${a.cancelado ? 'cancelado' : ''}</div></td></tr>`).join('')}</table></div>`
+      : '<div class="mut small" style="margin-top:8px">Nenhum adiantamento.</div>'}`;
+}
+function modalAdiant() {
+  abrirModal(`<h3>Registrar adiantamento</h3><label>Prestador</label><select id="adPre">${SALDOS.map(s => `<option>${esc(s.prestador)}</option>`).join('')}</select>
+    <label>Valor</label><input id="adVal" inputmode="decimal"><label>Data</label><input id="adDat" type="date" value="${hojeISO()}">
+    <label>Observação</label><input id="adObs"><label>Comprovante (opcional)</label><input id="adArq" type="file" accept="image/*,application/pdf">
+    <div class="err" id="mErr"></div><div class="row" style="justify-content:flex-end"><button class="btn" onclick="fecharModal()">Voltar</button><button class="btn b-pri" onclick="adiantOk()">Registrar</button></div>`);
+}
+async function adiantOk() {
+  const v = num($('adVal').value); if (!(v > 0)) return $('mErr').textContent = 'Valor inválido.';
+  let path = null; const arq = $('adArq').files[0];
+  try { if (arq) path = await enviarComprovante('adiantamento-' + Date.now(), arq); } catch (e) { return $('mErr').textContent = msgErro(e); }
+  const {error} = await sb.rpc('obras_adiantamento_registrar', {p_prestador: $('adPre').value, p_valor: v, p_data: $('adDat').value || null, p_observacao: $('adObs').value.trim() || null, p_comprovante_path: path});
+  if (error) return $('mErr').textContent = msgErro(error);
+  fecharModal(); toast('Adiantamento registrado.'); carregar();
+}
+async function cancelarAdiant(id) {
+  const m = prompt('Motivo do cancelamento do adiantamento:'); if (!m) return;
+  const {error} = await sb.rpc('obras_adiantamento_cancelar', {p_id: id, p_motivo: m});
+  if (error) return toast(msgErro(error), 6000);
+  toast('Adiantamento cancelado.'); carregar();
+}
+
+function modalPix(prest) {
+  const s = SALDOS.find(x => x.prestador === prest) || {};
+  abrirModal(`<h3>Dados de pagamento · ${esc(prest)}</h3>
+    <label>Tipo da chave PIX</label><select id="pTipo">${['', 'cpf', 'cnpj', 'telefone', 'email', 'aleatoria'].map(t => `<option value="${t}" ${t === (s.pix_tipo || '') ? 'selected' : ''}>${t || '(sem PIX — conta bancária)'}</option>`).join('')}</select>
+    <label>Chave PIX</label><input id="pChave" value="${esc(s.pix_chave || '')}"><label>Titular</label><input id="pTit" value="${esc(s.titular || prest)}">
+    <label>Banco</label><input id="pBan" value="${esc(s.banco || '')}"><div class="row"><div style="flex:1"><label>Agência</label><input id="pAg" value="${esc(s.agencia || '')}"></div>
+    <div style="flex:1"><label>Conta</label><input id="pCt" value="${esc(s.conta || '')}"></div></div><div class="err" id="mErr"></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn" onclick="fecharModal()">Voltar</button><button class="btn b-pri" id="pOk">Salvar</button></div>`);
+  $('pOk').onclick = async () => {
+    const v = id => $(id).value.trim() || null;
+    const {error} = await sb.rpc('obras_definir_pagamento_prestador', {p_prestador: prest, p_pix_tipo: v('pTipo'), p_pix_chave: v('pChave'), p_titular: v('pTit'),
+      p_cpf_cnpj: null, p_banco: v('pBan'), p_agencia: v('pAg'), p_conta: v('pCt')});
+    if (error) return $('mErr').textContent = msgErro(error);
+    fecharModal(); toast('Dados salvos.'); carregar();
+  };
+}
+
+iniciarLogin(async user => {
+  $('menu').innerHTML = menu('financeiro');
+  PAP = await papeis();
+  $('quem').textContent = 'Conectado como ' + (user.email || '') + (PAP.financeiro || PAP.presidente ? '' : ' · somente consulta');
+  carregar(); setInterval(() => { if (!$('modal') || $('modal').style.display !== 'flex') carregar(); }, 120000);
+});
+</script>
+</body>
+</html>
