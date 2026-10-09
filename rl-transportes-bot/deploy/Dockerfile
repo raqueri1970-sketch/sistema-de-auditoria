@@ -1,6 +1,6 @@
 # Capturador WhatsApp 24/7 (RL Transportes + Obras) — imagem para servidor na nuvem.
 # Chromium do sistema (não baixa o do puppeteer), Python + pypdf (pacote do Debian) para o leitor local de PDF, fuso de São Paulo.
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
       chromium fonts-liberation fonts-noto-color-emoji ca-certificates tzdata \
       python3 python3-pypdf python-is-python3 build-essential \
