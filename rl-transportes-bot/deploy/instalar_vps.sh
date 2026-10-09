@@ -8,7 +8,7 @@ BASE=/opt/capturador; REPO=https://github.com/raqueri1970-sketch/sistema-de-audi
 
 echo "== 1/6 Pacotes e Docker"
 apt-get update -y && apt-get install -y ca-certificates curl git ufw
-command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh
+command -v docker >/dev/null || apt-get install -y docker.io docker-compose-v2 || curl -fsSL https://get.docker.com | sh
 systemctl enable --now docker
 
 echo "== 2/6 Memória: swap de 2 GB se o servidor tiver menos de 4 GB"
