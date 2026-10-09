@@ -34,6 +34,10 @@
   <div id="alertaSaude"></div>
   <h2>Resumo geral</h2>
   <div class="grid" id="kpis"></div>
+  <div class="g2" style="margin-top:14px">
+    <div class="card viz"><h3>Total a pagar por prestador</h3><div id="gPrest"></div></div>
+    <div class="card viz"><h3>Despesas × pagamentos por semana <span id="gLeg"></span></h3><div id="gSem"></div></div>
+  </div>
 
   <h2>Contas a pagar por prestador</h2>
   <div class="pgrid" id="pessoas"></div>
@@ -136,6 +140,9 @@ function render() {
         <button class="btn" onclick="extrato(${i})">PDF do extrato</button></div></div>`;
   }).join('') || '<div class="card vazio">Nenhum prestador.</div>';
 
+  graficoBarrasH($('gPrest'), lista.filter(s => Number(s.saldo_devedor) > 0).map(s => ({rotulo: s.prestador, valor: Number(s.saldo_devedor)})), {vazio: 'Nenhum prestador com valor a pagar.'});
+  $('gLeg').innerHTML = legenda(['Despesas', 'Pago']);
+  graficoColunas($('gSem'), semanasFluxo(D.fluxo, 10), ['Despesas', 'Pago']);
   renderAuditor(); renderFluxo(); renderDesconhecidos();
   const porCat = {}; for (const d of abertos) porCat[d.categoria] = (porCat[d.categoria] || 0) + Number(d.saldo);
   const max = Math.max(1, ...Object.values(porCat));
