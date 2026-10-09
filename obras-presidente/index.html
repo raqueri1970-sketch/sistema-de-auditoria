@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="../obras-contas-pagar/comum.css">
 </head>
 <body>
@@ -31,7 +32,11 @@
 
   <!-- Visão geral: um card por prestador com o total em aberto -->
   <div id="vMain">
-    <div class="grid" style="margin-top:14px" id="kpis"></div>
+    <div class="grid" style="margin-top:16px" id="kpis"></div>
+    <div class="g2" style="margin-top:14px">
+      <div class="card viz"><h3>Total a pagar por prestador <span class="small mut" style="font-weight:500">acumulado, já descontado o adiantamento</span></h3><div id="gPrest"></div></div>
+      <div class="card viz"><h3>Despesas × pagamentos por semana <span id="gLeg"></span></h3><div id="gSem"></div></div>
+    </div>
     <div id="pixPres"></div>
     <h2>Contas a pagar por prestador <span class="mut" style="text-transform:none;letter-spacing:0">· toque no card para ver as despesas e escolher o que pagar</span></h2>
     <div class="pgrid" id="cards"></div>
@@ -47,12 +52,13 @@
 <div id="toast" class="toast"></div>
 <script src="../obras-contas-pagar/comum.js"></script>
 <script>
-let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = true;
+let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], FLUXO = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = true;
 
 async function carregar() {
   try {
     [SALDOS, DESP, PAGS, ADIS, PIXP] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('situacao', ['a_pagar', 'parcial', 'com_financeiro', 'recusado'])),
       carregarPagamentos(), carregarAdiantamentos(), carregarDespesas(q => q.eq('status', 'pagamento').is('pagamento_id', null))]);
+    FLUXO = await todos(() => sb.from('obras_fluxo_semanal').select('*').order('semana'));
   } catch (e) { return toast('Erro ao carregar: ' + msgErro(e), 6000); }
   if (ATUAL) abrirPrestador(ATUAL, ABERTO === ATUAL); else renderMain();
 }
@@ -83,6 +89,11 @@ function renderMain() {
   }).join('') || '<div class="card vazio">Nenhum prestador com despesas.</div>';
   window.SALDOS_ORD = lista.map(s => s.prestador);
   renderPagamentos($('pagamentos'), PAGS.slice(0, 25));
+  graficoBarrasH($('gPrest'), lista.filter(s => Number(s.saldo_devedor) > 0).map(s => ({rotulo: s.prestador, valor: Number(s.saldo_devedor),
+    det: `<div><span>Despesas em aberto</span><span>${s.itens_abertos}</span></div>${Number(s.com_financeiro) ? `<div><span>Com o Financeiro</span><span>${brl(s.com_financeiro)}</span></div>` : ''}`})),
+    {vazio: 'Nenhum prestador com valor a pagar.'});
+  $('gLeg').innerHTML = legenda(['Despesas', 'Pago']);
+  graficoColunas($('gSem'), semanasFluxo(FLUXO, 10), ['Despesas', 'Pago']);
   $('pixPres').innerHTML = PIXP.length ? `<h2>Pix do Presidente recebidos no grupo, ainda sem pagamento marcado</h2><div class="card k-pagar">
     <div class="small">Comprovantes em que quem pagou foi Paulo Almeida / Mar Aberto. Abra o prestador, marque as despesas que esse Pix pagou e toque em <b>“Já paguei”</b>:
       quando o valor bate, o sistema liga o comprovante sozinho e o Agente Auditor confere.</div>
