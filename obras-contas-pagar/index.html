@@ -182,7 +182,8 @@ function render() {
 }
 
 function cardPessoa(p) {
-  const nums = [...p.numeros].filter(n => n.length >= 12);
+  // Só telefone brasileiro (55 + DDD + número). O WhatsApp às vezes manda um código interno (LID) no lugar do número.
+  const nums = [...p.numeros].filter(n => /^55\d{10,11}$/.test(n));
   const principal = nums.sort((a, b) => b.length - a.length)[0];
   const regiao = principal ? `DDD ${ddd(principal)} · ${fmtNum(principal)}` : 'número ainda não identificado';
   const semanas = p.semanas.slice().sort((a, b) => b.semana_inicio.localeCompare(a.semana_inicio));
