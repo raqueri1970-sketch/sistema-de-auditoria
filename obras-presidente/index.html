@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Obras · Aprovação do Presidente</title>
+<meta name="theme-color" content="#0b1020">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css">
+</head>
+<body>
+
+<div id="vLogin" class="hidden" style="max-width:420px;margin:40px auto">
+  <h1>Aprovação de pagamentos</h1><div class="sub">Obras &amp; Reformas · entre com o seu usuário do Portal</div>
+  <div class="card" style="margin-top:16px">
+    <label class="small">Email</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label class="small">Senha</label><input id="lSenha" type="password" autocomplete="current-password">
+    <div id="lErr" class="err"></div>
+    <button class="btn b-pri" style="width:100%;padding:14px" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div><h1>Obras &amp; Reformas · Aprovação</h1><div class="sub" id="quem"></div></div>
+    <div class="row"><button class="btn" onclick="carregar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button></div>
+  </div>
+
+  <div class="card k-pagar kpi" style="margin-top:16px">
+    <div class="l">Aguardando a sua aprovação</div><div class="v" id="totAprovar">—</div><div class="n" id="qtdAprovar"></div>
+  </div>
+
+  <h2>Para aprovar</h2>
+  <div class="pgrid" id="paraAprovar"></div>
+
+  <h2>Em andamento (a semana ainda não fechou)</h2>
+  <div class="pgrid" id="andamento"></div>
+
+  <h2>Decisões recentes</h2>
+  <div class="card" id="recentes"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="../obras-contas-pagar/comum.js"></script>
+<script>
+let RES = [];
+
+async function carregar() {
+  try {
+    RES = await todos(() => sb.from('obras_contas_pagar_resumo').select('*').order('semana_inicio', {ascending: false}));
+  } catch (e) { return toast('Erro ao carregar: ' + msgErro(e), 6000); }
+  const aprovar = RES.filter(s => s.status === 'fechada' || (s.status === 'pendencia' && !s.pago_em));
+  const andamento = RES.filter(s => s.status === 'aberta');
+  $('totAprovar').textContent = brl(aprovar.reduce((a, s) => a + Number(s.valor_reembolso), 0));
+  $('qtdAprovar').textContent = aprovar.length ? `${aprovar.length} semana(s) de prestadores` : 'Nada pendente. Tudo em dia.';
+  $('paraAprovar').innerHTML = aprovar.length ? aprovar.map(s => card(s)).join('') : '<div class="card vazio">Nenhuma semana aguardando aprovação.</div>';
+  $('andamento').innerHTML = andamento.length ? andamento.map(s => card(s, true)).join('') : '<div class="card vazio">Nenhuma semana em andamento.</div>';
+  const dec = RES.filter(s => ['aprovada', 'paga', 'auditada'].includes(s.status) || (s.status === 'pendencia' && s.pago_em)).slice(0, 12);
+  $('recentes').innerHTML = dec.length ? `<div class="tw"><table><tr><th>Prestador</th><th>Semana</th><th class="r">Valor</th><th>Situação</th><th>Aprovado por</th></tr>
+    ${dec.map(s => `<tr><td>${esc(s.responsavel)}</td><td>${dBR(s.semana_inicio)}–${dBR(s.semana_fim)}</td><td class="r">${brl(s.valor_aprovado ?? s.valor_reembolso)}</td>
+      <td>${statusChip(s.status)}</td><td class="small">${esc(s.aprovado_por || '')}<div class="mut">${dtBR(s.aprovada_em)}</div></td></tr>`).join('')}</table></div>`
+    : '<div class="mut small">Ainda não há decisões.</div>';
+}
+
+function idDe(s) { return 'c' + RES.indexOf(s); }
+
+function card(s, soLeitura = false) {
+  const id = idDe(s);
+  const avisos = [];
+  if (s.criticos) avisos.push(`<div class="crit">⚠ ${s.criticos} ponto(s) CRÍTICO(s) apontado(s) pelo Auditor — aprovação bloqueada até resolver ou devolver.</div>`);
+  if (s.atencoes) avisos.push(`<div class="warn">⚠ ${s.atencoes} ponto(s) de atenção apontado(s) pelo Auditor.</div>`);
+  if (s.qtd_pendente_leitura) avisos.push(`<div class="warn">⚠ ${s.qtd_pendente_leitura} recibo(s) ainda sem leitura.</div>`);
+  if (s.status === 'pendencia' && s.motivo_devolucao) avisos.push(`<div class="warn">Devolvida: ${esc(s.motivo_devolucao)}</div>`);
+  return `<div class="card"><div class="row" style="justify-content:space-between"><div><div class="pname">${esc(s.responsavel)}</div>
+      <div class="pnum">Semana ${dBR(s.semana_inicio)} a ${dBR(s.semana_fim)}</div></div>${riscoChip(s.risco)}</div>
+    <div class="small mut" style="margin-top:10px">A reembolsar</div><div class="big">${brl(s.valor_reembolso)}</div>
+    <div class="mini"><div><b>${brl(s.total_despesas)}</b><span>${s.qtd_comprovantes} recibo(s)</span></div><div><b>${brl(s.valor_adiantado)}</b><span>já adiantado</span></div>
+      <div><b>${brl(s.total_orcamentos)}</b><span>orçamentos (não somam)</span></div></div>
+    ${avisos.join('')}
+    <div class="row" style="margin-top:8px">
+      <button class="btn" onclick="verRecibos('${id}')">Ver recibos</button>
+      ${soLeitura ? '<span class="small mut">Fecha no domingo</span>' : `
+      <button class="btn b-ok" ${s.criticos ? 'disabled title="Resolva os pontos críticos ou devolva"' : ''} onclick="decidir('${id}','aprovar')">Aprovar e enviar ao Financeiro</button>
+      <button class="btn b-bad" onclick="decidir('${id}','devolver')">Devolver</button>`}
+    </div><div id="r_${id}"></div></div>`;
+}
+
+async function verRecibos(id) {
+  const box = $('r_' + id); if (box.innerHTML) { box.innerHTML = ''; return; }
+  const s = RES[Number(id.slice(1))]; box.innerHTML = '<div class="small mut">Carregando…</div>';
+  try { box.innerHTML = tabelaRecibos(await recibosDaSemana(s.responsavel, s.semana_inicio, s.conta_id)); }
+  catch (e) { box.innerHTML = `<div class="err">${esc(msgErro(e))}</div>`; }
+}
+
+async function decidir(id, decisao) {
+  const s = RES[Number(id.slice(1))]; let motivo = null;
+  if (decisao === 'aprovar') {
+    if (!confirm(`Aprovar ${brl(s.valor_reembolso)} para ${s.responsavel} (semana ${dBR(s.semana_inicio)}–${dBR(s.semana_fim)}) e enviar ao Financeiro?`)) return;
+  } else {
+    motivo = prompt(`Motivo da devolução da semana de ${s.responsavel}:`);
+    if (!motivo) return;
+  }
+  const {error} = await sb.rpc('obras_presidente_decidir', {p_responsavel: s.responsavel, p_semana: s.semana_inicio, p_decisao: decisao, p_motivo: motivo});
+  if (error) return toast(msgErro(error), 7000);
+  toast(decisao === 'aprovar' ? 'Aprovado e enviado ao Financeiro.' : 'Semana devolvida.'); carregar();
+}
+
+iniciarLogin(async user => {
+  $('quem').textContent = 'Conectado como ' + (user.email || '');
+  const {data} = await sb.rpc('obras_tem_papel', {p_papel: 'presidente'});
+  if (data === false) $('quem').textContent += ' · você pode ver, mas só o Presidente aprova';
+  carregar(); setInterval(carregar, 60000);
+});
+</script>
+</body>
+</html>

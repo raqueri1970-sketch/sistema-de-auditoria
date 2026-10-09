@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Obras · Financeiro</title>
+<meta name="theme-color" content="#0b1020">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css">
+</head>
+<body>
+
+<div id="vLogin" class="hidden" style="max-width:420px;margin:40px auto">
+  <h1>Financeiro · Obras</h1><div class="sub">Pagamentos aprovados pelo Presidente · entre com o seu usuário do Portal</div>
+  <div class="card" style="margin-top:16px">
+    <label class="small">Email</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label class="small">Senha</label><input id="lSenha" type="password" autocomplete="current-password">
+    <div id="lErr" class="err"></div>
+    <button class="btn b-pri" style="width:100%;padding:14px" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div><h1>Financeiro · Obras &amp; Reformas</h1><div class="sub" id="quem"></div></div>
+    <div class="row"><button class="btn" onclick="carregar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button></div>
+  </div>
+
+  <div class="grid" style="margin-top:16px" id="kpis"></div>
+
+  <h2>Para pagar (aprovado pelo Presidente)</h2>
+  <div class="pgrid" id="pagar"></div>
+
+  <h2>Com pendência na auditoria do pagamento</h2>
+  <div class="pgrid" id="pend"></div>
+
+  <h2>Pagos</h2>
+  <div class="card" id="pagos"></div>
+</div>
+
+<input type="file" id="arquivo" accept="image/*,application/pdf" class="hidden">
+<div id="toast" class="toast"></div>
+<script src="../obras-contas-pagar/comum.js"></script>
+<script>
+let RES = [], REM = [];
+
+async function carregar() {
+  try {
+    [RES, REM] = await Promise.all([
+      todos(() => sb.from('obras_contas_pagar_resumo').select('*').in('status', ['aprovada', 'paga', 'auditada', 'pendencia']).order('aprovada_em', {ascending: false})),
+      todos(() => sb.from('obras_remetentes').select('nome,pix_tipo,pix_chave,titular,cpf_cnpj,banco,agencia,conta').order('nome'))
+    ]);
+  } catch (e) { return toast('Erro ao carregar: ' + msgErro(e), 6000); }
+  const pagar = RES.filter(s => s.status === 'aprovada');
+  const pend = RES.filter(s => s.status === 'pendencia' && s.pago_em);
+  const pagos = RES.filter(s => s.status === 'paga' || s.status === 'auditada');
+  const k = (cls, l, v, n) => `<div class="card kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
+  $('kpis').innerHTML = k('k-pagar', 'Para pagar', brl(pagar.reduce((a, s) => a + Number(s.valor_aprovado || 0), 0)), `${pagar.length} pagamento(s)`)
+    + k(pend.length ? 'k-bad' : '', 'Com pendência', String(pend.length), pend.length ? 'corrigir comprovante/valor' : 'nenhuma')
+    + k('k-ok', 'Pagos e auditados', String(pagos.filter(s => s.status === 'auditada').length), `${pagos.length} pago(s) no total`);
+  $('pagar').innerHTML = pagar.length ? pagar.map(s => card(s)).join('') : '<div class="card vazio">Nenhum pagamento aprovado aguardando.</div>';
+  $('pend').innerHTML = pend.length ? pend.map(s => card(s, true)).join('') : '<div class="card vazio">Nenhuma pendência.</div>';
+  $('pagos').innerHTML = pagos.length ? `<div class="tw"><table><tr><th>Prestador</th><th>Semana</th><th class="r">Pago</th><th>Situação</th><th>Pago por</th><th></th></tr>
+    ${pagos.slice(0, 30).map(s => `<tr><td>${esc(s.responsavel)}</td><td>${dBR(s.semana_inicio)}–${dBR(s.semana_fim)}</td><td class="r">${brl(s.valor_pagamento)}</td>
+      <td>${statusChip(s.status)}</td><td class="small">${esc(s.pago_por || '')}<div class="mut">${dtBR(s.pago_em)}</div></td><td>${linkArquivo(s.comprovante_url, 'comprovante')}</td></tr>`).join('')}</table></div>`
+    : '<div class="mut small">Nenhum pagamento ainda.</div>';
+}
+
+function card(s, pendencia = false) {
+  const i = RES.indexOf(s);
+  const temPix = !!s.pix_chave, temConta = s.banco && s.conta;
+  return `<div class="card ${pendencia ? 'k-bad' : ''}"><div class="row" style="justify-content:space-between"><div><div class="pname">${esc(s.favorecido || s.responsavel)}</div>
+      <div class="pnum">${esc(s.responsavel)} · semana ${dBR(s.semana_inicio)} a ${dBR(s.semana_fim)}</div></div>${statusChip(s.status)}</div>
+    <div class="small mut" style="margin-top:10px">Valor aprovado</div><div class="big">${brl(s.valor_aprovado)}</div>
+    <div class="small mut">Aprovado por ${esc(s.aprovado_por || '—')} em ${dtBR(s.aprovada_em)} · ${s.qtd_comprovantes} recibo(s)</div>
+    ${temPix ? `<div class="small mut" style="margin-top:10px">PIX ${esc(s.pix_tipo || '')}</div><div class="pix">${esc(s.pix_chave)}</div>
+      <button class="btn" style="margin-top:6px" onclick="copiar(${i})">Copiar chave PIX</button>` : ''}
+    ${temConta ? `<div class="small" style="margin-top:8px">Banco ${esc(s.banco)} · Ag ${esc(s.agencia || '')} · Conta ${esc(s.conta)}</div>` : ''}
+    ${!temPix && !temConta ? `<div class="warn" style="margin-top:10px">⚠ Sem dados de PIX/conta do prestador.</div>` : ''}
+    ${pendencia ? `<div class="crit" style="margin-top:8px">Auditoria: ${esc(s.auditoria_resultado || '')}</div>
+      <div class="small mut">Pago ${brl(s.valor_pagamento)} em ${dtBR(s.pago_em)} · ${linkArquivo(s.comprovante_url, 'comprovante atual')}</div>` : ''}
+    <div class="row" style="margin-top:10px">
+      <button class="btn b-ok" onclick="pagar(${i})">${pendencia ? 'Corrigir comprovante/valor' : 'Anexar comprovante e confirmar pagamento'}</button>
+      <button class="btn" onclick="dadosPagamento(${i})">${temPix || temConta ? 'Alterar' : 'Informar'} PIX/conta</button>
+      <button class="btn" onclick="verRecibos(${i})">Recibos</button>
+    </div><div id="r_${i}"></div></div>`;
+}
+
+async function copiar(i) { try { await navigator.clipboard.writeText(RES[i].pix_chave); toast('Chave PIX copiada.'); } catch (e) { toast('Não foi possível copiar.'); } }
+
+async function verRecibos(i) {
+  const box = $('r_' + i); if (box.innerHTML) { box.innerHTML = ''; return; }
+  const s = RES[i]; box.innerHTML = '<div class="small mut">Carregando…</div>';
+  try { box.innerHTML = tabelaRecibos(await recibosDaSemana(s.responsavel, s.semana_inicio, s.conta_id)); }
+  catch (e) { box.innerHTML = `<div class="err">${esc(msgErro(e))}</div>`; }
+}
+
+function escolherArquivo() {
+  return new Promise(res => { const f = $('arquivo'); f.value = ''; f.onchange = () => res(f.files[0] || null); f.click(); });
+}
+
+async function pagar(i) {
+  const s = RES[i];
+  const valorTxt = prompt(`Valor pago para ${s.favorecido || s.responsavel} (R$):`, String(s.valor_pagamento ?? s.valor_aprovado).replace('.', ','));
+  if (valorTxt == null) return;
+  const valor = Number(String(valorTxt).replace(/\./g, '').replace(',', '.'));
+  if (!isFinite(valor) || valor <= 0) return toast('Valor inválido.');
+  if (Math.abs(valor - Number(s.valor_aprovado)) > 0.01 && !confirm(`O valor (${brl(valor)}) é diferente do aprovado (${brl(s.valor_aprovado)}). O Auditor vai abrir pendência. Continuar?`)) return;
+  toast('Escolha o arquivo do comprovante (foto ou PDF)…');
+  const arq = await escolherArquivo(); if (!arq) return toast('Nenhum arquivo escolhido.');
+  if (arq.size > 15 * 1024 * 1024) return toast('Arquivo muito grande (máx. 15 MB).');
+  const nome = arq.name.normalize('NFD').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80);
+  const path = `pagamentos/${s.conta_id}/${Date.now()}_${nome}`;
+  toast('Enviando comprovante…', 20000);
+  const up = await sb.storage.from('obras-comprovantes').upload(path, arq, {contentType: arq.type || 'application/octet-stream', upsert: false});
+  if (up.error) return toast('Falha ao enviar o arquivo: ' + up.error.message, 7000);
+  const {data, error} = await sb.rpc('obras_financeiro_pagar', {p_conta: s.conta_id, p_valor: valor, p_comprovante_path: path, p_forma: s.pix_chave ? 'pix' : 'transferencia'});
+  if (error) return toast(msgErro(error), 8000);
+  const r = Array.isArray(data) ? data[0] : data;
+  toast(r && r.status === 'auditada' ? 'Pagamento registrado e AUDITADO.' : 'Pagamento registrado, mas o Auditor apontou pendência: ' + (r && r.auditoria_resultado || ''), 8000);
+  carregar();
+}
+
+async function dadosPagamento(i) {
+  const s = RES[i], r = REM.find(x => x.nome === s.responsavel) || {};
+  const tipo = prompt('Tipo da chave PIX (cpf, cnpj, telefone, email, aleatoria) — deixe vazio se for conta bancária:', r.pix_tipo || '');
+  if (tipo == null) return;
+  const chave = tipo ? prompt('Chave PIX:', r.pix_chave || '') : '';
+  if (chave == null) return;
+  const titular = prompt('Nome do titular (quem recebe):', r.titular || s.responsavel); if (titular == null) return;
+  const cpf = prompt('CPF/CNPJ do titular (opcional):', r.cpf_cnpj || ''); if (cpf == null) return;
+  let banco = r.banco || '', ag = r.agencia || '', conta = r.conta || '';
+  if (!chave) { banco = prompt('Banco:', banco) || ''; ag = prompt('Agência:', ag) || ''; conta = prompt('Conta:', conta) || ''; }
+  const {error} = await sb.rpc('obras_definir_pagamento_prestador', {p_prestador: s.responsavel, p_pix_tipo: tipo || null, p_pix_chave: chave || null,
+    p_titular: titular, p_cpf_cnpj: cpf || null, p_banco: banco || null, p_agencia: ag || null, p_conta: conta || null});
+  if (error) return toast(msgErro(error), 7000);
+  toast('Dados de pagamento salvos.'); carregar();
+}
+
+iniciarLogin(async user => {
+  $('quem').textContent = 'Conectado como ' + (user.email || '');
+  const {data} = await sb.rpc('obras_tem_papel', {p_papel: 'financeiro'});
+  if (data === false) $('quem').textContent += ' · você pode ver, mas só o Financeiro registra pagamentos';
+  carregar(); setInterval(carregar, 60000);
+});
+</script>
+</body>
+</html>

@@ -234,3 +234,27 @@ Tabelas da RL (`rl_*`, SQLite): **não são alteradas.**
 - **`obras_bot.js` (no Git, ainda não instalado no D90):** número do remetente, varredura automática de perdidas,
   releitura de pendentes, duplicidade por autenticação/valor+data+fornecedor(+hora) inclusive contra o histórico pago,
   retry de upload, `getState()` com limite de 15s. `teste_obras_bot.js`: 11 cenários passando.
+
+### 09/10/2026 — Agente Auditor e fluxo de pagamento de Obras
+
+**Auditoria dos dados (958 despesas lançadas, R$ 109.928,29):** 13 sem o arquivo no bucket (R$ 2.420,44), 2 sem obra,
+49 com leitura de baixa confiança (R$ 6.807,89), 25 grupos de possível duplicidade por valor+data+fornecedor
+(R$ 2.722,98 a mais), 0 autenticação repetida, 0 arquivo usado em dois documentos. Prestações com diferença
+declarado × lido: Enildo −R$ 626,03; 6ª Josemar −R$ 623,60; 12ª −R$ 347,18; 13ª −R$ 315,19; 8ª −R$ 305,40;
+21ª −R$ 197,00; 11ª −R$ 180,00; 4ª −R$ 80,00; 2ª −R$ 50,00. Everton sem valor declarado.
+
+**Trabalho em paralelo de outro agente no mesmo dia** (migrações `finaliza_fluxo_financeiro_obras`,
+`estrutura_contas_pagar_por_responsavel`, `obras_controle_contas_fluxo_auditavel`, `obras_contas_itens_politicas_rls`
+e patch do portal às 13:53): a estrutura dele (itens, eventos, token do Financeiro) foi **reaproveitada**.
+Ele gravou `responsavel = 'Josemar'` em todas as 984 despesas — corrigido pelo número/remetente real.
+Ele também marcou como `pago` (sem data) o PIX de R$ 1.500 e o orçamento do Jhony de 08/10 — **não alterado,
+aguardando confirmação**.
+
+**Criado** (SQL em `supabase/migrations/20261009_obras_auditor_fluxo_pagamento.sql`):
+- Agente Auditor: `obras_auditoria_achados`, 10 regras por despesa, gatilho em cada lançamento + `pg_cron` a cada 30 min.
+- Fluxo: Presidente (`obras_presidente_decidir`, com pré-auditoria que bloqueia crítico) → Financeiro
+  (`obras_financeiro_pagar`, com comprovante) → pós-auditoria (`obras_pos_auditar_conta`: auditada ou pendência).
+- Papéis `obras_papeis` (presidente, financeiro, auditor); dados de PIX/conta em `obras_remetentes`.
+- Views `obras_contas_pagar_resumo` (risco normal/atenção/crítico) e `obras_fluxo_caixa_prestador`.
+- Telas: `obras-presidente/`, `obras-financeiro/`, `obras-contas-pagar/` (auditor, fluxo de caixa, vincular números).
+- Testado no banco (transação desfeita): aprovar → pagar → pós-auditoria; bloqueios de papel, de crítico e de atalho.
