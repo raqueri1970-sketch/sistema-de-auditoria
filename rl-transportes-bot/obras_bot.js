@@ -394,7 +394,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     await importarPeriodo(iso(deMs), iso(ateMs), deMs, ateMs, false, motivo);
     await relerPendentes().catch(e => L(`Releitura: ${e.message}`, 'warn'));
   }
-  client.on('ready', () => setTimeout(() => enfileirar(() => varrerPerdidas('reconexao')), 90 * 1000));
+  client.on('ready', () => setTimeout(() => enfileirar(() => varrerPerdidas('reconexao')), 20 * 1000));
   setTimeout(() => enfileirar(() => varrerPerdidas('inicio')), 3 * 60 * 1000);
   setInterval(() => enfileirar(() => varrerPerdidas('rotina 2h')), 2 * 60 * 60 * 1000 + 5 * 60 * 1000);
   function jsonResp(res, data, status = 200) {

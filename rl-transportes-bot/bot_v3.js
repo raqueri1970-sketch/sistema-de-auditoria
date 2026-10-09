@@ -874,7 +874,14 @@ async function reiniciarCliente(motivo) {
   log(`Reiniciando cliente WhatsApp (${motivo})...`, 'warn');
   try { await client.destroy(); } catch(e) {}
   await new Promise(r => setTimeout(r, 5000));
-  try { await client.initialize(); } catch(e) { log(`Erro ao reinicializar WhatsApp: ${e.message}`, 'error'); }
+  try { await client.initialize(); }
+  catch(e) {
+    // 09/10/2026: com o Chrome do WhatsApp "detached", reinicializar dentro do processo falha sempre e o bot
+    // ficava parado. Encerra o processo: o INICIAR_BOT_*.bat reinicia limpo em 15s e a varredura recupera o atraso.
+    log(`Erro ao reinicializar WhatsApp: ${e.message} — encerrando para reinicio limpo`, 'error');
+    try { await client.destroy(); } catch(_) {}
+    setTimeout(() => process.exit(3), 2000);
+  }
   reiniciandoCliente = false;
 }
 async function checarConexao() {
@@ -898,7 +905,7 @@ async function checarConexao() {
   if (falhasEstado >= 2) { falhasEstado = 0; reiniciarCliente(`estado ${estado || 'indisponivel'}`); }
 }
 setTimeout(checarConexao, 2 * 60 * 1000);
-setInterval(checarConexao, 5 * 60 * 1000);
+setInterval(checarConexao, 2 * 60 * 1000);
 
 client.on('ready', async () => {
   console.clear();
