@@ -735,8 +735,13 @@ async function processarMidiaInterno(msg, nomeRemetente) {
 // webVersionCache NAO resolveu (testado). Enquanto nao sai um patch, o upload manual de
 // foto (aba "Enviar Foto", endpoint /api/upload-foto) continua funcionando normalmente,
 // pois nao depende de nenhuma chamada quebrada do WWebJS.
+// 09/10/2026: a versao do WhatsApp Web publicada em 08/10 ~19:31 desmonta a pagina segundos depois do "ready"
+// ("detached Frame") e o bot parou de capturar. Fixada a ultima versao que funcionou (cache local em .wwebjs_cache).
+// Para testar outra: variavel WA_WEB_VERSION; para voltar a usar sempre a mais nova: WA_WEB_VERSION=auto.
+const WA_WEB_VERSION = process.env.WA_WEB_VERSION || '2.3000.1049732041';
 const client = new Client({
   authStrategy: new LocalAuth(),
+  ...(WA_WEB_VERSION !== 'auto' ? { webVersion: WA_WEB_VERSION, webVersionCache: { type: 'local', path: path.join(__dirname, '.wwebjs_cache') + path.sep } } : {}),
   puppeteer: { headless: true, args: ['--no-sandbox','--disable-setuid-sandbox'] }
 });
 
