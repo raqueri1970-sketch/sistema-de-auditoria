@@ -213,3 +213,24 @@ Tabelas da RL (`rl_*`, SQLite): **não são alteradas.**
 - Teste obrigatório antes da virada: comparar `node sync_supabase.js` (SQLite × Supabase = 0 diferenças) e
   `GET /api/recuperar-periodo?simular=1` no servidor e no D90 para a mesma semana, com o mesmo resultado.
 - Durante o paralelo, o servidor fica em modo sombra também para a RL.
+
+---
+
+## Diário de execução
+
+### 08–09/10/2026
+
+- **Contas a pagar (banco):** os 982 lançamentos existentes de Obras foram marcados como `pago` (R$ 108.368,29).
+  Todo comprovante novo entra `a_pagar` (default da coluna). Criadas `obras_remetentes`, `obras_contas_pagar`,
+  a view `obras_contas_pagar_resumo` e a função `obras_conta_pagar_definir` (aprovar/pagar/adiantamento).
+  Responsáveis cadastrados: Josemar Henrique (+55 81 98453-5320) e Jhony (+55 11 91784-9843).
+- **Página `obras-contas-pagar/`:** um card por pessoa + resumo geral, atenção e categorias. Login do Portal; RLS.
+  Ainda não está dentro do portal: falta o segredo `PORTAL_PATCH_SECRET` para editar o HTML do portal em produção.
+- **Incidente:** o D90 entrou em suspensão; o Chrome do WhatsApp travou ("detached Frame") às ~19:33 e o vigia ficou
+  pendurado em `getState()` — sem captura de RL e de Obras até o reinício.
+- **`.env` ausente confirmado** (ENOENT para um processo normal). O bot foi reiniciado com
+  `Desktop\RL TRANSPORTES\INICIAR_BOT_RL_COM_BACKUP_ENV.bat`, que carrega as chaves de `.env.bak_antes_obras`
+  (`node -r dotenv/config bot_v3.js dotenv_config_path=.env.bak_antes_obras`). Supabase e IA carregaram ok.
+- **`obras_bot.js` (no Git, ainda não instalado no D90):** número do remetente, varredura automática de perdidas,
+  releitura de pendentes, duplicidade por autenticação/valor+data+fornecedor(+hora) inclusive contra o histórico pago,
+  retry de upload, `getState()` com limite de 15s. `teste_obras_bot.js`: 11 cenários passando.
