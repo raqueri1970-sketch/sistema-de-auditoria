@@ -48,6 +48,7 @@ Regras:
 - data: YYYY-MM-DD da compra/pagamento. Ano com 2 digitos: "26" = 2026 (os documentos sao de 2026 em diante). Nao invente: se nao houver, null
 - hora: "HH:MM" ou "HH:MM:SS" se visivel, senao null
 - fornecedor: nome do estabelecimento / quem recebeu
+- pagador: em comprovante PIX/TED/transferencia, nome de QUEM PAGOU (campo pagador/origem/"de"), senao null
 - descricao: o que foi comprado/pago, curto (ex.: "3 sacos de cimento + argamassa")
 - loja_obra: loja/cidade/obra citada no documento (ex.: "Loja Caruaru", "Carpina"), senao null
 - forma_pagamento: pix | dinheiro | cartao_credito | cartao_debito | boleto | transferencia | null
@@ -56,9 +57,11 @@ Regras:
 Se o documento for a CAPA de uma prestacao de contas com totais, preencha tambem "resumo".
 
 Responda SOMENTE JSON valido, sem markdown:
-{"tipo_documento":"comprovante|prestacao_contas|orcamento|outros","itens":[{"tipo_doc":"cupom_fiscal","categoria":"materiais_insumos","valor":null,"data":null,"hora":null,"fornecedor":null,"cnpj":null,"descricao":null,"loja_obra":null,"forma_pagamento":null,"autenticacao":null,"confianca":0.5}],"resumo":{"responsavel":null,"periodo":null,"valor_total":null,"valor_adiantado":null,"reembolso":null}}`;
+{"tipo_documento":"comprovante|prestacao_contas|orcamento|outros","itens":[{"tipo_doc":"cupom_fiscal","categoria":"materiais_insumos","valor":null,"data":null,"hora":null,"fornecedor":null,"pagador":null,"cnpj":null,"descricao":null,"loja_obra":null,"forma_pagamento":null,"autenticacao":null,"confianca":0.5}],"resumo":{"responsavel":null,"periodo":null,"valor_total":null,"valor_adiantado":null,"reembolso":null}}`;
 
-module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPagina }) {
+module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPagina, sombra = false }) {
+  // Modo sombra: tudo vai para obras_comprovantes_sombra e para a pasta sombra/ do bucket (nada oficial é tocado).
+  const TAB = sombra ? 'obras_comprovantes_sombra' : 'obras_comprovantes';
   const GRUPO = process.env.OBRAS_GRUPO_NOME || 'Adm Obras Esposende';
   const PASTA = path.join(__dirname, 'fotos_obras');
   if (!fs.existsSync(PASTA)) fs.mkdirSync(PASTA, { recursive: true });
@@ -85,7 +88,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     if (!sb) return false;
     const id = idMsgCurto(msg);
     if (!id) return false;
-    const { data, error } = await sb.from('obras_comprovantes').select('id').like('wa_msg_id', `${id}#%`).limit(1);
+    const { data, error } = await sb.from(TAB).select('id').like('wa_msg_id', `${id}#%`).limit(1);
     if (error) throw new Error(`consulta Supabase: ${error.message}`);
     return !!(data && data.length);
   }
@@ -183,7 +186,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
         categoria: CATEGORIAS.includes(it.categoria) ? it.categoria : 'diversos',
         valor: valor != null && valor >= 0 ? valor : 0,
         data_despesa: dataPlausivel(it.data, ts) || waData.substring(0, 10),
-        hora_documento: it.hora || null, fornecedor: it.fornecedor || null, cnpj: it.cnpj || null,
+        hora_documento: it.hora || null, fornecedor: it.fornecedor || null, pagador: it.pagador || null, cnpj: it.cnpj || null,
         descricao: it.descricao || (erroIA ? `Leitura pendente: ${erroIA}`.substring(0, 300) : null),
         loja: it.loja_obra || null, forma_pagamento: it.forma_pagamento || null, autenticacao: it.autenticacao || null,
         tipo_doc: tipo, confianca_ocr: typeof it.confianca === 'number' ? it.confianca : null,
@@ -204,11 +207,11 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
       let achou = null;
       const aut = String(l.autenticacao || '').replace(/\s+/g, '');
       if (aut.length >= 6) {
-        const { data } = await sb.from('obras_comprovantes').select('id,wa_msg_id,status').eq('autenticacao', l.autenticacao).eq('status', 'lancado').limit(5);
+        const { data } = await sb.from(TAB).select('id,wa_msg_id,status').eq('autenticacao', l.autenticacao).eq('status', 'lancado').limit(5);
         achou = (data || []).find(r => !ignorarIds.includes(r.id)) || null;
       }
       if (!achou && l.valor > 0 && l.data_despesa && l.fornecedor) {
-        const { data } = await sb.from('obras_comprovantes').select('id,wa_msg_id,fornecedor,hora_documento')
+        const { data } = await sb.from(TAB).select('id,wa_msg_id,fornecedor,hora_documento')
           .eq('valor', l.valor).eq('data_despesa', l.data_despesa).eq('status', 'lancado').limit(20);
         const f = normForn(l.fornecedor), h = normHora(l.hora_documento);
         achou = (data || []).find(r => !ignorarIds.includes(r.id) && f && normForn(r.fornecedor) === f &&
@@ -225,7 +228,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   // Relê com a IA o que ficou "pendente_leitura" (IA fora do ar / sem crédito na hora). Usa a cópia local ou o bucket.
   async function relerPendentes() {
     if (!sb) return;
-    const { data, error } = await sb.from('obras_comprovantes').select('*')
+    const { data, error } = await sb.from(TAB).select('*')
       .eq('origem', 'whatsapp').eq('status', 'pendente_leitura').like('wa_msg_id', '%#0').order('created_at').limit(20);
     if (error || !data || !data.length) return;
     let ok = 0;
@@ -244,9 +247,9 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
         const linhas = montarLinhas(ia, null, base, idMsg, new Date(r.wa_data || r.created_at).getTime());
         await marcarDuplicados(linhas, [r.id]);
         const [primeira, ...resto] = linhas;
-        const { error: e1 } = await sb.from('obras_comprovantes').update({ ...primeira, updated_at: new Date().toISOString() }).eq('id', r.id);
+        const { error: e1 } = await sb.from(TAB).update({ ...primeira, updated_at: new Date().toISOString() }).eq('id', r.id);
         if (e1) throw new Error(e1.message);
-        if (resto.length) { const { error: e2 } = await sb.from('obras_comprovantes').insert(resto); if (e2) throw new Error(e2.message); }
+        if (resto.length) { const { error: e2 } = await sb.from(TAB).insert(resto); if (e2) throw new Error(e2.message); }
         ok++;
       } catch (e) { L(`Releitura de ${r.arquivo_nome}: ${e.message}`, 'warn'); }
     }
@@ -271,9 +274,9 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     const nome = `OB_${ts}_${idMsg}_${nomeRemetente.replace(/[^A-Za-z0-9]+/g, '_').substring(0, 20)}${isPdf ? '.pdf' : '.jpeg'}`;
     fs.writeFileSync(path.join(PASTA, nome), buf);
 
-    const { data: dupHash } = await sb.from('obras_comprovantes').select('id,wa_msg_id').eq('arquivo_hash', hash).limit(1);
+    const { data: dupHash } = await sb.from(TAB).select('id,wa_msg_id').eq('arquivo_hash', hash).limit(1);
     const waData = new Date(ts).toISOString();
-    const caminho = `wa/${waData.substring(0, 7)}/${nome}`;
+    const caminho = `${sombra ? 'sombra/' : ''}wa/${waData.substring(0, 7)}/${nome}`;
     // Contas a pagar (08/10/2026): todo recibo novo entra "a_pagar" e fecha por semana, por número de quem mandou.
     const base = { origem: 'whatsapp', remetente: nomeRemetente, remetente_numero: numero, situacao_pagamento: 'a_pagar',
       wa_data: waData, legenda: (msg.body || '').substring(0, 500) || null,
@@ -281,7 +284,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
 
     if (dupHash && dupHash.length) {
       // Mesma foto reenviada: registra só a marcação (valor 0, status duplicada) — não soma de novo.
-      await sb.from('obras_comprovantes').insert({ ...base, wa_msg_id: `${idMsg}#0`, categoria: 'diversos', valor: 0,
+      await sb.from(TAB).insert({ ...base, wa_msg_id: `${idMsg}#0`, categoria: 'diversos', valor: 0,
         status: 'duplicada', descricao: `Foto reenviada (igual a ${dupHash[0].wa_msg_id})`, revisado: false });
       L(`Foto reenviada por ${nomeRemetente} — igual a ${dupHash[0].wa_msg_id}, nao somada`, 'warn');
       return 'duplicada';
@@ -299,7 +302,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
 
     const linhas = montarLinhas(ia, erroIA, base, idMsg, ts);
     await marcarDuplicados(linhas);
-    const { error } = await sb.from('obras_comprovantes').insert(linhas);
+    const { error } = await sb.from(TAB).insert(linhas);
     if (error) { L(`Gravar no Supabase falhou (${nome}): ${error.message}`, 'error'); throw new Error(error.message); }
     const total = linhas.filter(l => l.status === 'lancado').reduce((s, l) => s + l.valor, 0);
     L(`${nomeRemetente}: ${linhas.length} item(ns) de ${nome} — R$ ${total.toFixed(2)} lancado`);
@@ -386,7 +389,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     // getState() pode ficar pendurado para sempre quando o Chrome do WhatsApp trava ("detached Frame") — limite de 15s.
     const estado = await Promise.race([client.getState().catch(() => null), new Promise(r => setTimeout(() => r('TIMEOUT'), 15000))]);
     if (estado !== 'CONNECTED') { if (estado === 'TIMEOUT') L('Varredura adiada: WhatsApp nao respondeu (navegador travado?)', 'warn'); return; }
-    const { data } = await sb.from('obras_comprovantes').select('wa_data').eq('origem', 'whatsapp').not('wa_data', 'is', null)
+    const { data } = await sb.from(TAB).select('wa_data').eq('origem', 'whatsapp').not('wa_data', 'is', null)
       .order('wa_data', { ascending: false }).limit(1);
     const ultimo = data && data[0] ? new Date(data[0].wa_data).getTime() : 0;
     const deMs = Math.max(Math.min(ultimo ? ultimo - 2 * 864e5 : Infinity, Date.now() - 3 * 864e5), Date.now() - 15 * 864e5);
@@ -407,7 +410,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     (async () => {
       try {
         if (url === '/api/obras/status') {
-          const { count } = sb ? await sb.from('obras_comprovantes').select('id', { count: 'exact', head: true }) : { count: null };
+          const { count } = sb ? await sb.from(TAB).select('id', { count: 'exact', head: true }) : { count: null };
           return jsonResp(res, { grupo: GRUPO, ia: anthropic ? MODELO : null, supabase: !!sb, comprovantes: count, importacao });
         }
         if (url === '/api/obras/importacao') return jsonResp(res, importacao);

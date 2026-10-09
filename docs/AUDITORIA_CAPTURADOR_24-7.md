@@ -284,3 +284,32 @@ Presidente "já paguei" 80 + 300 → tudo pago, saldo 0; recusada fora do saldo;
 "continua em aberto", "Já paguei" ou "Aprovar e enviar ao Financeiro", recusar, ajustar, adiantamento, PIX, PDF), `obras-financeiro`
 (lotes aprovados, PIX, comprovante obrigatório, pendências, adiantamentos), `obras-relatorios` (6 relatórios com filtro de prestador/período,
 PDF e planilha), `obras-contas-pagar` (visão geral nova). Testadas com Playwright: sem erros, sem rolagem lateral no celular, 8 PDFs gerados.
+
+---
+
+## 09/10/2026 (fim da tarde) — Pix do Presidente, Jhony e capturador na nuvem
+
+- **Jhony:** o PIX de R$ 1.500 (ELIFIAZ, 08/10) e o orçamento de R$ 607,98 estavam "pago" sem data (marcados por outro agente).
+  Confirmado pelo usuário que não foram pagos → voltaram para `a_pagar`. Jhony: R$ 1.560 em aberto para o Presidente.
+- **Regra do Pix** (`supabase/migrations/20261009c_obras_pix_do_presidente.sql`):
+  - Pix enviado pelos **prestadores** → conta a pagar (como antes).
+  - Pix em que **quem pagou** foi o Presidente → é o comprovante do pagamento, não uma despesa. Vale para o número do Paulo (`obras_pagadores`) ou para o pagador lido no comprovante: "Mar Aberto" ou "Paulo Almeida" (`obras_pagador_nomes`), mesmo encaminhado por outra pessoa.
+  - O Pix do Presidente liga sozinho ao pagamento de mesmo valor marcado na tela (aprovado, ou "Já paguei" sem arquivo), em até 10 dias para frente ou para trás. O Auditor confere em seguida.
+  - Se o Pix chega antes da marcação, fica em "Pix do Presidente recebidos, ainda sem pagamento marcado" na tela dele, e liga quando ele marcar "Já paguei".
+  - Teste com rollback usando os dados reais do Jhony:
+    - Pix "Mar Aberto Comércio Ltda" de R$ 1.500 chegou antes → "Já paguei" → ligado e auditado.
+    - R$ 60 aprovado → Pix "Paulo Almeida" → pago e auditado.
+    - Pix do próprio prestador continua conta a pagar.
+    - O Paulo não vira prestador.
+- **IA:** novo campo `pagador` (quem pagou o Pix/TED) no `obras_bot.js` e na coluna `obras_comprovantes.pagador`.
+  Precisa instalar o `obras_bot.js` novo no D90 para o "Mar Aberto" ser lido. Até lá vale o número do Paulo, cadastrado pelo botão "É o Presidente" na página de Contas a Pagar.
+- **Financeiro:** fica com o administrador por enquanto, que já tem todos os papéis.
+- **Capturador na nuvem** (`rl-transportes-bot/deploy/`):
+  - Arquivos: Dockerfile (Chromium do Debian, pypdf, fuso SP), docker-compose (reinício automático, painel só local), `instalar_vps.sh` (um comando, chaves digitadas no servidor), backup diário e LEIA-ME.
+  - Começa em **MODO=sombra**:
+    - Obras grava em `obras_comprovantes_sombra` e na pasta `sombra/` do bucket;
+    - RL grava num SQLite separado, sem tocar nas tabelas `rl_*`.
+  - Comparação com o D90: `obras_comparar_sombra()`.
+  - Imagem montada e testada aqui: módulos carregam, o banco da sombra é criado, o painel responde e o Chromium abre o WhatsApp Web.
+  - Testes do `teste_obras_bot.js`: 13 cenários passando (novos: pagador e modo sombra).
+  - Falta o servidor: precisa de conta num provedor. Recomendado: Hostinger KVM 2 ou Oracle Free.

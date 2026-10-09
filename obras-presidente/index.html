@@ -32,6 +32,7 @@
   <!-- Visão geral: um card por prestador com o total em aberto -->
   <div id="vMain">
     <div class="grid" style="margin-top:14px" id="kpis"></div>
+    <div id="pixPres"></div>
     <h2>Contas a pagar por prestador <span class="mut" style="text-transform:none;letter-spacing:0">· toque no card para ver as despesas e escolher o que pagar</span></h2>
     <div class="pgrid" id="cards"></div>
     <h2>Pagamentos</h2>
@@ -46,12 +47,12 @@
 <div id="toast" class="toast"></div>
 <script src="../obras-contas-pagar/comum.js"></script>
 <script>
-let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = true;
+let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = true;
 
 async function carregar() {
   try {
-    [SALDOS, DESP, PAGS, ADIS] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('situacao', ['a_pagar', 'parcial', 'com_financeiro', 'recusado'])),
-      carregarPagamentos(), carregarAdiantamentos()]);
+    [SALDOS, DESP, PAGS, ADIS, PIXP] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('situacao', ['a_pagar', 'parcial', 'com_financeiro', 'recusado'])),
+      carregarPagamentos(), carregarAdiantamentos(), carregarDespesas(q => q.eq('status', 'pagamento').is('pagamento_id', null))]);
   } catch (e) { return toast('Erro ao carregar: ' + msgErro(e), 6000); }
   if (ATUAL) abrirPrestador(ATUAL, ABERTO === ATUAL); else renderMain();
 }
@@ -82,6 +83,11 @@ function renderMain() {
   }).join('') || '<div class="card vazio">Nenhum prestador com despesas.</div>';
   window.SALDOS_ORD = lista.map(s => s.prestador);
   renderPagamentos($('pagamentos'), PAGS.slice(0, 25));
+  $('pixPres').innerHTML = PIXP.length ? `<h2>Pix do Presidente recebidos no grupo, ainda sem pagamento marcado</h2><div class="card k-pagar">
+    <div class="small">Comprovantes em que quem pagou foi Paulo Almeida / Mar Aberto. Abra o prestador, marque as despesas que esse Pix pagou e toque em <b>“Já paguei”</b>:
+      quando o valor bate, o sistema liga o comprovante sozinho e o Agente Auditor confere.</div>
+    <div class="tw"><table><tr><th>Recebido em</th><th>Para quem</th><th class="r">Valor</th><th></th></tr>${PIXP.map(d => `<tr><td>${dtBR(d.wa_data) !== '—' ? dtBR(d.wa_data) : dBRano(d.data_despesa)}</td>
+      <td>${esc(d.fornecedor || '—')}<div class="mut">pagador: ${esc(d.pagador || d.prestador || '')}</div></td><td class="r"><b>${brl(d.valor)}</b></td><td>${linkArquivo(d.arquivo_path, 'ver comprovante')}</td></tr>`).join('')}</table></div></div>` : '';
 }
 
 function renderPagamentos(box, lista) {

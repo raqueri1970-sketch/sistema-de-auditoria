@@ -30,8 +30,8 @@ module.exports = function iniciarStatus({ client, sb, db, obras, log, versao = '
     try {
       const estado = await comLimite(client.getState(), 15000, 'SEM_RESPOSTA');
       const [ult, pend] = await Promise.all([
-        comLimite(sb.from('obras_comprovantes').select('created_at').eq('origem', 'whatsapp').order('created_at', { ascending: false }).limit(1), 10000, { error: { message: 'timeout' } }),
-        comLimite(sb.from('obras_comprovantes').select('id', { count: 'exact', head: true }).eq('status', 'pendente_leitura'), 10000, { error: { message: 'timeout' } })
+        comLimite(sb.from(versao.includes('sombra') ? 'obras_comprovantes_sombra' : 'obras_comprovantes').select('created_at').eq('origem', 'whatsapp').order('created_at', { ascending: false }).limit(1), 10000, { error: { message: 'timeout' } }),
+        comLimite(sb.from(versao.includes('sombra') ? 'obras_comprovantes_sombra' : 'obras_comprovantes').select('id', { count: 'exact', head: true }).eq('status', 'pendente_leitura'), 10000, { error: { message: 'timeout' } })
       ]);
       const supabaseOk = !ult.error && !pend.error;
       const erros = errosSqlite();

@@ -11,8 +11,10 @@ const Module = require('module');
 function criarSupabaseFalso() {
   const tabela = [];
   const arquivos = {};
+  const tabelas = new Set();
   let seq = 0;
-  const from = () => {
+  const from = (t) => {
+    tabelas.add(t);
     const f = { filtros: [], acao: 'select', dados: null, lim: Infinity, ordem: null };
     const api = {
       select() { return api; },
@@ -42,7 +44,7 @@ function criarSupabaseFalso() {
     return api;
   };
   return {
-    tabela, arquivos,
+    tabela, arquivos, tabelas,
     from,
     storage: { from: () => ({
       upload: async (p, buf) => { if (arquivos[p]) return { error: { message: 'The resource already exists' } }; arquivos[p] = buf; return { error: null }; },
@@ -170,6 +172,23 @@ const item = (o) => ({ tipo_documento: 'comprovante', itens: [{ tipo_doc: 'cupom
   const t0 = Date.now(); await obras._varrerPerdidas('teste-travado');
   assert.ok(Date.now() - t0 < 2000);
   console.log('ok 11 WhatsApp travado nao trava a varredura');
+
+  // 12) Comprovante de PIX traz quem pagou (para reconhecer o pagamento do Presidente / Mar Aberto)
+  client.getState = async () => 'CONNECTED';
+  await obras.onMessage(msgFalsa(item({ valor: 1500, data: hoje, tipo_doc: 'comprovante_pix', fornecedor: 'JHONY PEDI', pagador: 'MAR ABERTO LTDA' })), {}); await esperar();
+  assert.strictEqual(linhas().find(l => l.fornecedor === 'JHONY PEDI').pagador, 'MAR ABERTO LTDA');
+  assert.deepStrictEqual([...sb.tabelas], ['obras_comprovantes']);
+  console.log('ok 12 PIX grava o pagador (ex.: Mar Aberto)');
+
+  // 13) Modo sombra (servidor novo em paralelo): grava só em obras_comprovantes_sombra e na pasta sombra/
+  const sb2 = criarSupabaseFalso();
+  const sombra = require(path.join(dir, 'obras_bot.js'))({ client, log: () => {}, sb: sb2, baixarMidiaPelaPagina: null, sombra: true });
+  await sombra.onMessage(msgFalsa(item({ valor: 42, data: hoje, fornecedor: 'Loja Sombra' })), {}); await esperar();
+  assert.deepStrictEqual([...sb2.tabelas], ['obras_comprovantes_sombra']);
+  assert.ok(Object.keys(sb2.arquivos).length > 0 && Object.keys(sb2.arquivos).every(k => k.startsWith('sombra/')));
+  assert.ok(sb2.tabela.some(l => l.fornecedor === 'Loja Sombra' && l.status === 'lancado'));
+  assert.ok(sb2.tabela.every(l => l.arquivo_path.startsWith('sombra/')));
+  console.log('ok 13 modo sombra nao toca na tabela nem na pasta oficiais');
 
   global.setInterval = realSetInterval; global.setTimeout = realSetTimeout;
   console.log(`\nTODOS OS CENARIOS PASSARAM (${linhas().length} linhas no banco simulado)`);
