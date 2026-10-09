@@ -23,16 +23,20 @@ const { createClient } = require('@supabase/supabase-js');
 // tabelas rl_* ainda não existirem, o bot segue funcionando 100% normal. O
 // Supabase só existe pra dar visão consolidada no portal e sobreviver a uma
 // reinstalação/troca de máquina do bot.
-const sb = (process.env.SUPABASE_URL && process.env.SUPABASE_KEY)
+const sbBase = (process.env.SUPABASE_URL && process.env.SUPABASE_KEY)
   ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY)
   : null;
+// MODO=sombra (servidor novo rodando em paralelo ao D90): lê o WhatsApp e processa tudo, mas a RL fica só num SQLite
+// separado (sem tocar nas tabelas rl_*) e Obras grava em obras_comprovantes_sombra. Nada oficial é alterado.
+const MODO_SOMBRA = process.env.MODO === 'sombra';
+const sb = MODO_SOMBRA ? null : sbBase;
 // Desde 19/09/2026 as tabelas rl_* nao aceitam mais a chave publica sozinha: o bot entra com a conta de robo
 // `robo-rl` (so enxerga rl_*). Login/senha em SUPABASE_ROBO_EMAIL / SUPABASE_ROBO_SENHA no .env. O supabase-js renova o token sozinho.
-if (sb && process.env.SUPABASE_ROBO_EMAIL && process.env.SUPABASE_ROBO_SENHA) {
-  sb.auth.signInWithPassword({ email: process.env.SUPABASE_ROBO_EMAIL, password: process.env.SUPABASE_ROBO_SENHA })
+if (sbBase && process.env.SUPABASE_ROBO_EMAIL && process.env.SUPABASE_ROBO_SENHA) {
+  sbBase.auth.signInWithPassword({ email: process.env.SUPABASE_ROBO_EMAIL, password: process.env.SUPABASE_ROBO_SENHA })
     .then(({ error }) => { if (error) console.warn('Supabase: login do robo falhou:', error.message); else console.log('Supabase: robo-rl autenticado'); })
     .catch(e => console.warn('Supabase: login do robo falhou:', e.message));
-} else if (sb) {
+} else if (sbBase) {
   console.warn('Supabase: SUPABASE_ROBO_EMAIL/SENHA ausentes no .env — a copia para o Supabase vai falhar (o SQLite segue normal).');
 }
 function sbSync(promise, label) {
@@ -60,8 +64,8 @@ async function sbFullResync() {
 // ─── CONFIG ────────────────────────────────────────────────────
 const GRUPO_ALVO    = process.env.GRUPO_NOME || 'RL TRANSPORTES';
 const PORTA         = parseInt(process.env.PORT || '3456');
-const PASTA_FOTOS   = path.join(__dirname, 'fotos');
-const DB_PATH       = path.join(__dirname, 'rl_transportes.db');
+const PASTA_FOTOS   = path.join(process.env.DADOS_DIR || __dirname, 'fotos');
+const DB_PATH       = path.join(process.env.DADOS_DIR || __dirname, MODO_SOMBRA ? 'rl_transportes_sombra.db' : 'rl_transportes.db');
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
 
 if (!fs.existsSync(PASTA_FOTOS)) fs.mkdirSync(PASTA_FOTOS, { recursive: true });
@@ -742,16 +746,16 @@ const WA_WEB_VERSION = process.env.WA_WEB_VERSION || '2.3000.1049732041';
 const client = new Client({
   authStrategy: new LocalAuth(),
   ...(WA_WEB_VERSION !== 'auto' ? { webVersion: WA_WEB_VERSION, webVersionCache: { type: 'local', path: path.join(__dirname, '.wwebjs_cache') + path.sep } } : {}),
-  puppeteer: { headless: true, args: ['--no-sandbox','--disable-setuid-sandbox'] }
+  puppeteer: { headless: true, args: ['--no-sandbox','--disable-setuid-sandbox'], ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}) }
 });
 
 // ─── MÓDULO OBRAS (08/10/2026): grupo "Adm Obras Esposende" → obras_comprovantes (Supabase) ──
 // Mesma sessão do WhatsApp; não toca no SQLite nem nas tabelas rl_*. Ver obras_bot.js.
 let obras = null;
-try { obras = require('./obras_bot')({ client, log, sb, baixarMidiaPelaPagina }); }
+try { obras = require('./obras_bot')({ client, log, sb: sbBase, baixarMidiaPelaPagina, sombra: MODO_SOMBRA }); }
 catch (e) { log(`Modulo Obras nao carregou: ${e.message}`, 'warn'); }
 // Health check (09/10/2026): publica o estado em capturador_status a cada 1 min. So le; nunca derruba o bot.
-try { require('./capturador_status')({ client, sb, db, obras, log }); }
+try { require('./capturador_status')({ client, sb: sbBase, db, obras, log, versao: MODO_SOMBRA ? 'bot_v3 (sombra)' : 'bot_v3' }); }
 catch (e) { log(`Health check nao carregou: ${e.message}`, 'warn'); }
 
 client.on('qr', qr => {

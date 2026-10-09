@@ -194,15 +194,23 @@ function renderFluxo() {
 function renderDesconhecidos() {
   const conhecidos = new Set(D.rem.map(r => r.numero));
   const desc = {};
-  for (const c of D.desp) if (c.remetente_numero && !conhecidos.has(c.remetente_numero)) {
+  for (const c of D.desp) if (c.remetente_numero && !conhecidos.has(c.remetente_numero) && c.status !== 'pagamento') {
     const k = c.remetente_numero; desc[k] = desc[k] || {numero: k, nome: c.remetente, qtd: 0, valor: 0}; desc[k].qtd++; desc[k].valor += c.status === 'lancado' ? Number(c.valor) : 0;
   }
   const lista = Object.values(desc);
   window.DESC = lista;
   $('desconhecidos').innerHTML = lista.length ? `<div class="small mut">O WhatsApp mandou estes números/códigos sem cadastro. Vincule ao prestador certo para o fluxo de caixa ficar separado.</div>
     <div class="tw"><table><tr><th>Número / código</th><th>Nome no WhatsApp</th><th class="r">Recibos</th><th></th></tr>${lista.map((d, i) =>
-      `<tr><td>${esc(fmtNum(d.numero) || d.numero)}</td><td>${esc(d.nome || '')}</td><td class="r">${d.qtd} · ${brl(d.valor)}</td><td><button class="btn" onclick="vincular(${i})">Vincular</button></td></tr>`).join('')}</table></div>`
+      `<tr><td>${esc(fmtNum(d.numero) || d.numero)}</td><td>${esc(d.nome || '')}</td><td class="r">${d.qtd} · ${brl(d.valor)}</td><td class="row"><button class="btn" onclick="vincular(${i})">Vincular a prestador</button><button class="btn" onclick="ehPresidente(${i})">É o Presidente</button></td></tr>`).join('')}</table></div>`
     : '<span class="mut small">Todos os remetentes estão identificados.</span>';
+}
+
+async function ehPresidente(i) {
+  const numero = window.DESC[i].numero;
+  if (!confirm(`Marcar ${numero} como número do Presidente (Paulo Almeida)?\nOs comprovantes desse número passam a ser comprovantes de PAGAMENTO, não despesas.`)) return;
+  const {data, error} = await sb.rpc('obras_definir_pagador', {p_numero: numero, p_nome: 'Paulo Almeida', p_ativo: true});
+  if (error) return toast(msgErro(error), 6000);
+  toast(`Número do Presidente cadastrado. ${data || 0} comprovante(s) reclassificado(s) como pagamento.`); carregar();
 }
 
 async function vincular(i) {

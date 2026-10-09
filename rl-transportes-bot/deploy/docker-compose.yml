@@ -1,0 +1,17 @@
+# Sobe com:  docker compose up -d --build      Logs/QR:  docker compose logs -f capturador
+services:
+  capturador:
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    container_name: capturador
+    restart: unless-stopped          # volta sozinho se cair, travar (o bot sai com código 3) ou o servidor reiniciar
+    env_file: /opt/capturador/.env   # chaves ficam só no servidor (chmod 600), nunca no Git
+    volumes:
+      - /opt/capturador/.env:/app/.env:ro
+      - /opt/capturador/wwebjs_auth:/app/.wwebjs_auth
+      - /opt/capturador/wwebjs_cache:/app/.wwebjs_cache
+      - /opt/capturador/dados:/dados
+      - /opt/capturador/fotos_obras:/app/fotos_obras
+    ports:
+      - "127.0.0.1:3456:3456"        # painel/API só local (acesso de fora pelo Tailscale, nunca aberto na internet)
+    shm_size: "1gb"                  # o Chromium precisa de memória compartilhada
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "5" } }
