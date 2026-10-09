@@ -17,8 +17,8 @@ if [ "$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)" -lt 3800 ] && ! swa
 fi
 timedatectl set-timezone America/Sao_Paulo || true
 
-echo "== 3/6 Firewall: só SSH aberto (o painel 3456 fica só local / Tailscale)"
-ufw allow OpenSSH >/dev/null; ufw --force enable >/dev/null
+echo "== 3/6 Firewall: SSH + 80/443 (telas de Obras com HTTPS). O painel 3456 fica só local / Tailscale"
+ufw allow OpenSSH >/dev/null; ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null; ufw --force enable >/dev/null
 
 echo "== 4/6 Código"
 mkdir -p $BASE/{wwebjs_auth,wwebjs_cache,dados,fotos_obras}
@@ -42,7 +42,10 @@ if [ ! -s $BASE/.env ]; then
 fi
 
 echo "== 6/6 Subindo"
-cd $BASE/codigo/rl-transportes-bot/deploy && docker compose up -d --build
+IP=$(curl -4 -fsS https://api.ipify.org || hostname -I | awk '{print $1}')
+SITE_HOST="$(echo "$IP" | tr . -).sslip.io"
+mkdir -p $BASE/caddy_data
+cd $BASE/codigo/rl-transportes-bot/deploy && echo "SITE_HOST=$SITE_HOST" > .env && docker compose up -d --build
 cat > /etc/cron.d/capturador-backup <<'CRON'
 # Backup diário 03:15 da sessão do WhatsApp e do banco (7 dias)
 15 3 * * * root tar czf /opt/capturador/backup_$(date +\%u).tgz -C /opt/capturador wwebjs_auth dados .env 2>/dev/null
@@ -50,4 +53,5 @@ CRON
 echo
 echo "PRONTO. Agora leia o QR Code com o celular do WhatsApp do grupo (Aparelhos conectados > Conectar aparelho):"
 echo "   docker compose -f $BASE/codigo/rl-transportes-bot/deploy/docker-compose.yml logs -f capturador"
+echo "Telas de Obras (Presidente, Financeiro, Relatorios):  https://$SITE_HOST/obras/"
 echo "Atualizar depois:  cd $BASE/codigo && git pull && cd rl-transportes-bot/deploy && docker compose up -d --build"

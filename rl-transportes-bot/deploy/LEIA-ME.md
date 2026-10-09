@@ -28,6 +28,13 @@ O instalador:
 
 Depois ele **pede as chaves**: as mesmas do `.env` do D90. Elas são digitadas na tela e ficam só no servidor, nunca no Git nem no chat.
 
+O instalador também publica as **telas de Obras** (Presidente, Financeiro, Contas a pagar e Relatórios) no próprio servidor:
+- endereço: `https://<ip-com-traços>.sslip.io/obras/` (ele mostra o endereço no fim da instalação);
+- HTTPS automático e gratuito, sem precisar de domínio;
+- separado de qualquer outro site seu.
+
+Só ficam públicos os arquivos das telas. Os dados continuam no Supabase, e só aparecem para quem entra com o login do Portal.
+
 ## 3. Conectar o WhatsApp
 
 ```bash

@@ -15,3 +15,22 @@ services:
       - "127.0.0.1:3456:3456"        # painel/API só local (acesso de fora pelo Tailscale, nunca aberto na internet)
     shm_size: "1gb"                  # o Chromium precisa de memória compartilhada
     logging: { driver: json-file, options: { max-size: "20m", max-file: "5" } }
+
+  # Telas de Obras na web (https://<ip-com-traços>.sslip.io/obras/) — só leitura, nada de chave aqui
+  paginas:
+    image: caddy:2.8.4-alpine
+    container_name: paginas
+    restart: unless-stopped
+    environment:
+      - SITE_HOST=${SITE_HOST:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./site/index.html:/srv/obras/index.html:ro
+      - ../../obras-contas-pagar:/srv/obras/obras-contas-pagar:ro
+      - ../../obras-presidente:/srv/obras/obras-presidente:ro
+      - ../../obras-financeiro:/srv/obras/obras-financeiro:ro
+      - ../../obras-relatorios:/srv/obras/obras-relatorios:ro
+      - /opt/capturador/caddy_data:/data
