@@ -4,7 +4,7 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile }
     container_name: capturador
     restart: unless-stopped          # volta sozinho se cair, travar (o bot sai com código 3) ou o servidor reiniciar
-    env_file: /opt/capturador/.env   # chaves ficam só no servidor (chmod 600), nunca no Git
+    # chaves: /opt/capturador/.env (chmod 600, só no servidor), lido pelo dotenv do próprio bot (aceita aspas e CRLF)
     volumes:
       - /opt/capturador/.env:/app/.env:ro
       - /opt/capturador/wwebjs_auth:/app/.wwebjs_auth
