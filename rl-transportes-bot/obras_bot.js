@@ -171,6 +171,88 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     const t = new Date(ok + 'T12:00:00-03:00').getTime(); return (t >= tsMsg - 120 * 864e5 && t <= tsMsg + 3 * 864e5) ? ok : null; };
   const dataOk = d => (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= '2024-01-01' && d <= '2030-12-31') ? d : null;
 
+  // Converte a resposta da IA em linhas de obras_comprovantes (uma por comprovante do documento).
+  function montarLinhas(ia, erroIA, base, idMsg, ts) {
+    const waData = new Date(ts).toISOString();
+    const itens = (ia && Array.isArray(ia.itens) && ia.itens.length) ? ia.itens : [{}];
+    return itens.map((it, i) => {
+      const tipo = it.tipo_doc || (ia ? 'outros' : null);
+      const valor = num(it.valor);
+      const ehDespesa = TIPOS_DESPESA.includes(tipo) && valor > 0;
+      return { ...base, wa_msg_id: `${idMsg}#${i}`,
+        categoria: CATEGORIAS.includes(it.categoria) ? it.categoria : 'diversos',
+        valor: valor != null && valor >= 0 ? valor : 0,
+        data_despesa: dataPlausivel(it.data, ts) || waData.substring(0, 10),
+        hora_documento: it.hora || null, fornecedor: it.fornecedor || null, cnpj: it.cnpj || null,
+        descricao: it.descricao || (erroIA ? `Leitura pendente: ${erroIA}`.substring(0, 300) : null),
+        loja: it.loja_obra || null, forma_pagamento: it.forma_pagamento || null, autenticacao: it.autenticacao || null,
+        tipo_doc: tipo, confianca_ocr: typeof it.confianca === 'number' ? it.confianca : null,
+        status: !ia ? 'pendente_leitura' : ehDespesa ? 'lancado' : (tipo === 'orcamento' ? 'orcamento' : 'nao_despesa'),
+        revisado: false, ia_json: i === 0 ? ia : null };
+    });
+  }
+
+  // Mesmo gasto já lançado (inclusive nas prestações já pagas) → "duplicada", não soma.
+  // Critério forte: mesma autenticação/NSU/chave. Sem autenticação: mesmo valor + mesma data + mesmo fornecedor
+  // e, quando os dois têm hora, mesma hora (dois almoços iguais no mesmo dia em horários diferentes continuam valendo).
+  const normForn = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
+    .replace(/\b(LTDA|ME|EPP|EIRELI|S\/?A|COMERCIO|DE|DA|DO|E)\b/g, ' ').replace(/[^A-Z0-9]+/g, ' ').trim().split(' ').slice(0, 2).join(' ');
+  const normHora = h => (String(h || '').match(/^(\d{1,2}):(\d{2})/) || []).slice(1).map(x => x.padStart(2, '0')).join(':') || null;
+  async function marcarDuplicados(linhas, ignorarIds = []) {
+    for (const l of linhas) {
+      if (l.status !== 'lancado') continue;
+      let achou = null;
+      const aut = String(l.autenticacao || '').replace(/\s+/g, '');
+      if (aut.length >= 6) {
+        const { data } = await sb.from('obras_comprovantes').select('id,wa_msg_id,status').eq('autenticacao', l.autenticacao).eq('status', 'lancado').limit(5);
+        achou = (data || []).find(r => !ignorarIds.includes(r.id)) || null;
+      }
+      if (!achou && l.valor > 0 && l.data_despesa && l.fornecedor) {
+        const { data } = await sb.from('obras_comprovantes').select('id,wa_msg_id,fornecedor,hora_documento')
+          .eq('valor', l.valor).eq('data_despesa', l.data_despesa).eq('status', 'lancado').limit(20);
+        const f = normForn(l.fornecedor), h = normHora(l.hora_documento);
+        achou = (data || []).find(r => !ignorarIds.includes(r.id) && f && normForn(r.fornecedor) === f &&
+          (!h || !normHora(r.hora_documento) || normHora(r.hora_documento) === h)) || null;
+      }
+      if (achou) {
+        l.status = 'duplicada';
+        l.descricao = `Duplicado de ${achou.wa_msg_id || achou.id} — nao somado. ${l.descricao || ''}`.substring(0, 500);
+        L(`Comprovante repetido (${l.fornecedor} R$ ${l.valor} ${l.data_despesa}) — igual a ${achou.wa_msg_id || achou.id}, nao somado`, 'warn');
+      }
+    }
+  }
+
+  // Relê com a IA o que ficou "pendente_leitura" (IA fora do ar / sem crédito na hora). Usa a cópia local ou o bucket.
+  async function relerPendentes() {
+    if (!sb) return;
+    const { data, error } = await sb.from('obras_comprovantes').select('*')
+      .eq('origem', 'whatsapp').eq('status', 'pendente_leitura').like('wa_msg_id', '%#0').order('created_at').limit(20);
+    if (error || !data || !data.length) return;
+    let ok = 0;
+    for (const r of data) {
+      try {
+        let buf = null;
+        const local = path.join(PASTA, r.arquivo_nome || '');
+        if (r.arquivo_nome && fs.existsSync(local)) buf = fs.readFileSync(local);
+        else if (r.arquivo_path) { const dl = await sb.storage.from('obras-comprovantes').download(r.arquivo_path); if (!dl.error) buf = Buffer.from(await dl.data.arrayBuffer()); }
+        if (!buf) continue;
+        const mt = /\.pdf$/i.test(r.arquivo_nome || r.arquivo_path || '') ? 'application/pdf' : 'image/jpeg';
+        const ia = await lerComIA(buf.toString('base64'), mt);
+        const idMsg = String(r.wa_msg_id).replace(/#\d+$/, '');
+        const base = { origem: r.origem, remetente: r.remetente, remetente_numero: r.remetente_numero, situacao_pagamento: r.situacao_pagamento,
+          wa_data: r.wa_data, legenda: r.legenda, arquivo_nome: r.arquivo_nome, arquivo_path: r.arquivo_path, arquivo_hash: r.arquivo_hash };
+        const linhas = montarLinhas(ia, null, base, idMsg, new Date(r.wa_data || r.created_at).getTime());
+        await marcarDuplicados(linhas, [r.id]);
+        const [primeira, ...resto] = linhas;
+        const { error: e1 } = await sb.from('obras_comprovantes').update({ ...primeira, updated_at: new Date().toISOString() }).eq('id', r.id);
+        if (e1) throw new Error(e1.message);
+        if (resto.length) { const { error: e2 } = await sb.from('obras_comprovantes').insert(resto); if (e2) throw new Error(e2.message); }
+        ok++;
+      } catch (e) { L(`Releitura de ${r.arquivo_nome}: ${e.message}`, 'warn'); }
+    }
+    if (ok) L(`Releitura: ${ok} de ${data.length} comprovante(s) pendente(s) lido(s)`);
+  }
+
   // Processa UMA mensagem com mídia. Retorna 'ja_lancada' | 'duplicada' | 'erro_download' | 'ignorada' | n (itens lançados)
   async function processar(msg, nomeRemetente, { simular = false, numero = null } = {}) {
     if (!sb) throw new Error('Supabase indisponivel');
@@ -205,28 +287,18 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
       return 'duplicada';
     }
 
-    const up = await sb.storage.from('obras-comprovantes').upload(caminho, buf, { contentType: isPdf ? 'application/pdf' : mt, upsert: false });
-    if (up.error && !/exists|Duplicate/i.test(up.error.message)) L(`Upload do arquivo falhou (${nome}): ${up.error.message}`, 'warn');
+    for (let t = 1; t <= 3; t++) {
+      const up = await sb.storage.from('obras-comprovantes').upload(caminho, buf, { contentType: isPdf ? 'application/pdf' : mt, upsert: false });
+      if (!up.error || /exists|Duplicate/i.test(up.error.message)) break;
+      if (t === 3) L(`Upload do arquivo falhou (${nome}): ${up.error.message} — copia local em fotos_obras`, 'warn');
+      else await new Promise(r => setTimeout(r, 5000 * t));
+    }
 
     let ia = null, erroIA = null;
     try { ia = await lerComIA(media.data, mt); } catch (e) { erroIA = e.message; L(`IA falhou em ${nome}: ${e.message}`, 'warn'); }
 
-    const itens = (ia && Array.isArray(ia.itens) && ia.itens.length) ? ia.itens : [{}];
-    const linhas = itens.map((it, i) => {
-      const tipo = it.tipo_doc || (ia ? 'outros' : null);
-      const valor = num(it.valor);
-      const ehDespesa = TIPOS_DESPESA.includes(tipo) && valor > 0;
-      return { ...base, wa_msg_id: `${idMsg}#${i}`,
-        categoria: CATEGORIAS.includes(it.categoria) ? it.categoria : 'diversos',
-        valor: valor != null && valor >= 0 ? valor : 0,
-        data_despesa: dataPlausivel(it.data, ts) || waData.substring(0, 10),
-        hora_documento: it.hora || null, fornecedor: it.fornecedor || null, cnpj: it.cnpj || null,
-        descricao: it.descricao || (erroIA ? `Leitura pendente: ${erroIA}`.substring(0, 300) : null),
-        loja: it.loja_obra || null, forma_pagamento: it.forma_pagamento || null, autenticacao: it.autenticacao || null,
-        tipo_doc: tipo, confianca_ocr: typeof it.confianca === 'number' ? it.confianca : null,
-        status: !ia ? 'pendente_leitura' : ehDespesa ? 'lancado' : (tipo === 'orcamento' ? 'orcamento' : 'nao_despesa'),
-        revisado: false, ia_json: i === 0 ? ia : null };
-    });
+    const linhas = montarLinhas(ia, erroIA, base, idMsg, ts);
+    await marcarDuplicados(linhas);
     const { error } = await sb.from('obras_comprovantes').insert(linhas);
     if (error) { L(`Gravar no Supabase falhou (${nome}): ${error.message}`, 'error'); throw new Error(error.message); }
     const total = linhas.filter(l => l.status === 'lancado').reduce((s, l) => s + l.valor, 0);
@@ -283,6 +355,48 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   }
 
   const importacao = { rodando: false };
+  async function importarPeriodo(de, ate, deMs, ateMs, simular = false, origemChamada = 'manual') {
+    Object.assign(importacao, { rodando: true, de, ate, simular, origem: origemChamada, inicio: new Date().toISOString(), fim: null,
+      total: 0, feitas: 0, lancadas: 0, itens: 0, ja: 0, duplicadas: 0, erros: 0, faltando: 0, erro: null });
+    try {
+      const msgs = await mensagensPeriodo(deMs, ateMs);
+      importacao.total = msgs.length;
+      for (const m of msgs.sort((a, b) => a.timestamp - b.timestamp)) {
+        try {
+          const ct = await contatoDe(m);
+          const r = await processar(m, ct.nome, { simular, numero: ct.numero });
+          if (r === 'ja_lancada') importacao.ja++; else if (r === 'duplicada') importacao.duplicadas++;
+          else if (r === 'erro_download') importacao.erros++; else if (r === 'faltando') importacao.faltando++;
+          else if (typeof r === 'number') { importacao.lancadas++; importacao.itens += r; }
+        } catch (e) { importacao.erros++; L(`Importacao: ${e.message}`, 'warn'); }
+        importacao.feitas++;
+      }
+    } catch (e) { importacao.erro = e.message; }
+    importacao.rodando = false; importacao.fim = new Date().toISOString();
+    const nada = origemChamada !== 'manual' && !importacao.lancadas && !importacao.erros && !importacao.erro;
+    if (!nada) L(`Importacao ${origemChamada} ${de}..${ate} ${simular ? '(simulacao) ' : ''}concluida: ${JSON.stringify(importacao)}`,
+      importacao.erros || importacao.erro ? 'warn' : 'info');
+  }
+
+  // Varredura automática: ao reconectar e a cada 2h, lança o que chegou no grupo e não entrou (WhatsApp caiu,
+  // Supabase fora, download falhou). Começa 2 dias antes do último recibo do WhatsApp já lançado (mínimo: 3 dias).
+  async function varrerPerdidas(motivo) {
+    if (!sb || importacao.rodando) return;
+    // getState() pode ficar pendurado para sempre quando o Chrome do WhatsApp trava ("detached Frame") — limite de 15s.
+    const estado = await Promise.race([client.getState().catch(() => null), new Promise(r => setTimeout(() => r('TIMEOUT'), 15000))]);
+    if (estado !== 'CONNECTED') { if (estado === 'TIMEOUT') L('Varredura adiada: WhatsApp nao respondeu (navegador travado?)', 'warn'); return; }
+    const { data } = await sb.from('obras_comprovantes').select('wa_data').eq('origem', 'whatsapp').not('wa_data', 'is', null)
+      .order('wa_data', { ascending: false }).limit(1);
+    const ultimo = data && data[0] ? new Date(data[0].wa_data).getTime() : 0;
+    const deMs = Math.max(Math.min(ultimo ? ultimo - 2 * 864e5 : Infinity, Date.now() - 3 * 864e5), Date.now() - 15 * 864e5);
+    const ateMs = Date.now();
+    const iso = ms => new Date(ms - 3 * 3600e3).toISOString().substring(0, 10);
+    await importarPeriodo(iso(deMs), iso(ateMs), deMs, ateMs, false, motivo);
+    await relerPendentes().catch(e => L(`Releitura: ${e.message}`, 'warn'));
+  }
+  client.on('ready', () => setTimeout(() => enfileirar(() => varrerPerdidas('reconexao')), 90 * 1000));
+  setTimeout(() => enfileirar(() => varrerPerdidas('inicio')), 3 * 60 * 1000);
+  setInterval(() => enfileirar(() => varrerPerdidas('rotina 2h')), 2 * 60 * 60 * 1000 + 5 * 60 * 1000);
   function jsonResp(res, data, status = 200) {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(data));
@@ -310,24 +424,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
           Object.assign(importacao, { rodando: true, de, ate, simular, inicio: new Date().toISOString(), fim: null,
             total: 0, feitas: 0, lancadas: 0, itens: 0, ja: 0, duplicadas: 0, erros: 0, faltando: 0, erro: null });
           jsonResp(res, { ok: true, importacao });
-          enfileirar(async () => {
-            try {
-              const msgs = await mensagensPeriodo(deMs, ateMs);
-              importacao.total = msgs.length;
-              for (const m of msgs.sort((a, b) => a.timestamp - b.timestamp)) {
-                try {
-                  const ct = await contatoDe(m);
-                  const r = await processar(m, ct.nome, { simular, numero: ct.numero });
-                  if (r === 'ja_lancada') importacao.ja++; else if (r === 'duplicada') importacao.duplicadas++;
-                  else if (r === 'erro_download') importacao.erros++; else if (r === 'faltando') importacao.faltando++;
-                  else if (typeof r === 'number') { importacao.lancadas++; importacao.itens += r; }
-                } catch (e) { importacao.erros++; L(`Importacao: ${e.message}`, 'warn'); }
-                importacao.feitas++;
-              }
-            } catch (e) { importacao.erro = e.message; }
-            importacao.rodando = false; importacao.fim = new Date().toISOString();
-            L(`Importacao ${de}..${ate} ${simular ? '(simulacao) ' : ''}concluida: ${JSON.stringify(importacao)}`);
-          });
+          enfileirar(() => importarPeriodo(de, ate, deMs, ateMs, simular));
           return;
         }
         return jsonResp(res, { erro: 'rota obras nao encontrada' }, 404);
@@ -336,5 +433,5 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   }
 
   L(`Modulo Obras ativo — grupo "${GRUPO}", IA ${anthropic ? MODELO : '-'} / ${gemini ? 'gemini' : '-'}`);
-  return { ehGrupo, onMessage, http, _lerComIA: lerComIA };
+  return { ehGrupo, onMessage, http, _lerComIA: lerComIA, _relerPendentes: relerPendentes, _varrerPerdidas: varrerPerdidas };
 };
