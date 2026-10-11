@@ -33,7 +33,27 @@ const pagChip = s => chipDe(PAG, s);
 const msgErro = e => String(e && e.message || e).replace(/^.*?ERROR:\s*/, '');
 const riscoDe = d => d.criticos > 0 ? 'critico' : d.atencoes > 0 ? 'atencao' : 'normal';
 
-function toast(m, ms = 4000) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', ms); }
+// Dentro do Portal o quadro (iframe) cresce com o conteúdo, sem rolagem própria (no celular a rolagem dupla "andava").
+// Por isso janelas e avisos são colocados na parte do quadro que está visível na tela.
+function areaVisivel() {
+  try { const f = window.frameElement; if (!EMBUTIDO || !f) return null;
+    const r = f.getBoundingClientRect(), h = f.ownerDocument.defaultView.innerHeight;
+    const top = Math.max(0, -r.top), alt = Math.max(200, Math.min(h, r.bottom) - Math.max(0, r.top));
+    return {top, alt};
+  } catch (e) { return null; }
+}
+function topo() { const f = (() => { try { return EMBUTIDO && window.frameElement; } catch (e) { return null; } })();
+  if (f && f.getBoundingClientRect().top < 0) f.scrollIntoView({block: 'start'}); else window.scrollTo(0, 0); }
+
+function toast(m, ms = 4000) { const t = $('toast'); t.textContent = m; t.style.display = 'block';
+  const a = areaVisivel(); if (a) t.style.top = (a.top + a.alt - t.offsetHeight - 16) + 'px';
+  clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', ms); }
+
+// Quem não aparece mais nas visões de pagamento (pedido do Ricardo, 11/10/2026). Voltam a aparecer sozinhos
+// se tiverem valor em aberto ou com o Financeiro — nunca some dinheiro devido da tela.
+const PRESTADORES_OCULTOS = ['victor kleber', 'enildo', 'everton nunes luz'];
+const prestVisivel = s => !PRESTADORES_OCULTOS.includes(String(s.prestador || '').trim().toLowerCase())
+  || Number(s.saldo_devedor) > 0 || Number(s.com_financeiro) > 0 || Number(s.em_aberto) > 0;
 
 // Menu entre as telas do módulo
 function menu(ativo) {
@@ -54,24 +74,49 @@ async function todos(montar) {
   }
 }
 
-async function abrirArquivo(path) {
-  if (/^https?:\/\//.test(path)) return window.open(path, '_blank', 'noopener');
-  const {data, error} = await sb.storage.from('obras-comprovantes').createSignedUrl(path, 300);
-  if (error) return toast('Arquivo indisponível: ' + error.message, 5000);
-  window.open(data.signedUrl, '_blank', 'noopener');
+// Abre o comprovante numa janela dentro da própria tela. (Antes abria aba nova depois de esperar o link assinado —
+// o celular bloqueia esse pop-up e a foto "não abria" na visão do Presidente.)
+async function abrirArquivo(path, titulo = 'Comprovante') {
+  abrirModal(`<div class="row" style="justify-content:space-between"><h3 style="margin:0">${esc(titulo)}</h3><button class="btn" onclick="fecharModal()">Fechar ✕</button></div>
+    <div class="visor" id="visor"><div class="vazio">Carregando…</div></div>`, 'larga');
+  let url = path;
+  if (!/^https?:\/\//.test(path)) {
+    const {data, error} = await sb.storage.from('obras-comprovantes').createSignedUrl(path, 900);
+    if (error) { const v = $('visor'); if (v) v.innerHTML = `<div class="crit">Arquivo indisponível: ${esc(error.message)}</div>`; return; }
+    url = data.signedUrl;
+  }
+  const v = $('visor'); if (!v) return;
+  const pdf = /\.pdf($|\?)/i.test(path);
+  v.innerHTML = (pdf ? `<iframe src="${esc(url)}#view=FitH" title="PDF"></iframe>`
+      : `<img src="${esc(url)}" alt="comprovante" onerror="this.outerHTML='<div class=crit>Não foi possível mostrar a imagem.</div>'">`)
+    + `<div class="row" style="justify-content:center;margin-top:8px"><a class="btn b-pri" href="${esc(url)}" target="_blank" rel="noopener">Abrir em tela cheia / baixar</a></div>`;
 }
 const ARQ = [];
 const linkArquivo = (path, txt = 'ver') => path ? `<a href="#" onclick="abrirArquivo(ARQ[${ARQ.push(path) - 1}]);return false">${txt}</a>` : '';
 
+// Orçamento: a descrição lida pela IA vem como "ITEM (2 UNID x 41,00 = 82,00), ITEM (...)". Vira lista item → valor.
+function itensOrcamento(desc) {
+  const out = [];
+  for (const parte of String(desc || '').split(/\),\s*/)) {
+    const m = /^(.*?)\s*\((.*?)=\s*([\d.]+,\d{2})\)?\s*$/.exec(parte.trim());
+    if (m) out.push({item: m[1].trim(), qtd: m[2].replace(/\s*x\s*[\d.,]+\s*$/i, '').trim(), valor: num(m[3])});
+  }
+  return out;
+}
+const normTxt = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
 // Janela (modal) simples
-function abrirModal(html) {
+function abrirModal(html, classe = '') {
   let m = $('modal');
   if (!m) { m = document.createElement('div'); m.id = 'modal'; m.className = 'modal'; document.body.appendChild(m);
     m.addEventListener('click', e => { if (e.target === m) fecharModal(); }); }
-  m.innerHTML = `<div class="mbox">${html}</div>`; m.style.display = 'flex';
-  const f = m.querySelector('input,select,textarea'); if (f) setTimeout(() => f.focus(), 50);
+  m.innerHTML = `<div class="mbox ${classe}">${html}</div>`; m.style.display = 'flex';
+  const a = areaVisivel();
+  if (a) { m.style.top = a.top + 'px'; m.style.height = a.alt + 'px'; m.style.bottom = 'auto'; m.style.left = '0'; m.style.right = '0';
+    m.style.paddingTop = '12px'; document.body.style.minHeight = (a.top + a.alt) + 'px'; }
+  const f = m.querySelector('input:not([type=file]),select,textarea'); if (f && !a) setTimeout(() => f.focus(), 50);
 }
-function fecharModal() { const m = $('modal'); if (m) { m.style.display = 'none'; m.innerHTML = ''; } }
+function fecharModal() { const m = $('modal'); if (m) { m.style.display = 'none'; m.innerHTML = ''; } document.body.style.minHeight = ''; }
 
 // Envia um comprovante de pagamento para a nuvem (bucket privado) e devolve o caminho
 async function enviarComprovante(pagId, arq) {
@@ -129,6 +174,14 @@ async function pdfLib() {
   return _pdfLib;
 }
 const pdfTxt = s => String(s ?? '').replace(/[^\x00-\xFF€]/g, '');  // a fonte padrão do PDF não tem emoji
+let _logo;
+function logoPDF() {
+  if (_logo === undefined) _logo = fetch(new URL('../obras-contas-pagar/logo-esposende.jpg', location.href)).then(r => r.ok ? r.blob() : null)
+    .then(b => b && new Promise(ok => { const f = new FileReader(); f.onload = () => ok(f.result); f.onerror = () => ok(null); f.readAsDataURL(b); })).catch(() => null);
+  return _logo;
+}
+// "raqueri1970@gmail.com" → "raqueri1970" (cabe na caixa do PDF)
+const quemCurto = q => String(q || '').split('@')[0];
 const celTxt = c => c && typeof c === 'object' ? c.t : c;
 const V = v => ({t: brl(v), n: Number(v || 0)});
 
@@ -137,28 +190,40 @@ async function gerarPDF(doc) {
   const JsPDF = await pdfLib();
   const pdf = new JsPDF({orientation: doc.paisagem ? 'landscape' : 'portrait', unit: 'pt', format: 'a4'});
   const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight(), M = 36;
-  pdf.setFillColor(11, 16, 32); pdf.rect(0, 0, W, 64, 'F');
-  pdf.setTextColor(255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(15); pdf.text(pdfTxt(doc.titulo), M, 30);
-  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); pdf.text(pdfTxt(doc.subtitulo || 'Obras & Reformas - Esposende'), M, 47);
-  pdf.text('Emitido em ' + new Date().toLocaleString('pt-BR'), W - M, 47, {align: 'right'});
-  pdf.setTextColor(20); let y = 84;
+  // Cabeçalho branco com a logo da Esposende (regra dos relatórios: logo + fundo branco para imprimir)
+  const logo = await logoPDF();
+  if (logo) pdf.addImage(logo, 'JPEG', M, 16, 44, 44);
+  const tx = logo ? M + 54 : M;
+  pdf.setTextColor(15, 30, 60); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(15); pdf.text(pdfTxt(doc.titulo), tx, 34);
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); pdf.setTextColor(70); pdf.text(pdfTxt(doc.subtitulo || 'Obras & Reformas - Esposende'), tx, 50);
+  pdf.text('Emitido em ' + new Date().toLocaleString('pt-BR'), W - M, 50, {align: 'right'});
+  pdf.setDrawColor(14, 74, 107); pdf.setLineWidth(1.5); pdf.line(M, 68, W - M, 68); pdf.setLineWidth(.5);
+  pdf.setTextColor(20); let y = 92;
   if (doc.resumo && doc.resumo.length) {
-    const col = Math.min(4, doc.resumo.length), cw = (W - 2 * M) / col;
+    // Caixas do mesmo tamanho, texto centralizado; o valor diminui ou quebra em 2 linhas para nunca sair da caixa
+    const col = Math.min(4, doc.resumo.length), cw = (W - 2 * M) / col, bw = cw - 8, BH = 44;
     doc.resumo.forEach(([l, v], i) => {
-      const x = M + (i % col) * cw, yy = y + Math.floor(i / col) * 40;
-      pdf.setDrawColor(210); pdf.roundedRect(x, yy - 12, cw - 8, 34, 4, 4);
-      pdf.setFontSize(8); pdf.setTextColor(100); pdf.text(pdfTxt(l), x + 8, yy);
-      pdf.setFontSize(11.5); pdf.setTextColor(20); pdf.setFont('helvetica', 'bold'); pdf.text(pdfTxt(v), x + 8, yy + 15); pdf.setFont('helvetica', 'normal');
+      const x = M + (i % col) * cw, yy = y + Math.floor(i / col) * (BH + 8), cx = x + bw / 2;
+      pdf.setDrawColor(200); pdf.roundedRect(x, yy - 12, bw, BH, 4, 4);
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(90); pdf.text(pdfTxt(l), cx, yy, {align: 'center'});
+      pdf.setFont('helvetica', 'bold'); pdf.setTextColor(20);
+      let fs = 11.5; const val = pdfTxt(v);
+      pdf.setFontSize(fs); while (fs > 8 && pdf.getTextWidth(val) > bw - 10) pdf.setFontSize(fs -= .5);
+      if (pdf.getTextWidth(val) > bw - 10) { const ls = pdf.splitTextToSize(val, bw - 10).slice(0, 2); pdf.text(ls, cx, yy + 13, {align: 'center'}); }
+      else pdf.text(val, cx, yy + 17, {align: 'center'});
     });
-    y += Math.ceil(doc.resumo.length / col) * 40 + 8;
+    pdf.setFont('helvetica', 'normal');
+    y += Math.ceil(doc.resumo.length / col) * (BH + 8) + 6;
   }
   for (const s of doc.secoes || []) {
     if (y > H - 90) { pdf.addPage(); y = 50; }
     if (s.titulo) { pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.text(pdfTxt(s.titulo), M, y); pdf.setFont('helvetica', 'normal'); y += 6; }
     if (s.nota) { pdf.setFontSize(8.5); pdf.setTextColor(90); const ls = pdf.splitTextToSize(pdfTxt(s.nota), W - 2 * M); pdf.text(ls, M, y + 9); y += 9 + ls.length * 10; pdf.setTextColor(20); }
     const colStyles = {}; (s.direita || []).forEach(i => colStyles[i] = {halign: 'right'});
+    // colunas de valor: alinhadas à direita e sem quebra (as casas decimais ficam uma embaixo da outra)
+    (s.direita || []).forEach(i => colStyles[i] = {halign: 'right', overflow: 'visible', cellWidth: 'wrap'});
     pdf.autoTable({startY: y + 4, head: [s.cab.map(pdfTxt)], body: s.linhas.map(l => l.map(c => pdfTxt(celTxt(c)))), foot: s.rodape ? [s.rodape.map(c => pdfTxt(celTxt(c)))] : undefined,
-      margin: {left: M, right: M}, styles: {fontSize: 8, cellPadding: 3.5, overflow: 'linebreak'}, columnStyles: colStyles,
+      margin: {left: M, right: M}, styles: {fontSize: 8, cellPadding: 3.5, overflow: 'linebreak', valign: 'middle'}, columnStyles: colStyles,
       headStyles: {fillColor: [37, 99, 235], textColor: 255}, footStyles: {fillColor: [235, 238, 245], textColor: 20, fontStyle: 'bold'},
       alternateRowStyles: {fillColor: [247, 248, 252]}, showFoot: 'lastPage',
       didParseCell: c => { if (c.section !== 'body' && (s.direita || []).includes(c.column.index)) c.cell.styles.halign = 'right'; }});
@@ -197,7 +262,7 @@ async function pdfPagamento(pagId) {
     .sort((a, b) => a[0].split('/').reverse().join().localeCompare(b[0].split('/').reverse().join()));
   await gerarPDF({titulo: `Pagamento nº ${p.numero} - ${p.prestador}`, subtitulo: 'Obras & Reformas - Esposende - comprovante de pagamento ao prestador',
     resumo: [['Despesas pagas', brl(p.valor_itens)], ['Adiantamento descontado', brl(p.valor_abatido)], ['Valor do pagamento', brl(p.valor_aprovado)],
-      ['Situação', (PAG[p.status] || [p.status])[0]], ['Aprovado por', `${p.aprovado_por || '-'} ${dtBR(p.aprovado_em)}`], ['Pago por', p.pago_por ? `${p.pago_por} ${dtBR(p.pago_em)}` : '-'],
+      ['Situação', (PAG[p.status] || [p.status])[0]], ['Aprovado por', `${quemCurto(p.aprovado_por) || '-'} · ${dtBR(p.aprovado_em)}`], ['Pago por', p.pago_por ? `${quemCurto(p.pago_por)} · ${dtBR(p.pago_em)}` : '-'],
       ['Favorecido', p.favorecido || p.prestador], ['Forma / chave', `${FORMAS[p.forma_pagamento] || p.forma_pagamento || '-'} ${p.pix_chave || ''}`]],
     secoes: [{titulo: `Despesas incluídas (${linhas.length})`, cab: ['Data', 'Fornecedor', 'Categoria', 'Valor do recibo', 'Pago aqui', ''], linhas, direita: [3, 4],
         rodape: ['', '', 'Total', brl(desp.reduce((a, d) => a + Number(d.valor), 0)), brl(p.valor_itens), '']},
@@ -290,6 +355,30 @@ function graficoBarrasH(el, itens, {vazio = 'Nada em aberto.'} = {}) {
       <rect class="hit" data-i="${i}" x="0" y="${y}" width="${W}" height="${H}"/>`; }).join('');
   el.innerHTML = `<svg viewBox="0 0 ${W} ${itens.length * H}" role="img" aria-label="Total a pagar por prestador">${linhas}</svg>`;
   ligarDicas(el, i => `<b>${esc(itens[i].rotulo)}</b><div><span><i style="background:${COR.s1}"></i>A pagar</span><span>${brl(itens[i].valor)}</span></div>${itens[i].det || ''}`);
+}
+
+// Rosca: participação de cada item no total (ex.: total a pagar por prestador). Fatia e legenda clicáveis (aoClicar(i)).
+const PALETA = ['#3987e5', '#f5b301', '#22c55e', '#d95926', '#a78bfa', '#2dd4bf', '#f472b6', '#94a3b8'];
+function graficoRosca(el, itens, {vazio = 'Nada em aberto.', aoClicar = null, centro = 'Total'} = {}) {
+  itens = itens.filter(i => i.valor > 0);
+  if (!itens.length) { el.innerHTML = `<div class="vazio">${esc(vazio)}</div>`; return; }
+  const tot = itens.reduce((a, i) => a + i.valor, 0), R = 70, r = 46, C = 80;
+  let ang = -Math.PI / 2;
+  const pt = (a, rr) => `${(C + rr * Math.cos(a)).toFixed(2)},${(C + rr * Math.sin(a)).toFixed(2)}`;
+  const fatias = itens.map((it, i) => {
+    const cor = PALETA[i % PALETA.length], frac = it.valor / tot;
+    if (frac >= .9999) return `<g data-g="${i}"><circle cx="${C}" cy="${C}" r="${(R + r) / 2}" fill="none" stroke="${cor}" stroke-width="${R - r}" data-i="${i}" class="hit2" style="cursor:pointer"/></g>`;
+    const a0 = ang, a1 = ang + frac * 2 * Math.PI, g = frac > .5 ? 1 : 0; ang = a1;
+    return `<g data-g="${i}"><path data-i="${i}" fill="${cor}" d="M${pt(a0, R)} A${R},${R} 0 ${g} 1 ${pt(a1, R)} L${pt(a1, r)} A${r},${r} 0 ${g} 0 ${pt(a0, r)} Z"/></g>`;
+  }).join('');
+  el.innerHTML = `<div class="rosca"><svg viewBox="0 0 160 160" role="img" aria-label="${esc(centro)}">${fatias}
+      <text x="80" y="76" text-anchor="middle" style="font-size:10px;fill:var(--txt2)">${esc(centro)}</text>
+      <text x="80" y="93" text-anchor="middle" style="font-size:13px;font-weight:800;fill:var(--txt)">${esc(brlCurto(tot))}</text></svg>
+    <div class="lg">${itens.map((it, i) => `<div data-i="${i}"><span><i style="background:${PALETA[i % PALETA.length]}"></i>${esc(it.rotulo)}</span>
+      <b>${brl(it.valor)} <span class="mut" style="font-weight:500">${(it.valor / tot * 100).toLocaleString('pt-BR', {maximumFractionDigits: 1})}%</span></b></div>`).join('')}</div></div>`;
+  ligarDicas(el, i => `<b>${esc(itens[i].rotulo)}</b><div><span><i style="background:${PALETA[i % PALETA.length]}"></i>Valor</span><span>${brl(itens[i].valor)}</span></div>
+    <div><span>Participação</span><span>${(itens[i].valor / tot * 100).toLocaleString('pt-BR', {maximumFractionDigits: 1})}%</span></div>${itens[i].det || ''}`);
+  if (aoClicar) el.querySelectorAll('[data-i]').forEach(h => h.addEventListener('click', () => aoClicar(Number(h.dataset.i))));
 }
 
 // Colunas agrupadas por semana: duas séries no mesmo eixo de R$. pontos = [{rotulo, a, b, det}], nomes = ['Despesas', 'Pago']

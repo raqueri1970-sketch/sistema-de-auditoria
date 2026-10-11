@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="comum.css">
+<link rel="stylesheet" href="comum.css?v=20261011-3">
 </head>
 <body>
 
@@ -59,7 +59,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="comum.js"></script>
+<script src="comum.js?v=20261011-3"></script>
 <script>
 let D = null, TIMER = null, VER_HISTORICO = false;
 const haQuanto = iso => { if (!iso) return '—'; const m = Math.round((Date.now() - new Date(iso)) / 60000);
@@ -120,10 +120,10 @@ function render() {
     k('', 'Com o Financeiro', brl(soma(D.pags.filter(p => p.status === 'aprovado'), 'valor_aprovado')), 'aprovado pelo Presidente, aguardando pagamento') +
     k('k-ok', 'Pago neste mês', brl(soma(pagosMes, 'valor_pago')), `${pagosMes.length} pagamento(s)`) +
     k(crit ? 'k-bad' : '', 'Pontos críticos do Auditor', String(crit), 'em despesas ainda não pagas') +
-    k('', 'Orçamentos (não somam)', brl(soma(orc, 'valor')), `${orc.length} documento(s)`) +
+    `<div class="card kpi k-orc clic" onclick="location.href='../obras-presidente/?orc=1'"><div class="l">Orçamentos (não somam até o Presidente aceitar)</div><div class="v">${brl(soma(orc, 'valor'))}</div><div class="n">${orc.length} para decidir · <b>toque para ver o que compõe</b></div></div>` +
     k('', 'Histórico já pago', brl(soma(lanc, 'valor_pago')), 'tudo o que já foi pago');
 
-  const lista = D.saldos.slice().sort((a, b) => b.saldo_devedor - a.saldo_devedor || a.prestador.localeCompare(b.prestador));
+  const lista = D.saldos.filter(prestVisivel).sort((a, b) => b.saldo_devedor - a.saldo_devedor || a.prestador.localeCompare(b.prestador));
   window.PREST = lista.map(s => s.prestador);
   $('pessoas').innerHTML = lista.map((s, i) => {
     const tel = D.rem.filter(r => r.nome === s.prestador).map(r => fmtNum(r.numero)).find(Boolean);
@@ -140,7 +140,9 @@ function render() {
         <button class="btn" onclick="extrato(${i})">PDF do extrato</button></div></div>`;
   }).join('') || '<div class="card vazio">Nenhum prestador.</div>';
 
-  graficoBarrasH($('gPrest'), lista.filter(s => Number(s.saldo_devedor) > 0).map(s => ({rotulo: s.prestador, valor: Number(s.saldo_devedor)})), {vazio: 'Nenhum prestador com valor a pagar.'});
+  const comSaldo = lista.filter(s => Number(s.saldo_devedor) > 0);
+  graficoRosca($('gPrest'), comSaldo.map(s => ({rotulo: s.prestador, valor: Number(s.saldo_devedor)})), {vazio: 'Nenhum prestador com valor a pagar.', centro: 'A pagar',
+    aoClicar: i => { location.href = '../obras-presidente/?p=' + encodeURIComponent(comSaldo[i].prestador); }});
   $('gLeg').innerHTML = legenda(['Despesas', 'Pago']);
   graficoColunas($('gSem'), semanasFluxo(D.fluxo, 10), ['Despesas', 'Pago']);
   renderAuditor(); renderFluxo(); renderDesconhecidos();

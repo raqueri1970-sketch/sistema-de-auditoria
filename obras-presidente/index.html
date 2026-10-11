@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261011-3">
 </head>
 <body>
 
@@ -46,37 +46,51 @@
 
   <!-- Detalhe de um prestador: todas as despesas em aberto com caixa de marcar -->
   <div id="vDet" class="hidden"></div>
+
+  <!-- Orçamentos: tudo o que chegou como orçamento; o Presidente pode pagar com base nele -->
+  <div id="vOrc" class="hidden"></div>
 </div>
 
 <input type="file" id="arquivo" accept="image/*,application/pdf" class="hidden">
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261011-3"></script>
 <script>
 let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], FLUXO = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = true;
+let ORCS = [], ACEITOS = new Map(), VENDO_ORC = false;
 
 async function carregar() {
   try {
-    [SALDOS, DESP, PAGS, ADIS, PIXP] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('situacao', ['a_pagar', 'parcial', 'com_financeiro', 'recusado'])),
-      carregarPagamentos(), carregarAdiantamentos(), carregarDespesas(q => q.eq('status', 'pagamento').is('pagamento_id', null))]);
+    [SALDOS, DESP, PAGS, ADIS, PIXP, ORCS] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('situacao', ['a_pagar', 'parcial', 'com_financeiro', 'recusado'])),
+      carregarPagamentos(), carregarAdiantamentos(), carregarDespesas(q => q.eq('status', 'pagamento').is('pagamento_id', null)),
+      carregarDespesas(q => q.eq('status', 'orcamento'))]);
     FLUXO = await todos(() => sb.from('obras_fluxo_semanal').select('*').order('semana'));
+    // orçamentos que o Presidente já aceitou para pagamento (viraram conta a pagar)
+    const ev = await todos(() => sb.from('obras_pagamento_eventos').select('comprovante_id,evento,usuario,created_at').in('evento', ['ORCAMENTO_ACEITO', 'ORCAMENTO_DEVOLVIDO']).order('created_at'));
+    ACEITOS = new Map(); for (const e of ev) { if (e.evento === 'ORCAMENTO_ACEITO') ACEITOS.set(e.comprovante_id, e); else ACEITOS.delete(e.comprovante_id); }
+    const idsAceitos = [...ACEITOS.keys()];
+    window.ORC_ACEITOS = idsAceitos.length ? await carregarDespesas(q => q.in('id', idsAceitos)) : [];
   } catch (e) { return toast('Erro ao carregar: ' + msgErro(e), 6000); }
-  if (ATUAL) abrirPrestador(ATUAL, ABERTO === ATUAL); else renderMain();
+  if (VENDO_ORC) renderOrc(); else if (ATUAL) abrirPrestador(ATUAL, ABERTO === ATUAL); else renderMain();
 }
+const orcAbertos = () => ORCS.filter(o => o.situacao_pagamento === 'a_pagar');
 
 const saldoDe = p => SALDOS.find(s => s.prestador === p) || {prestador: p, em_aberto: 0, saldo_devedor: 0, adiantamento_disponivel: 0, com_financeiro: 0, itens_abertos: 0};
 
 function renderMain() {
-  $('vMain').classList.remove('hidden'); $('vDet').classList.add('hidden');
+  VENDO_ORC = false;
+  $('vMain').classList.remove('hidden'); $('vDet').classList.add('hidden'); $('vOrc').classList.add('hidden');
   const soma = (a, f) => a.reduce((t, x) => t + Number(x[f] || 0), 0);
   const mes = hojeISO().slice(0, 7);
   const pagosMes = PAGS.filter(p => ['pago', 'auditado', 'pendencia'].includes(p.status) && (p.pago_em || '').slice(0, 7) === mes);
   const pend = PAGS.filter(p => p.status === 'pendencia');
-  const k = (cls, l, v, n) => `<div class="card kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
-  $('kpis').innerHTML = k('k-pagar', 'Total a pagar (todos os prestadores)', brl(soma(SALDOS, 'saldo_devedor')), `${soma(SALDOS, 'itens_abertos')} despesa(s) em aberto`)
-    + k('', 'Com o Financeiro (já aprovado)', brl(soma(PAGS.filter(p => p.status === 'aprovado'), 'valor_aprovado')), `${PAGS.filter(p => p.status === 'aprovado').length} pagamento(s) aguardando`)
-    + k('k-ok', 'Pago neste mês', brl(soma(pagosMes, 'valor_pago')), `${pagosMes.length} pagamento(s)`)
-    + k(pend.length ? 'k-bad' : '', 'Pagamentos com pendência', String(pend.length), pend.length ? 'falta comprovante ou valor diferente' : 'nenhuma');
-  const lista = SALDOS.slice().sort((a, b) => b.saldo_devedor - a.saldo_devedor || b.com_financeiro - a.com_financeiro || a.prestador.localeCompare(b.prestador));
+  const oa = orcAbertos();
+  const k = (cls, l, v, n, acao) => `<div class="card kpi ${cls} ${acao ? 'clic' : ''}" ${acao ? `onclick="${acao}" role="button" tabindex="0"` : ''}><div class="l">${l}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
+  $('kpis').innerHTML = k('k-pagar', 'Total a pagar (todos os prestadores)', brl(soma(SALDOS, 'saldo_devedor')), `${soma(SALDOS, 'itens_abertos')} despesa(s) em aberto`, "irPara('cards')")
+    + k('k-orc', 'Orçamentos recebidos', brl(soma(oa, 'valor')), oa.length ? `${oa.length} orçamento(s) para decidir · <b>toque para ver</b>` : `nenhum para decidir · <b>ver histórico</b>`, 'abrirOrcamentos()')
+    + k('', 'Com o Financeiro (já aprovado)', brl(soma(PAGS.filter(p => p.status === 'aprovado'), 'valor_aprovado')), `${PAGS.filter(p => p.status === 'aprovado').length} pagamento(s) aguardando`, "irPara('pagamentos')")
+    + k('k-ok', 'Pago neste mês', brl(soma(pagosMes, 'valor_pago')), `${pagosMes.length} pagamento(s)`, "irPara('pagamentos')")
+    + k(pend.length ? 'k-bad' : '', 'Pagamentos com pendência', String(pend.length), pend.length ? 'falta comprovante ou valor diferente' : 'nenhuma', "irPara('pagamentos')");
+  const lista = SALDOS.filter(prestVisivel).sort((a, b) => b.saldo_devedor - a.saldo_devedor || b.com_financeiro - a.com_financeiro || a.prestador.localeCompare(b.prestador));
   $('cards').innerHTML = lista.map((s, i) => {
     const emDia = Number(s.em_aberto) === 0 && Number(s.com_financeiro) === 0;
     return `<div class="card clic" onclick="abrirPrestador(SALDOS_ORD[${i}])"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${emDia ? '<span class="chip r-normal">EM DIA</span>' : riscoChip(s.risco)}</div>
@@ -89,9 +103,10 @@ function renderMain() {
   }).join('') || '<div class="card vazio">Nenhum prestador com despesas.</div>';
   window.SALDOS_ORD = lista.map(s => s.prestador);
   renderPagamentos($('pagamentos'), PAGS.slice(0, 25));
-  graficoBarrasH($('gPrest'), lista.filter(s => Number(s.saldo_devedor) > 0).map(s => ({rotulo: s.prestador, valor: Number(s.saldo_devedor),
+  const comSaldo = lista.filter(s => Number(s.saldo_devedor) > 0);
+  graficoRosca($('gPrest'), comSaldo.map(s => ({rotulo: s.prestador, valor: Number(s.saldo_devedor),
     det: `<div><span>Despesas em aberto</span><span>${s.itens_abertos}</span></div>${Number(s.com_financeiro) ? `<div><span>Com o Financeiro</span><span>${brl(s.com_financeiro)}</span></div>` : ''}`})),
-    {vazio: 'Nenhum prestador com valor a pagar.'});
+    {vazio: 'Nenhum prestador com valor a pagar.', centro: 'A pagar', aoClicar: i => abrirPrestador(comSaldo[i].prestador)});
   $('gLeg').innerHTML = legenda(['Despesas', 'Pago']);
   graficoColunas($('gSem'), semanasFluxo(FLUXO, 10), ['Despesas', 'Pago']);
   $('pixPres').innerHTML = PIXP.length ? `<h2>Pix do Presidente recebidos no grupo, ainda sem pagamento marcado</h2><div class="card k-pagar">
@@ -106,7 +121,7 @@ function renderPagamentos(box, lista) {
     ${lista.map(p => `<tr><td>${p.numero}</td><td>${esc(p.prestador)}<div class="mut">${dtBR(p.created_at)}</div></td>
       <td class="r">${brl(p.valor_pago ?? p.valor_aprovado)}${Number(p.valor_abatido) ? `<div class="mut">desc. adiant. ${brl(p.valor_abatido)}</div>` : ''}</td>
       <td>${pagChip(p.status)}${p.status === 'pendencia' ? `<div class="crit">${esc(p.auditoria_resultado || '')}</div>` : ''}${p.motivo_cancelamento ? `<div class="mut small">${esc(p.motivo_cancelamento)}</div>` : ''}</td>
-      <td class="small">${esc(p.aprovado_por || '')}${p.pago_por ? `<div class="mut">pago por ${esc(p.pago_por)} ${dtBR(p.pago_em)}</div>` : ''}</td>
+      <td class="small">${esc(quemCurto(p.aprovado_por))}<div class="mut">${dtBR(p.aprovado_em || p.created_at)}</div>${p.pago_por ? `<div class="mut">pago por ${esc(quemCurto(p.pago_por))} · ${dtBR(p.pago_em)}</div>` : ''}</td>
       <td class="small"><div class="acoes"><a onclick="baixarRecibo('${p.id}')">PDF</a>${linkArquivo(p.comprovante_path, 'comprovante')}
         ${PAP.presidente && ['pago', 'pendencia'].includes(p.status) ? `<a onclick="anexar('${p.id}')">anexar comprovante</a>` : ''}
         ${PAP.presidente && p.status === 'aprovado' ? `<a onclick="cancelarPag('${p.id}')">cancelar</a>` : ''}</div></td></tr>`).join('')}</table></div>`
@@ -114,16 +129,107 @@ function renderPagamentos(box, lista) {
 }
 
 // ---------- Detalhe do prestador ----------
+function irPara(id) { const el = $(id); if (!el) return;
+  const f = (() => { try { return EMBUTIDO && window.frameElement; } catch (e) { return null; } })();
+  if (f) f.ownerDocument.defaultView.scrollBy({top: el.getBoundingClientRect().top + f.getBoundingClientRect().top - 20, behavior: 'smooth'});
+  else el.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+
+// ---------- Orçamentos ----------
+function abrirOrcamentos() { VENDO_ORC = true; ATUAL = null; renderOrc(); topo(); }
+
+// Leitura "inteligente" dos orçamentos: concorrentes (mesmo fornecedor/serviço), valor alto, itens que não fecham, sem prestador.
+function analisarOrcamentos(lista) {
+  const avisos = [], porId = {};
+  const add = (o, nivel, txt) => { (porId[o.id] = porId[o.id] || []).push({nivel, txt}); };
+  const grupos = {};
+  for (const o of lista) { const k = normTxt(o.fornecedor).split(' ').slice(0, 2).join(' ') + '|' + normTxt(o.descricao).split(' ').slice(0, 3).join(' ');
+    (grupos[k] = grupos[k] || []).push(o); }
+  for (const g of Object.values(grupos)) if (g.length > 1) {
+    const ord = g.slice().sort((a, b) => a.valor - b.valor), menor = ord[0], maior = ord[ord.length - 1], dif = maior.valor - menor.valor;
+    avisos.push(`<b>${g.length} orçamentos parecidos</b> de ${esc(menor.fornecedor || 'mesmo fornecedor')} (${g.map(o => `${esc(o.prestador || '?')} ${brl(o.valor)}`).join(' × ')}). `
+      + `Diferença de <b>${brl(dif)}</b> (${(dif / Math.max(1, maior.valor) * 100).toLocaleString('pt-BR', {maximumFractionDigits: 1})}%). Provavelmente é o mesmo serviço: aceite só um — o menor é o de <b>${esc(menor.prestador || '?')}</b>.`);
+    for (const o of g) add(o, 'atencao', o === menor ? 'Menor preço entre orçamentos parecidos' : `Há orçamento parecido mais barato (${brl(menor.valor)})`);
+  }
+  for (const o of lista) {
+    const it = itensOrcamento(o.descricao), s = it.reduce((a, i) => a + i.valor, 0);
+    if (it.length && Math.abs(s - o.valor) > 0.05) add(o, 'atencao', `A soma dos itens (${brl(s)}) não bate com o total (${brl(o.valor)})`);
+    if (o.valor >= 5000) add(o, 'atencao', 'Valor alto: vale pedir uma segunda cotação antes de pagar');
+    if (!o.prestador) add(o, 'critico', 'Sem prestador vinculado — vincule o número antes de pagar');
+    if (!o.obra) add(o, 'info', 'Sem obra/loja vinculada');
+  }
+  return {avisos, porId};
+}
+
+function renderOrc() {
+  $('vMain').classList.add('hidden'); $('vDet').classList.add('hidden'); $('vOrc').classList.remove('hidden');
+  const pode = PAP.presidente, abertos = orcAbertos().sort((a, b) => (b.data_despesa || '').localeCompare(a.data_despesa || ''));
+  const hist = ORCS.filter(o => o.situacao_pagamento !== 'a_pagar'), aceitos = (window.ORC_ACEITOS || []);
+  const soma = a => a.reduce((t, x) => t + Number(x.valor || 0), 0);
+  const {avisos, porId} = analisarOrcamentos(abertos);
+  window.ORC_LISTA = abertos; window.ORC_AC = aceitos;
+  const card = (o, i, modo) => {
+    const it = itensOrcamento(o.descricao), av = porId[o.id] || [];
+    return `<div class="orc"><div class="row" style="justify-content:space-between;align-items:flex-start">
+        <div style="min-width:0;flex:1"><div class="forn" style="font-weight:800;font-size:16px">${esc(o.fornecedor || 'Fornecedor não lido')}</div>
+          <div class="small mut">${dBRano(o.data_despesa)} · enviado por <b style="color:var(--txt)">${esc(o.prestador || o.remetente || '?')}</b>${o.obra ? ' · ' + esc(o.obra.replace(/^Obras\/Reformas — /, '')) : ''} · ${esc(CATS[o.categoria] || o.categoria || '')}</div></div>
+        <div style="text-align:right"><div class="big" style="font-size:24px;margin:0">${brl(o.valor)}</div>${modo === 'aceito' ? `<span class="tag">${o.saldo > 0 ? 'em contas a pagar' : esc((SIT[o.situacao] || [o.situacao])[0])}</span>` : ''}</div></div>
+      ${it.length ? `<div class="small" style="margin-top:8px;font-weight:700">O que compõe (${it.length} item(ns))</div><ul class="itens">${it.map(x => `<li><span>${esc(x.item)}${x.qtd ? ` <span class="mut">· ${esc(x.qtd)}</span>` : ''}</span><b>${brl(x.valor)}</b></li>`).join('')}</ul>`
+        : (o.descricao ? `<div class="small" style="margin-top:8px"><b>O que compõe:</b> ${esc(o.descricao)}</div>` : '')}
+      ${av.map(a => `<div class="${a.nivel === 'critico' ? 'crit' : a.nivel === 'info' ? 'small mut' : 'warn'}">${a.nivel === 'info' ? 'ℹ' : '⚠'} ${esc(a.txt)}</div>`).join('')}
+      <div class="acoes" style="margin-top:8px">${o.arquivo_path ? `<a onclick="abrirArquivo(ARQ[${ARQ.push(o.arquivo_path) - 1}], 'Orçamento · ${esc((o.fornecedor || '').replace(/'/g, ''))}')">ver orçamento (foto/PDF)</a>` : ''}
+        ${pode && modo === 'aberto' ? `<button class="btn b-ok" onclick="aceitarOrc(${i})">Pagar com este orçamento</button>` : ''}
+        ${pode && modo === 'aceito' && Number(o.valor_pago) === 0 && Number(o.valor_reservado) === 0 ? `<a onclick="devolverOrc(${i})">voltar para orçamento</a>` : ''}
+        ${modo === 'aceito' && o.prestador && o.saldo > 0 ? `<a onclick="abrirPrestador('${esc(o.prestador).replace(/'/g, '')}')">ir para o pagamento ›</a>` : ''}</div></div>`;
+  };
+  $('vOrc').innerHTML = `<button class="voltar" onclick="renderMain();topo()">‹ Voltar para o resumo</button>
+    <div class="card" style="margin-top:6px"><div class="pname" style="font-size:22px">Orçamentos</div>
+      <div class="small mut">Tudo o que chegou como orçamento no grupo. Orçamento não soma no “a pagar” até você decidir pagar com base nele.</div>
+      <div class="mini"><div><b>${brl(soma(abertos))}</b><span>${abertos.length} para decidir</span></div>
+        <div><b>${brl(soma(aceitos))}</b><span>${aceitos.length} pago(s) com orçamento</span></div>
+        <div><b>${brl(soma(hist))}</b><span>${hist.length} no histórico</span></div></div>
+      ${avisos.length ? `<div class="dica-ia">🤖 <b>Análise automática</b><br>${avisos.join('<br>')}</div>` : ''}</div>
+    <h2>Para decidir (${abertos.length})</h2><div class="card">${abertos.map((o, i) => card(o, i, 'aberto')).join('') || '<div class="vazio">Nenhum orçamento esperando decisão.</div>'}</div>
+    ${aceitos.length ? `<h2>Pagos / a pagar com base em orçamento (${aceitos.length})</h2><div class="card">${aceitos.map((o, i) => card(o, i, 'aceito')).join('')}</div>` : ''}
+    ${hist.length ? `<h2>Histórico de orçamentos (${hist.length})</h2><div class="card">${hist.map((o, i) => card(o, i, 'hist')).join('')}</div>` : ''}`;
+}
+
+function aceitarOrc(i) {
+  const o = ORC_LISTA[i];
+  abrirModal(`<h3>Pagar com base neste orçamento?</h3>
+    <div class="small">${esc(o.fornecedor || '')} · ${esc(o.prestador || '')} · ${dBRano(o.data_despesa)}</div><div class="big">${brl(o.valor)}</div>
+    <div class="small mut" style="margin:6px 0">O orçamento passa para as contas a pagar de <b>${esc(o.prestador || '')}</b> e fica registrado no histórico que foi pago com orçamento (dá para voltar atrás enquanto não houver pagamento).
+      Em seguida você escolhe: <b>Já paguei</b> ou <b>Aprovar e enviar ao Financeiro</b>.</div>
+    ${(analisarOrcamentos(orcAbertos()).porId[o.id] || []).filter(a => a.nivel !== 'info').map(a => `<div class="warn">⚠ ${esc(a.txt)}</div>`).join('')}
+    <label>Observação (opcional)</label><input id="mObs" maxlength="300" placeholder="ex.: serviço urgente, sem nota ainda">
+    <div class="err" id="mErr"></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn" onclick="fecharModal()">Voltar</button><button class="btn b-ok" id="mOk" onclick="aceitarOrcOk(${i})">Sim, pagar com orçamento</button></div>`);
+}
+async function aceitarOrcOk(i) {
+  const o = ORC_LISTA[i], btn = $('mOk'); btn.disabled = true; btn.textContent = 'Gravando…';
+  const {error} = await sb.rpc('obras_orcamento_aceitar', {p_comp: o.id, p_observacao: $('mObs').value.trim() || null});
+  if (error) { btn.disabled = false; btn.textContent = 'Sim, pagar com orçamento'; $('mErr').textContent = msgErro(error); return; }
+  fecharModal(); toast('Orçamento enviado para contas a pagar. Marque e pague abaixo.', 6000);
+  VENDO_ORC = false; ATUAL = o.prestador; await carregar(); abrirPrestador(o.prestador);
+}
+async function devolverOrc(i) {
+  const o = ORC_AC[i];
+  if (!confirm(`Voltar "${o.fornecedor || ''}" (${brl(o.valor)}) para orçamento? Ele sai das contas a pagar.`)) return;
+  const {error} = await sb.rpc('obras_orcamento_aceitar', {p_comp: o.id, p_observacao: null, p_desfazer: true});
+  if (error) return toast(msgErro(error), 6000);
+  toast('Voltou para orçamento.'); carregar();
+}
+
 function abrirPrestador(nome, manterSelecao = false) {
+  VENDO_ORC = false; $('vOrc').classList.add('hidden');
   ATUAL = nome; ABERTO = nome;
   const itens = DESP.filter(d => d.prestador === nome && Number(d.saldo) > 0);
   if (!manterSelecao) { SEL = {}; DESCONTAR = true; }
   for (const d of itens) if (!SEL[d.id]) SEL[d.id] = {on: !manterSelecao && d.criticos === 0, valor: Number(d.saldo), just: ''};
   for (const d of itens) if (SEL[d.id].valor > Number(d.saldo)) SEL[d.id].valor = Number(d.saldo);
   for (const id of Object.keys(SEL)) if (!itens.some(d => d.id === id)) delete SEL[id];
-  renderDet(); window.scrollTo(0, 0);
+  renderDet(); topo();
 }
-function fecharPrestador() { ATUAL = null; ABERTO = null; SEL = {}; if (location.search) history.replaceState(null, '', location.pathname); renderMain(); window.scrollTo(0, 0); }
+function fecharPrestador() { ATUAL = null; ABERTO = null; SEL = {}; if (location.search) history.replaceState(null, '', location.pathname); renderMain(); topo(); }
 
 function renderDet() {
   $('vMain').classList.add('hidden'); $('vDet').classList.remove('hidden');
@@ -137,7 +243,7 @@ function renderDet() {
   $('vDet').innerHTML = `<button class="voltar" onclick="fecharPrestador()">‹ Voltar para todos os prestadores</button>
     <div class="card" style="margin-top:6px"><div class="row" style="justify-content:space-between"><div><div class="pname" style="font-size:22px">${esc(ATUAL)}</div>
       <div class="small mut">${pix}</div></div>${riscoChip(s.risco)}</div>
-      <div class="mini" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
+      <div class="mini">
         <div><b>${brl(s.em_aberto)}</b><span>despesas em aberto</span></div>
         <div><b>${brl(s.adiantamento_disponivel)}</b><span>adiantamento a descontar</span></div>
         <div><b style="color:#fcd34d">${brl(s.saldo_devedor)}</b><span>total a pagar</span></div>
@@ -145,6 +251,7 @@ function renderDet() {
       <div class="row">${pode ? `<button class="btn" onclick="modalAdiantamento()">Registrar adiantamento</button><button class="btn" onclick="modalPix()">PIX / conta</button>` : ''}
         <button class="btn" onclick="pdfExtratoAtual()">PDF do extrato</button></div></div>
     ${!pode ? '<div class="card warn" style="margin-top:12px">Você pode consultar, mas só o Presidente aprova e paga.</div>' : ''}
+    ${itens.length && pode ? `<div class="rodape" id="rodape"></div>` : ''}
     ${itens.length ? `<div class="row" style="justify-content:space-between;margin-top:16px"><b>Despesas em aberto (${itens.length})</b>
       ${pode ? `<div class="row"><button class="btn" onclick="marcarTodas(true)">Marcar todas</button><button class="btn" onclick="marcarTodas(false)">Desmarcar todas</button></div>` : ''}</div>
       ${semanas.map(sem => blocoSemana(sem, itens)).join('')}` : '<div class="card vazio" style="margin-top:14px">Nenhuma despesa em aberto. Tudo pago.</div>'}
@@ -152,7 +259,7 @@ function renderDet() {
     ${recus.length ? `<h2>Recusadas (não entram no saldo)</h2><div class="card">${tabelaSimples(recus, d => `${esc(d.recusado_motivo || '')}<div class="mut">${esc(d.recusado_por || '')} ${dtBR(d.recusado_em)}</div>
        ${pode ? `<a href="#" onclick="desfazerRecusa('${d.id}');return false">desfazer</a>` : ''}`)}</div>` : ''}
     <h2>Pagamentos deste prestador</h2><div class="card" id="pagsPrest"></div>
-    ${itens.length && pode ? `<div class="rodape" id="rodape"></div>` : ''}`;
+    ${itens.length && pode ? `<div class="rodape fim" id="rodape2"></div>` : ''}`;
   renderPagamentos($('pagsPrest'), PAGS.filter(p => p.prestador === ATUAL));
   atualizarRodape();
 }
@@ -176,7 +283,7 @@ function linhaDesp(d, i) {
   const ach = (d.achados || []).map(a => `<div class="${a.nivel === 'critico' ? 'crit' : 'warn'}">⚠ ${esc(a.mensagem)}</div>`).join('');
   return `<div class="desp ${s.on ? '' : 'off'}" id="d_${i}">
     <div>${pode ? `<input type="checkbox" ${s.on ? 'checked' : ''} onchange="marcar(${i}, this.checked)" aria-label="pagar">` : ''}</div>
-    <div><div class="forn">${esc(d.fornecedor || 'Fornecedor não lido')}</div>
+    <div><div class="forn">${esc(d.fornecedor || 'Fornecedor não lido')} ${ACEITOS.has(d.id) ? '<span class="tag">pago com orçamento</span>' : ''}</div>
       <div class="det">${dBRano(d.data_despesa)}${d.hora_documento ? ' ' + esc(d.hora_documento.slice(0, 5)) : ''} · ${esc(CATS[d.categoria] || d.categoria)}${d.obra ? ' · ' + esc(d.obra.replace(/^Obras\/Reformas — /, '')) : ''}${d.tipo_doc ? ' · ' + esc(d.tipo_doc.replace(/_/g, ' ')) : ''}</div>
       ${d.descricao ? `<div class="det">${esc(d.descricao)}</div>` : ''}${ach}
       ${d.criticos && s.on ? `<input class="just" placeholder="Justificativa para pagar mesmo com ponto crítico (obrigatória)" value="${esc(s.just)}" oninput="SEL[IT[${i}].id].just=this.value">` : ''}
@@ -205,15 +312,17 @@ function resumoSel() {
 }
 
 function atualizarRodape() {
-  const box = $('rodape'); if (!box) return;
   const r = resumoSel();
-  box.innerHTML = `<div class="row" style="justify-content:space-between;align-items:flex-end">
-      <div><div class="small mut">${r.marc.length} despesa(s) marcada(s) · ${brl(r.total)}${r.desconto ? ` − adiantamento ${brl(r.desconto)}` : ''}</div>
-        <div class="tot">Pagar agora: ${brl(r.aPagar)}</div>
-        <div class="small">Continua em aberto (contas a pagar): <b style="color:#fcd34d">${brl(r.fica)}</b></div>
-        ${r.disp ? `<label class="chk" style="margin-top:6px"><input type="checkbox" ${DESCONTAR ? 'checked' : ''} onchange="DESCONTAR=this.checked;atualizarRodape()"> Descontar adiantamento (${brl(r.disp)} disponível)</label>` : ''}</div>
-      <div class="row"><button class="btn b-ok" ${r.marc.length ? '' : 'disabled'} onclick="confirmar('ja_paguei')">Já paguei</button>
-        <button class="btn b-pri" ${r.marc.length ? '' : 'disabled'} onclick="confirmar('financeiro')">Aprovar e enviar ao Financeiro</button></div></div>`;
+  const html = `<div class="row" style="justify-content:space-between;align-items:center">
+      <b>Resumo do pagamento</b><span class="small mut">${r.marc.length} despesa(s) marcada(s)</span></div>
+    <div class="resumo-pg"><div><b>${brl(r.total)}</b><span>marcado</span></div>
+      ${r.desconto ? `<div><b>− ${brl(r.desconto)}</b><span>adiantamento</span></div>` : ''}
+      <div><b style="color:#86efac">${brl(r.aPagar)}</b><span>pagar agora</span></div>
+      <div><b style="color:#fcd34d">${brl(r.fica)}</b><span>continua em aberto</span></div></div>
+    ${r.disp ? `<label class="chk" style="margin-bottom:8px"><input type="checkbox" ${DESCONTAR ? 'checked' : ''} onchange="DESCONTAR=this.checked;atualizarRodape()"> Descontar adiantamento (${brl(r.disp)} disponível)</label>` : ''}
+    <div class="row" style="justify-content:flex-end"><button class="btn b-ok" ${r.marc.length ? '' : 'disabled'} onclick="confirmar('ja_paguei')">Já paguei</button>
+      <button class="btn b-pri" ${r.marc.length ? '' : 'disabled'} onclick="confirmar('financeiro')">Aprovar e enviar ao Financeiro</button></div>`;
+  ['rodape', 'rodape2'].forEach(id => { const b = $(id); if (b) b.innerHTML = html; });
 }
 
 function confirmar(modo) {
@@ -378,7 +487,7 @@ iniciarLogin(async user => {
   $('menu').innerHTML = menu('presidente');
   PAP = await papeis();
   $('quem').textContent = 'Conectado como ' + (user.email || '') + (PAP.presidente ? '' : ' · somente consulta');
-  const pq = new URLSearchParams(location.search).get('p'); if (pq) ATUAL = pq;
+  const qs = new URLSearchParams(location.search), pq = qs.get('p'); if (pq) ATUAL = pq; if (qs.get('orc')) VENDO_ORC = true;
   carregar(); setInterval(() => { if (!ATUAL && (!$('modal') || $('modal').style.display !== 'flex')) carregar(); }, 120000);
 });
 </script>
