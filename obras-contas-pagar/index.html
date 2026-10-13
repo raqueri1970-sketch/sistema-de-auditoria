@@ -164,27 +164,40 @@ const REGRAS = {duplicidade_autenticacao: 'Pagamento repetido', duplicidade_valo
   pix_pessoa_fisica_material: 'PIX p/ pessoa física', fornecedor_varias_vezes_dia: 'Fornecedor repetido no dia'};
 function renderAuditor() {
   const ds = D.desp.filter(d => (d.achados || []).length && (VER_HISTORICO || Number(d.saldo) > 0));
-  const lista = []; for (const d of ds) for (const a of d.achados) lista.push({...a, d});
-  lista.sort((a, b) => (b.nivel === 'critico') - (a.nivel === 'critico'));
+  // Itens da mesma nota (o capturador quebra o cupom em itens) viram um grupo só: aprova a nota inteira de uma vez.
+  const grupos = {};
+  for (const d of ds) {
+    const g = grupos[d.arquivo_path || d.id] = grupos[d.arquivo_path || d.id] || {itens: [], achados: []};
+    g.itens.push(d); for (const a of d.achados) g.achados.push(a);
+  }
+  const lista = Object.values(grupos).map(g => ({...g, d: g.itens[0], critico: g.achados.some(a => a.nivel === 'critico'),
+    msgs: [...new Set(g.achados.map(a => a.mensagem))]}));
+  lista.sort((a, b) => b.critico - a.critico || String(b.d.data_despesa).localeCompare(String(a.d.data_despesa)));
+  window.GRUPOS = lista;
+  const nPontos = soma(lista, g => g.achados.length);
   const pend = D.pags.filter(p => p.status === 'pendencia');
-  const crit = lista.filter(a => a.nivel === 'critico').length + pend.length;
+  const crit = lista.filter(g => g.critico).length + pend.length;
   $('auditor').innerHTML = `<div class="row" style="justify-content:space-between"><div>${riscoChip(crit ? 'critico' : lista.length ? 'atencao' : 'normal')}
-      <span class="small mut">${VER_HISTORICO ? 'Todas as despesas (inclui histórico pago)' : 'Despesas ainda não pagas'} · ${lista.length} ponto(s)</span></div>
+      <span class="small mut">${VER_HISTORICO ? 'Todas as despesas (inclui histórico pago)' : 'Despesas ainda não pagas'} · ${nPontos} ponto(s) em ${lista.length} nota(s)</span></div>
       <div class="row"><button class="btn" onclick="VER_HISTORICO=!VER_HISTORICO;render()">${VER_HISTORICO ? 'Só o que vai ser pago' : 'Ver histórico pago também'}</button>
       <a class="btn" href="../obras-relatorios/?rel=auditor">Relatório / PDF</a></div></div>
     ${pend.map(p => `<div class="crit" style="margin-top:8px">⚠ Pagamento nº ${p.numero} (${esc(p.prestador)}, ${brl(p.valor_pago)}): ${esc(p.auditoria_resultado || '')}</div>`).join('')}
-    ${lista.length ? `<div class="tw"><table><tr><th>Nível</th><th>Despesa</th><th>O que o Auditor viu</th><th></th></tr>${lista.slice(0, 150).map((a, i) =>
-      `<tr><td>${riscoChip(a.nivel)}</td><td class="small">${esc(a.d.prestador || '')}<div class="mut">${dBR(a.d.data_despesa)} · ${esc(a.d.fornecedor || '')} · ${brl(a.d.valor)} · ${(SIT[a.d.situacao] || [''])[0]}</div>
-        <div>${linkArquivo(a.d.arquivo_path, 'ver comprovante')}</div></td><td class="small">${esc(a.mensagem)}</td><td><button class="btn" onclick="resolver('${a.id}')">Resolver</button></td></tr>`).join('')}</table></div>
+    ${lista.length ? `<div class="tw"><table><tr><th>Nível</th><th>Despesa</th><th>O que o Auditor viu</th><th></th></tr>${lista.slice(0, 150).map((g, i) => {
+      const d = g.d, n = g.itens.length, total = soma(g.itens, 'valor');
+      return `<tr><td>${riscoChip(g.critico ? 'critico' : 'atencao')}</td><td class="small">${esc(d.prestador || '')}<div class="mut">${dBR(d.data_despesa)} · ${esc(d.fornecedor || '')} · ${brl(total)}${n > 1 ? ` · <b>${n} itens da mesma nota</b>` : ''} · ${(SIT[d.situacao] || [''])[0]}</div>
+        <div>${linkArquivo(d.arquivo_path, 'ver comprovante')}</div></td><td class="small">${g.msgs.map(esc).join('<br>')}</td>
+        <td><button class="btn${g.achados.length > 1 ? ' b-pri' : ''}" onclick="resolverGrupo(${i})">${n > 1 ? 'Aprovar nota inteira' : g.achados.length > 1 ? `Aprovar (${g.achados.length})` : 'Resolver'}</button></td></tr>`;
+    }).join('')}</table></div>
       ${lista.length > 150 ? `<div class="small mut">Mostrando 150 de ${lista.length}. O relatório traz todos.</div>` : ''}` : '<div class="small mut" style="margin-top:8px">Nenhum ponto em aberto.</div>'}`;
 }
 
-async function resolver(id) {
-  const obs = prompt('Como foi resolvido? (fica registrado com o seu nome)');
+async function resolverGrupo(i) {
+  const g = window.GRUPOS[i], ids = g.achados.map(a => a.id);
+  const obs = prompt(`${ids.length > 1 ? `Aprovar os ${ids.length} pontos desta nota (${g.itens.length} item(ns), ${brl(soma(g.itens, 'valor'))}).\n` : ''}Como foi resolvido? (fica registrado com o seu nome)`, 'Conferido: nota correta, itens da mesma compra');
   if (!obs) return;
-  const {error} = await sb.rpc('obras_resolver_achado', {p_id: id, p_observacao: obs});
+  const {data, error} = await sb.rpc('obras_resolver_achados', {p_ids: ids, p_observacao: obs});
   if (error) return toast(msgErro(error), 6000);
-  toast('Ponto resolvido.'); carregar();
+  toast(`${data || 0} ponto(s) aprovado(s).`); carregar();
 }
 
 function renderFluxo() {
