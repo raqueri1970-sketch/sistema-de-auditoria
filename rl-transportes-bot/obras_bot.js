@@ -61,6 +61,9 @@ Responda SOMENTE JSON valido, sem markdown:
 
 module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPagina, sombra = false }) {
   // Modo sombra: tudo vai para obras_comprovantes_sombra e para a pasta sombra/ do bucket (nada oficial é tocado).
+  // OBRAS_OFICIAL=1 (13/10/2026): a VPS em MODO=sombra para a RL passa a gravar Obras na tabela OFICIAL
+  // (o D90 caiu do WhatsApp em 12/10 e as Obras pararam de entrar). Dedup por wa_msg_id evita duplicar se o D90 voltar.
+  if (sombra && process.env.OBRAS_OFICIAL === '1') sombra = false;
   const TAB = sombra ? 'obras_comprovantes_sombra' : 'obras_comprovantes';
   const GRUPO = process.env.OBRAS_GRUPO_NOME || 'Adm Obras Esposende';
   const PASTA = path.join(__dirname, 'fotos_obras');
@@ -309,13 +312,89 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     return linhas.length;
   }
 
+  // ── TEXTO DE PAGAMENTO (13/10/2026) ─────────────────────────────────────────────────────────────
+  // O Jhony escreve no grupo blocos "Favorecido / Pix: chave / R$ valor / o que é / data". Pedido do Ricardo:
+  // cada bloco entra como despesa JÁ PAGA PELO FINANCEIRO (não vira reembolso a pagar ao prestador), com a loja/obra citada.
+  const AUTORES_TEXTO = (process.env.OBRAS_TEXTO_PAGO_AUTORES || 'jhony').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  const NUMEROS_TEXTO = (process.env.OBRAS_TEXTO_PAGO_NUMEROS || '5511917849843,551117849843,226886227640325').split(',').map(x => x.trim()).filter(Boolean);
+  const CIDADES = /\b(petrolina|recife|macei[oó]|caruaru|carpina|jo[aã]o pessoa|natal|aracaju|garanhuns|olinda|paulista|jaboat[aã]o|arapiraca|campina grande|mossor[oó]|juazeiro|feira de santana|salvador|teresina|fortaleza|cabo de santo agostinho|vit[oó]ria de santo ant[aã]o|santa cruz do capibaribe|toritama|surubim|limoeiro|goiana|igarassu|serra talhada|arcoverde|palmares|escada|gravat[aá]|bezerros|belo jardim|pesqueira)\b/i;
+  const RE_VALOR = /R\$\s*([\d.]+(?:,\d{1,2})?)/i;
+  const RE_PIX = /^\s*pix\s*[:\-]?\s*(.+)$/i;
+  const RE_DATA = /^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s*(.*)$/;
+  function autorTextoPago(nome, numero) {
+    const n = String(nome || '').toLowerCase();
+    return AUTORES_TEXTO.some(a => n.includes(a)) || (numero && NUMEROS_TEXTO.includes(String(numero)));
+  }
+  const ehTextoPagamento = body => { const b = String(body || ''); return RE_VALOR.test(b) && /\bpix\b/i.test(b); };
+  function lerBlocosPagamento(body, tsMsg) {
+    const anoMsg = new Date(tsMsg).getFullYear();
+    const blocos = String(body || '').replace(/\r/g, '').split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
+    const saida = [];
+    for (const b of blocos) {
+      const linhas = b.split('\n').map(l => l.trim()).filter(Boolean);
+      let valor = null, pix = null, venc = null, obsData = '', favorecido = null; const desc = [];
+      for (const l of linhas) {
+        const mv = l.match(RE_VALOR), mp = l.match(RE_PIX), md = l.match(RE_DATA);
+        if (mp && !pix) { pix = mp[1].trim(); continue; }
+        if (mv && valor == null && l.replace(mv[0], '').replace(/[^A-Za-z]/g, '').length < 4) { valor = num(mv[1]); continue; }
+        if (md && !venc && +md[2] >= 1 && +md[2] <= 12 && +md[1] >= 1 && +md[1] <= 31) {
+          const ano = md[3] ? (md[3].length === 2 ? 2000 + +md[3] : +md[3]) : anoMsg;
+          venc = `${ano}-${md[2].padStart(2, '0')}-${md[1].padStart(2, '0')}`; obsData = md[4].replace(/[()]/g, '').trim(); continue;
+        }
+        if (!favorecido) { favorecido = l; continue; }
+        desc.push(l);
+      }
+      if (valor == null || !(valor > 0)) continue;
+      const cid = desc.join(' ').match(CIDADES) || desc.join(' ').match(/shopping\s+[A-Za-zÀ-ú]+/i);
+      saida.push({ favorecido, pix, valor, venc, obsData, descricao: desc.join(' / ') || null,
+        loja: cid ? cid[0].replace(/^./, c => c.toUpperCase()) : null, bruto: b });
+    }
+    return saida;
+  }
+  async function processarTexto(msg, nomeRemetente, { simular = false, numero = null } = {}) {
+    if (!sb) throw new Error('Supabase indisponivel');
+    if (await jaLancada(msg)) return 'ja_lancada';
+    const ts = msg.timestamp ? msg.timestamp * 1000 : Date.now();
+    const blocos = lerBlocosPagamento(msg.body, ts);
+    if (!blocos.length) return 'ignorada';
+    if (simular) return 'faltando';
+    const idMsg = idMsgCurto(msg) || crypto.randomBytes(6).toString('hex');
+    const waData = new Date(ts).toISOString();
+    const linhas = [];
+    for (const [i, b] of blocos.entries()) {
+      const hash = crypto.createHash('sha256').update('TXT|' + b.bruto.replace(/\s+/g, ' ').toUpperCase()).digest('hex');
+      const { data: dup } = await sb.from(TAB).select('id,wa_msg_id').eq('arquivo_hash', hash).limit(1);
+      const descr = [b.descricao, b.venc ? `vencimento ${b.venc.split('-').reverse().join('/')}${b.obsData ? ' (' + b.obsData + ')' : ''}` : null,
+        b.pix ? `Pix: ${b.pix}` : null, 'pago pelo Financeiro'].filter(Boolean).join(' — ');
+      const cat = /estrutur|manuten|servi|instala|empreit|m[aã]o de obra|pintur|pedreir|eletric|plataforma/i.test(b.descricao || '') ? 'mao_de_obra_prestador' : 'diversos';
+      linhas.push({ origem: 'whatsapp', remetente: nomeRemetente, remetente_numero: numero, wa_data: waData,
+        wa_msg_id: `${idMsg}#T${i}`, legenda: b.bruto.substring(0, 500), arquivo_hash: hash, arquivo_nome: null, arquivo_path: null,
+        tipo_doc: 'comprovante_pix', forma_pagamento: 'pix', categoria: cat, valor: b.valor,
+        data_despesa: waData.substring(0, 10), fornecedor: b.favorecido, pagador: 'Financeiro', loja: b.loja,
+        status: dup && dup.length ? 'duplicada' : 'lancado', situacao_pagamento: 'pago', pago_em: waData,
+        descricao: ((dup && dup.length ? `Texto repetido (igual a ${dup[0].wa_msg_id}) — nao somado. ` : '') + descr).substring(0, 500),
+        confianca_ocr: 1, revisado: false,
+        ia_json: i === 0 ? { fonte: 'texto_whatsapp', regra: 'pago_pelo_financeiro', blocos: blocos.map(x => ({ ...x, bruto: undefined })) } : null });
+    }
+    const { error } = await sb.from(TAB).insert(linhas);
+    if (error) { L(`Gravar texto no Supabase falhou (${idMsg}): ${error.message}`, 'error'); throw new Error(error.message); }
+    L(`${nomeRemetente}: texto com ${linhas.length} pagamento(s) pelo Financeiro — R$ ${linhas.filter(l => l.status === 'lancado').reduce((s, l) => s + l.valor, 0).toFixed(2)}`);
+    return linhas.length;
+  }
+
   // Fila serial: WhatsApp + IA uma de cada vez (evita corrida no dedup e estouro de limite)
   let fila = Promise.resolve(), naFila = 0;
   // Erro numa tarefa nunca vira "unhandled rejection" (no Node 24 isso derruba o processo inteiro, inclusive a RL).
   const enfileirar = fn => { naFila++; const p = fila.then(fn, fn).finally(() => naFila--).catch(e => L(`Tarefa da fila falhou: ${e.message}`, 'warn')); fila = p; return p; };
 
   async function onMessage(msg, chat) {
-    if (!msg.hasMedia) return;
+    if (!msg.hasMedia) {
+      if (!ehTextoPagamento(msg.body)) return;
+      const ct = await contatoDe(msg);
+      if (!autorTextoPago(ct.nome, ct.numero)) return;
+      L(`Texto de pagamento de ${ct.nome} (${ct.numero || 'sem numero'})`);
+      return enfileirar(() => processarTexto(msg, ct.nome, { numero: ct.numero }).catch(e => L(`Erro processando texto de ${ct.nome}: ${e.message}`, 'error')));
+    }
     const { nome, numero } = await contatoDe(msg);
     L(`Midia de ${nome} (${numero || 'sem numero'})`);
     return enfileirar(() => processar(msg, nome, { numero }).catch(e => L(`Erro processando midia de ${nome}: ${e.message}`, 'error')));
@@ -347,7 +426,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     }
     ultimaBusca = { total: msgs.length, mais_antiga: msgs.length ? new Date(msgs[0].timestamp * 1000).toISOString() : null,
       com_midia: msgs.filter(m => m.hasMedia).length, tipos: msgs.reduce((a, m) => (a[m.type] = (a[m.type] || 0) + 1, a), {}) };
-    return msgs.filter(m => m.hasMedia && m.timestamp * 1000 >= deMs && m.timestamp * 1000 <= ateMs);
+    return msgs.filter(m => (m.hasMedia || ehTextoPagamento(m.body)) && m.timestamp * 1000 >= deMs && m.timestamp * 1000 <= ateMs);
   }
   let ultimaBusca = null;
   async function nomeDe(m) { return (await contatoDe(m)).nome; }
@@ -368,7 +447,9 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
       for (const m of msgs.sort((a, b) => a.timestamp - b.timestamp)) {
         try {
           const ct = await contatoDe(m);
-          const r = await processar(m, ct.nome, { simular, numero: ct.numero });
+          if (!m.hasMedia && !autorTextoPago(ct.nome, ct.numero)) { importacao.feitas++; continue; }
+          const r = m.hasMedia ? await processar(m, ct.nome, { simular, numero: ct.numero })
+                               : await processarTexto(m, ct.nome, { simular, numero: ct.numero });
           if (r === 'ja_lancada') importacao.ja++; else if (r === 'duplicada') importacao.duplicadas++;
           else if (r === 'erro_download') importacao.erros++; else if (r === 'faltando') importacao.faltando++;
           else if (typeof r === 'number') { importacao.lancadas++; importacao.itens += r; }
@@ -438,6 +519,6 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
 
   L(`Modulo Obras ativo — grupo "${GRUPO}", IA ${anthropic ? MODELO : '-'} / ${gemini ? 'gemini' : '-'}`);
   return { ehGrupo, onMessage, http, _lerComIA: lerComIA, _relerPendentes: relerPendentes, _varrerPerdidas: varrerPerdidas,
-    _fila: () => naFila,
+    _fila: () => naFila, _tabela: () => TAB, _lerBlocosPagamento: lerBlocosPagamento,
     _estadoIA: () => [anthropic && !claudeSemCredito ? 'claude' : (anthropic ? 'claude SEM CREDITO' : null), gemini ? 'gemini' : null].filter(Boolean).join(' + ') || 'nenhuma' };
 };
