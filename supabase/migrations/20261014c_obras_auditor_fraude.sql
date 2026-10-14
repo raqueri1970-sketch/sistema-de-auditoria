@@ -105,3 +105,20 @@ create trigger obras_auditor_ia_trg after update of auditoria_ia, legenda, descr
 
 -- 5. Audita tudo o que já existe
 select public.obras_auditar_tudo();
+
+-- 6. Nome do WhatsApp aparece como o prestador cadastrado ("Eng. Josemar Henrique" → "Josemar Henrique", "Jhony Pedi" → "Jhony")
+do $$
+declare d text;
+begin
+  d := pg_get_functiondef('public.obras_responsavel_trigger()'::regprocedure);
+  if position('remetente := v_can' in d) = 0 then
+    d := replace(d, $q$if v_can is not null and v_can <> new.responsavel then new.responsavel := v_can; end if;$q$,
+      $q$if v_can is not null and v_can <> new.responsavel then new.responsavel := v_can; end if;
+    if v_can is not null and coalesce(new.remetente, '') <> v_can and public.obras_prestador_canonico(new.remetente) = v_can then new.remetente := v_can; end if;$q$);
+    execute d;
+  end if;
+end $$;
+update public.obras_comprovantes set remetente = 'Josemar Henrique' where remetente = 'Eng. Josemar Henrique';
+update public.obras_comprovantes set remetente = 'Jhony' where remetente = 'Jhony Pedi';
+-- 7. Adiantamento da 23ª (R$ 9.680,87) reativado: já descontado no pagamento nº 10 (decisão do Ricardo, 14/10)
+update public.obras_adiantamentos set cancelado = false where prestador = 'Josemar Henrique' and valor = 9680.87 and data = '2026-10-05';

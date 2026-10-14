@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="comum.css?v=20261014-2">
+<link rel="stylesheet" href="comum.css?v=20261014-3">
 </head>
 <body>
 
@@ -48,8 +48,9 @@
   <div id="alocar"></div>
   <div id="orcamentos"></div>
 
-  <h2>A pagar por prestador <span class="mut" style="text-transform:none;letter-spacing:0;font-weight:500">· todas as semanas em aberto, já descontado o adiantamento</span></h2>
+  <h2>Conta de cada prestador <span class="mut" style="text-transform:none;letter-spacing:0;font-weight:500">· adiantamento recebido − despesas das fotos = saldo</span></h2>
   <div class="pgrid" id="pessoas"></div>
+  <div id="contaDet"></div>
 
   <h2>Conferência</h2>
   <details class="card" id="auditorBox"><summary id="auditorResumo">Agente Auditor</summary><div id="auditor" style="margin-top:10px"></div></details>
@@ -57,7 +58,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="comum.js?v=20261014-2"></script>
+<script src="comum.js?v=20261014-3"></script>
 <script>
 let D = null, TIMER = null, VER_HISTORICO = false, PAP = {};
 let F = {p: '30', obra: '', prest: '', ...lerFiltro('obras-visao-filtro')};
@@ -68,12 +69,13 @@ const soma = (a, f) => a.reduce((t, x) => t + Number((typeof f === 'function' ? 
 async function carregar() {
   try {
     const st = await sb.from('capturador_status').select('*').order('atualizado_em', {ascending: false});
-    const [saldos, desp, pags, obras, prest, fraude, fotos, fotosAud] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('status', ['lancado', 'orcamento'])),
+    const [saldos, desp, pags, obras, prest, fraude, fotos, fotosAud, adis] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('status', ['lancado', 'orcamento'])),
       carregarPagamentos(), carregarObras(), carregarPrestacoes(),
       todos(() => sb.from('obras_auditoria_achados').select('id,comprovante_id,regra,nivel,mensagem').eq('resolvido', false).in('regra', Object.keys(FRAUDE)).order('criado_em', {ascending: false})),
       sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null),
-      sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null).not('auditoria_ia', 'is', null)]);
-    D = {saude: st.error ? null : st.data, saldos, desp, pags, obras, prest, fraude, fotos: fotos.count || 0, fotosAud: fotosAud.count || 0};
+      sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null).not('auditoria_ia', 'is', null),
+      carregarAdiantamentos()]);
+    D = {saude: st.error ? null : st.data, saldos, desp, pags, obras, prest, fraude, fotos: fotos.count || 0, fotosAud: fotosAud.count || 0, adis};
     render();
     $('atual').textContent = 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
   } catch (e) {
@@ -221,18 +223,33 @@ function renderSemanas(semanas) {
 
 function renderPessoas() {
   const lista = D.saldos.filter(prestVisivel).filter(s => !semPrestador(s.prestador) && (!F.prest || s.prestador === F.prest))
-    .sort((a, b) => b.saldo_devedor - a.saldo_devedor || a.prestador.localeCompare(b.prestador));
-  window.PREST = lista.map(s => s.prestador);
+    .sort((a, b) => b.em_aberto - a.em_aberto || a.prestador.localeCompare(b.prestador));
+  window.PREST = lista.map(s => s.prestador); window.CONTAS = {};
   $('pessoas').innerHTML = lista.map((s, i) => {
-    const emDia = Number(s.saldo_devedor) < 0.005;
-    return `<div class="card"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${emDia ? '<span class="chip r-normal">EM DIA</span>' : riscoChip(s.risco)}</div>
-      <div class="small mut" style="margin-top:8px">${emDia ? 'Nada a pagar' : 'Total a pagar'}</div><div class="big">${brl(s.saldo_devedor)}</div>
-      <div class="mini"><div><b>${brl(s.em_aberto)}</b><span>${s.itens_abertos} despesa(s) em aberto</span></div><div><b>${brl(s.adiantamento_disponivel)}</b><span>adiantamento a descontar</span></div>
-        <div><b>${s.semanas_abertas}</b><span>semana(s) em aberto${s.semana_mais_antiga ? ` desde ${dBR(s.semana_mais_antiga)}` : ''}</span></div></div>
-      ${s.criticos ? `<div class="crit">⚠ ${s.criticos} ponto(s) crítico(s) do Auditor</div>` : ''}
-      <div class="row" style="margin-top:8px"><a class="btn ${emDia ? '' : 'b-pri'}" href="../obras-presidente/?p=${encodeURIComponent(s.prestador)}">${emDia ? 'Ver histórico' : 'Ver despesas e pagar'}</a>
-        <button class="btn" onclick="extrato(${i})">PDF do extrato</button></div></div>`;
+    const c = CONTAS[s.prestador] = contaPrestador(s, D.desp, D.adis, D.pags), nAlert = c.abertas.filter(d => (d.achados || []).length).length;
+    return `<div class="card"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${nAlert ? riscoChip(c.abertas.some(d => d.criticos) ? 'critico' : 'atencao') : '<span class="chip r-normal">SEM ALERTA</span>'}</div>
+      <div class="small mut" style="margin-top:8px">${c.saldo >= 0 ? 'Saldo do adiantamento com o prestador' : 'A reembolsar ao prestador'}</div>
+      <div class="big" style="color:${c.saldo >= 0 ? '#86efac' : '#fcd34d'}">${brl(Math.abs(c.saldo))}</div>
+      ${contaResumoHTML(c)}
+      ${nAlert ? `<div class="warn">⚠ ${nAlert} foto(s) com dúvida do Auditor — veja na conta</div>` : ''}
+      <div class="row" style="margin-top:8px"><button class="btn b-pri" onclick="verConta(${i})">Ver a conta foto a foto</button>
+        <a class="btn" href="../obras-presidente/?p=${encodeURIComponent(s.prestador)}">Pagar / fechar semana</a><button class="btn" onclick="extrato(${i})">PDF</button></div>
+      </div>`;
   }).join('') || '<div class="card vazio">Nenhum prestador.</div>';
+  mostrarConta();
+}
+let CONTA_ABERTA = null;
+function verConta(i) {
+  const p = PREST[i], box = $('contaDet');
+  if (CONTA_ABERTA === p) { CONTA_ABERTA = null; box.innerHTML = ''; return; }
+  CONTA_ABERTA = p; mostrarConta();
+  box.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+function mostrarConta() {
+  const box = $('contaDet'), c = CONTA_ABERTA && CONTAS[CONTA_ABERTA];
+  if (!c) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between"><div class="pname">Conta de ${esc(CONTA_ABERTA)} · foto a foto</div>
+    <button class="btn" onclick="CONTA_ABERTA=null;mostrarConta()">Fechar ✕</button></div>${contaResumoHTML(c)}${contaExtratoHTML(c)}</div>`;
 }
 
 async function extrato(i) {
