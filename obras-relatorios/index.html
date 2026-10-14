@@ -50,7 +50,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js?v=20261014-5"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261014-6"></script>
 <script>
 let D = null, REL = 'aberto', MODELO = null;
 const RELS = {aberto: 'Contas a pagar em aberto', semanas: 'Fechamento por semana', duplicadas: 'Duplicidades já pagas', extrato: 'Extrato do prestador', fluxo: 'Fluxo de caixa semanal', pagamentos: 'Pagamentos realizados',
@@ -116,10 +116,12 @@ const MODELOS = {
       .sort((a, b) => a.prestador.localeCompare(b.prestador) || String(a.data_despesa).localeCompare(String(b.data_despesa)));
     const limpa = t => String(t || '').replace(/\s+/g, ' ').replace(/â€”|â€"/g, '—').replace(/^.*?\[DUP\]\s*/, '');
     const prests = [...new Set(ds.map(d => d.prestador))].sort((a, b) => soma(ds.filter(d => d.prestador === b), 'valor') - soma(ds.filter(d => d.prestador === a), 'valor'));
-    const porPrest = prests.map(p => { const l = ds.filter(d => d.prestador === p);
-      return {titulo: `${p} — ${l.length} duplicidade(s) · ${brl(soma(l, 'valor'))}`, cab: ['Prestação', 'Data', 'Fornecedor', 'O que foi duplicado', 'Pago a mais'], direita: [4],
-        linhas: l.map(d => [(pr(d.id) || {}).numero || '', dBRano(d.data_despesa), d.fornecedor || '', limpa(d.descricao), V(d.valor)]),
-        rodape: ['Total', '', '', `${l.length} item(ns)`, V(soma(l, 'valor'))]}; });
+    const pares = ds.map(d => ({d, o: origemDup(d)}));
+    const ondeOrig = o => o ? `${(pr(o.id) || {}).numero ? ordinal(pr(o.id).numero) + ' · ' : ''}${paginaDe(o.arquivo_path)}` : 'não localizada';
+    const porPrest = prests.map(p => { const l = pares.filter(x => x.d.prestador === p);
+      return {titulo: `${p} — ${l.length} duplicidade(s) · ${brl(soma(l, x => x.d.valor))}`, cab: ['Nº', 'Prestação', 'Data', 'Fornecedor', 'Foto cobrada de novo', 'Foto original', 'O que foi duplicado', 'Pago a mais'], direita: [7],
+        linhas: l.map(({d, o}) => [pares.findIndex(x => x.d === d) + 1, (pr(d.id) || {}).numero || '', dBRano(d.data_despesa), d.fornecedor || '', paginaDe(d.arquivo_path), ondeOrig(o), limpa(d.descricao), V(d.valor)]),
+        rodape: ['Total', '', '', '', '', '', `${l.length} item(ns)`, V(soma(l, x => x.d.valor))]}; });
     // conferência por prestação: declarado na capa x fotos válidas x duplicado
     const ids = [...new Set(ds.map(d => D.prestDe.get(d.id)))];
     const conf = ids.map(id => { const p = D.prest.find(x => x.id === id) || {}, val = D.desp.filter(d => D.prestDe.get(d.id) === id && d.status === 'lancado');
@@ -133,7 +135,8 @@ const MODELOS = {
         {titulo: 'Conferência por prestação', nota: 'Declarado = total que o prestador pôs na capa (foi o valor pago). Fotos válidas = soma das despesas sem as duplicadas. A diferença mostra o que foi pago a mais.',
           cab: ['Prestador', 'Prestação', 'Declarado (pago)', 'Fotos válidas', 'Duplicado', 'Declarado − válidas'], direita: [2, 3, 4, 5], linhas: conf,
           rodape: ['Total', '', '', '', V(soma(ds, 'valor')), '']}],
-      paisagem: true, arquivo: `duplicidades_pagas_${f.prest || 'todos'}_${hojeISO()}`};
+      paisagem: true, arquivo: `duplicidades_pagas_com_fotos_${f.prest || 'todos'}_${hojeISO()}`, pares,
+      depois: (pdf, ctx) => fotosDupPDF(pdf, ctx, pares, d => (pr(d.id) || {}).numero)};
   },
   semanas(f) {
     // Fechamento semanal (segunda a domingo): despesas da semana, quanto já foi pago e se a semana/prestação está QUITADA
@@ -216,7 +219,90 @@ function mostrar() {
   $('tituloRel').textContent = '3. ' + RELS[REL];
   $('saida').innerHTML = MODELO.vazio ? `<div class="card vazio">${esc(MODELO.vazio)}</div>`
     : htmlModelo(MODELO) + (MODELO.recibos && MODELO.recibos.length ? `<div class="card" style="margin-top:12px"><b>Recibo individual de cada pagamento (PDF)</b><div class="acoes" style="margin-top:8px">
-      ${MODELO.recibos.slice(0, 60).map(p => `<a onclick="recibo('${p.id}')">nº ${p.numero} · ${esc(p.prestador)} · ${brl(p.valor_pago ?? p.valor_aprovado)}</a>`).join('')}</div></div>` : '');
+      ${MODELO.recibos.slice(0, 60).map(p => `<a onclick="recibo('${p.id}')">nº ${p.numero} · ${esc(p.prestador)} · ${brl(p.valor_pago ?? p.valor_aprovado)}</a>`).join('')}</div></div>` : '')
+    + (MODELO.pares ? galeriaDup(MODELO.pares) : '');
+  if (MODELO.pares) carregarGaleriaDup(MODELO.pares);
+}
+
+// ---------- Duplicidades: as 2 fotos de cada uma (a original e a cobrada de novo) ----------
+// A descrição da duplicata diz onde está a original: "igual P05_p046" (outra prestação) ou "(p038)" (mesma prestação).
+function origemDup(d) {
+  const desc = String(d.descricao || ''), pasta = (String(d.arquivo_path || '').match(/^(.*\/)?([A-Z0-9]+)_p\d{3}/) || []);
+  const cheia = desc.match(/\b([A-Z0-9]+)_p(\d{3})\b/), curta = desc.match(/\bp(\d{3})\b/);
+  let path = null;
+  if (cheia) path = String(d.arquivo_path).replace(/[^/]+\/[^/]+$/, `${cheia[1]}/${cheia[1]}_p${cheia[2]}.jpg`);
+  else if (curta && pasta[2]) path = String(d.arquivo_path).replace(/[^/]+$/, `${pasta[2]}_p${curta[1]}.jpg`);
+  const val = D.desp.filter(x => x.id !== d.id && x.status === 'lancado');
+  const perto = l => l.sort((a, b) => Math.abs(a.valor - d.valor) - Math.abs(b.valor - d.valor))[0];
+  if (path) { const o = perto(val.filter(x => x.arquivo_path === path)); return o || {id: null, arquivo_path: path, valor: d.valor, data_despesa: d.data_despesa, fornecedor: d.fornecedor}; }
+  // sem referência: mesmo prestador, mesmo valor e mesma data (pode ser a mesma foto lida 2 vezes)
+  return perto(val.filter(x => x.prestador === d.prestador && Number(x.valor) === Number(d.valor) && x.data_despesa === d.data_despesa)) || null;
+}
+const ordinal = n => /^\d+$/.test(String(n)) ? n + 'ª' : String(n);
+const paginaDe = path => { const m = String(path || '').match(/([A-Z0-9]+)_p(\d{3})/); return m ? `${m[1]} pág. ${Number(m[2])}` : String(path || '').split('/').pop(); };
+function galeriaDup(pares) {
+  if (!pares.length) return '';
+  return `<div class="card" style="margin-top:12px"><b>Comprovantes de cada duplicidade (${pares.length})</b>
+    <div class="small mut">À esquerda a foto ORIGINAL (já cobrada); à direita a MESMA despesa apresentada de novo e paga outra vez. O PDF traz as duas fotos de cada uma, uma duplicidade por página.</div>
+    ${pares.map(({d, o}, i) => `<div class="dup-par"><div class="small" style="margin:12px 0 6px"><b>${i + 1}. ${esc(d.prestador)} · ${esc(d.fornecedor || '')} · ${dBRano(d.data_despesa)} · ${brl(d.valor)} pago a mais</b>
+      ${o && o.arquivo_path === d.arquivo_path ? ' · <span class="crit">mesma foto lançada 2 vezes</span>' : ''}</div>
+      <div class="cmp-grid"><div class="cmp-col"><div class="small"><b>Original</b> · ${o ? esc(paginaDe(o.arquivo_path)) + ' · ' + brl(o.valor) : 'não localizada'}</div><div class="visor" id="dupo_${i}"></div></div>
+      <div class="cmp-col"><div class="small"><b>Cobrada de novo</b> · ${esc(paginaDe(d.arquivo_path))} · ${brl(d.valor)}</div><div class="visor" id="dupd_${i}"></div></div></div></div>`).join('')}</div>`;
+}
+async function carregarGaleriaDup(pares) {
+  const fila = pares.flatMap(({d, o}, i) => [['dupo_' + i, o && o.arquivo_path], ['dupd_' + i, d.arquivo_path]]);
+  const vez = MODELO;
+  for (let k = 0; k < fila.length; k += 4) {
+    if (MODELO !== vez) return;  // trocou de relatório
+    await Promise.all(fila.slice(k, k + 4).map(([id, p]) => $(id) && (p ? mostrarArquivoEm($(id), p, 440) : ($(id).innerHTML = '<div class="crit">Foto original não localizada.</div>'))));
+  }
+}
+// Baixa a foto (ou a 1ª página do PDF) já reduzida para caber no PDF sem ficar pesado
+async function imagemPDF(path) {
+  if (!path) return null;
+  try {
+    const {data, error} = await sb.storage.from('obras-comprovantes').download(path); if (error) throw error;
+    let fonte;
+    if (/\.pdf$/i.test(path) || data.type === 'application/pdf') {
+      const lib = await pdfjs(), doc = await lib.getDocument({data: new Uint8Array(await data.arrayBuffer())}).promise, pg = await doc.getPage(1);
+      const vp = pg.getViewport({scale: 2}); fonte = document.createElement('canvas'); fonte.width = vp.width; fonte.height = vp.height;
+      await pg.render({canvasContext: fonte.getContext('2d'), viewport: vp}).promise;
+    } else {
+      const url = URL.createObjectURL(data);
+      fonte = await new Promise((ok, erro) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => erro(new Error('imagem inválida')); im.src = url; });
+    }
+    const w0 = fonte.naturalWidth || fonte.width, h0 = fonte.naturalHeight || fonte.height, f = Math.min(1, 1100 / Math.max(w0, h0));
+    const c = document.createElement('canvas'); c.width = Math.round(w0 * f); c.height = Math.round(h0 * f);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(fonte, 0, 0, c.width, c.height);
+    return {data: c.toDataURL('image/jpeg', .72), w: c.width, h: c.height};
+  } catch (e) { return null; }
+}
+async function fotosDupPDF(pdf, {W, H, M}, pares, prestacao) {
+  const topoImg = 126;
+  for (let i = 0; i < pares.length; i++) {
+    const {d, o} = pares[i];
+    toast(`Gerando PDF… fotos ${i + 1} de ${pares.length}`, 60000);
+    const [io, idd] = await Promise.all([imagemPDF(o && o.arquivo_path), imagemPDF(d.arquivo_path)]);
+    pdf.addPage('a4', 'portrait');
+    const PW = pdf.internal.pageSize.getWidth(), PH = pdf.internal.pageSize.getHeight(), w = (PW - 2 * M - 14) / 2, am = PH - topoImg - 40;
+    pdf.setTextColor(15, 30, 60); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12.5);
+    pdf.text(pdfTxt(`Duplicidade ${i + 1} de ${pares.length} - ${d.prestador} - ${brl(d.valor)} pago a mais`), M, 40);
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); pdf.setTextColor(60);
+    const linhas = pdf.splitTextToSize(pdfTxt(`${d.fornecedor || ''} - ${dBRano(d.data_despesa)} - ${String(d.descricao || '').replace(/\s+/g, ' ').replace(/^.*?\[DUP\]\s*/, '')}`), PW - 2 * M).slice(0, 3);
+    pdf.text(linhas, M, 56);
+    pdf.setDrawColor(14, 74, 107); pdf.setLineWidth(1); pdf.line(M, 92, PW - M, 92); pdf.setLineWidth(.5);
+    const col = (img, x, rot, cor) => {
+      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9); pdf.setTextColor(...cor); pdf.text(pdf.splitTextToSize(pdfTxt(rot), w).slice(0, 2), x, 104); pdf.setTextColor(20); pdf.setFont('helvetica', 'normal');
+      if (!img) { pdf.setDrawColor(200); pdf.rect(x, topoImg, w, 120); pdf.setFontSize(9); pdf.text('Foto não localizada', x + w / 2, topoImg + 62, {align: 'center'}); return; }
+      const f = Math.min(w / img.w, am / img.h), iw = img.w * f, ih = img.h * f;
+      pdf.addImage(img.data, 'JPEG', x + (w - iw) / 2, topoImg, iw, ih); pdf.setDrawColor(190); pdf.rect(x + (w - iw) / 2, topoImg, iw, ih);
+    };
+    const np = x => x ? `${ordinal(x)} prestação - ` : '';
+    col(io, M, `ORIGINAL (já cobrada): ${o ? np(o.id ? prestacao(o) : '') + paginaDe(o.arquivo_path) + ' - ' + brl(o.valor) : 'não localizada'}`, [21, 101, 52]);
+    col(idd, M + w + 14, `COBRADA DE NOVO: ${np(prestacao(d))}${paginaDe(d.arquivo_path)} - ${brl(d.valor)}`, [185, 28, 28]);
+    if (o && o.arquivo_path === d.arquivo_path) { pdf.setFontSize(8.5); pdf.setTextColor(185, 28, 28); pdf.text('Mesma foto lançada 2 vezes na prestação.', M, PH - 30); pdf.setTextColor(20); }
+  }
+  toast('PDF pronto.');
 }
 
 async function pdf() {

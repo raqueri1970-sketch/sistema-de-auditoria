@@ -378,8 +378,10 @@ async function gerarPDF(doc) {
     doc.assinaturas.forEach((a, i) => { const x = M + i * cw; pdf.setDrawColor(120); pdf.line(x + 10, y, x + cw - 10, y);
       pdf.setFontSize(8.5); pdf.text(pdfTxt(a), x + cw / 2, y + 12, {align: 'center'}); });
   }
+  if (doc.depois) await doc.depois(pdf, {W, H, M});  // páginas extras (ex.: as fotos de cada duplicidade)
   const n = pdf.internal.getNumberOfPages();
   for (let i = 1; i <= n; i++) { pdf.setPage(i); pdf.setFontSize(8); pdf.setTextColor(120);
+    const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
     pdf.text(`Pagina ${i} de ${n}`, W - M, H - 18, {align: 'right'}); pdf.text('Sistema de Auditoria Esposende - documento gerado automaticamente', M, H - 18); }
   pdf.save((doc.arquivo || doc.titulo).normalize('NFD').replace(/[^A-Za-z0-9._-]+/g, '_') + '.pdf');
 }
