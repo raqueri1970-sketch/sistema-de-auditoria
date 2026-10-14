@@ -1,5 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-/* Telas de Obras & Reformas — visual comum (Presidente, Financeiro, Contas a pagar, Relatórios) */
+/* Telas de Obras & Reformas — visual comum (Pagamentos do Presidente, Visão geral, Relatórios) */
 :root{
   --bg:#070b16;--bg2:#0b1222;--card:#0f172a;--card2:#152039;--card3:#1b2742;--line:rgba(148,163,184,.14);--line2:rgba(148,163,184,.26);
   --txt:#eef2fb;--txt2:#d3daea;--mut:#b3bdd6;--ok:#22c55e;--warn:#f5b301;--bad:#ef4444;--pri:#3b82f6;--pri2:#2563eb;
@@ -117,6 +117,7 @@ a{color:#93c5fd}
 /* Visualizador de comprovante (foto/PDF) dentro da própria tela — funciona no celular */
 .visor img{display:block;max-width:100%;max-height:72vh;margin:8px auto;border-radius:10px;background:#fff}
 .visor iframe{width:100%;height:70vh;border:0;border-radius:10px;background:#fff}
+.visor .pdfpag{display:block;margin:8px auto;border-radius:6px;background:#fff;max-width:100%}
 .mbox.larga{max-width:920px}
 /* Orçamentos */
 .orc{border-top:1px solid var(--line);padding:14px 2px}
@@ -170,3 +171,14 @@ html,body{max-width:100%;overflow-x:hidden}
 /* embutido: a altura do quadro acompanha o conteúdo; janelas e avisos são posicionados na área visível pelo comum.js */
 .embutido .modal{position:absolute}.embutido .toast{position:absolute;bottom:auto}
 .embutido [onclick="sair()"]{display:none}
+/* Filtro de período (7/15/30 dias, por semana, tudo) */
+.periodo{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.periodo .tabs button{padding:8px 13px}
+.periodo select{width:auto;min-width:230px;margin:0}
+.filtro-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin:14px 0 4px}
+.filtro-bar select{width:auto;margin:0;padding:8px 10px;font-size:14px}
+.s-quitada{background:rgba(34,197,94,.13);color:#86efac;border-color:rgba(34,197,94,.3)}
+details.card>summary{cursor:pointer;font-weight:700;list-style:none}details.card>summary::-webkit-details-marker{display:none}
+details.card>summary::before{content:"▸ ";color:var(--mut)}details.card[open]>summary::before{content:"▾ "}
+.semrow td{background:rgba(59,130,246,.05);font-weight:700}
+@media (max-width:620px){.periodo select{min-width:0;width:100%}.periodo .tabs button{padding:7px 10px;font-size:13px}}

@@ -31,6 +31,5 @@ services:
       - ./site/index.html:/srv/obras/index.html:ro
       - ../../obras-contas-pagar:/srv/obras/obras-contas-pagar:ro
       - ../../obras-presidente:/srv/obras/obras-presidente:ro
-      - ../../obras-financeiro:/srv/obras/obras-financeiro:ro
       - ../../obras-relatorios:/srv/obras/obras-relatorios:ro
       - /opt/capturador/caddy_data:/data

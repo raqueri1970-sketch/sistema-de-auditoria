@@ -21,6 +21,7 @@ function criarSupabaseFalso() {
       eq(c, v) { f.filtros.push(r => r[c] === v); return api; },
       like(c, p) { const re = new RegExp('^' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*') + '$'); f.filtros.push(r => re.test(String(r[c] ?? ''))); return api; },
       not(c, op, v) { f.filtros.push(r => r[c] != null); return api; },
+      is(c, v) { f.filtros.push(r => (r[c] ?? null) === v); return api; },
       order(c, o = {}) { f.ordem = [c, o.ascending !== false]; return api; },
       limit(n) { f.lim = n; return api; },
       insert(d) { f.acao = 'insert'; f.dados = Array.isArray(d) ? d : [d]; return api; },
@@ -179,6 +180,33 @@ const item = (o) => ({ tipo_documento: 'comprovante', itens: [{ tipo_doc: 'cupom
   assert.strictEqual(linhas().find(l => l.fornecedor === 'JHONY PEDI').pagador, 'MAR ABERTO LTDA');
   assert.deepStrictEqual([...sb.tabelas], ['obras_comprovantes']);
   console.log('ok 12 PIX grava o pagador (ex.: Mar Aberto)');
+
+  // 12b) NF/cupom com vários produtos (a IA devolve um item por produto) → UMA despesa com o total da nota
+  await obras.onMessage(msgFalsa({ tipo_documento: 'comprovante', itens: [
+    { tipo_doc: 'cupom_fiscal', categoria: 'materiais_insumos', valor: 93, data: hoje, hora: '15:13:25', fornecedor: 'CASA DOS PARAFUSOS', autenticacao: '227260284244130', descricao: 'CADEADO' },
+    { tipo_doc: 'cupom_fiscal', categoria: 'materiais_insumos', valor: 11.5, data: hoje, hora: '15:13:25', fornecedor: 'CASA DOS PARAFUSOS', autenticacao: '227260284244130', descricao: 'PARAFUSO' },
+    { tipo_doc: 'cupom_fiscal', categoria: 'materiais_insumos', valor: 6.8, data: hoje, hora: '15:13:25', fornecedor: 'CASA DOS PARAFUSOS', autenticacao: '227260284244130', descricao: 'ARRUELA' }] }), {});
+  await esperar();
+  const nf = linhas().filter(l => l.fornecedor === 'CASA DOS PARAFUSOS');
+  assert.strictEqual(nf.length, 1, 'a nota deveria virar uma linha so');
+  assert.strictEqual(nf[0].valor, 111.3); assert.strictEqual(nf[0].status, 'lancado');
+  assert.ok(/Nota com 3 itens/.test(nf[0].descricao));
+  console.log('ok 12b nota fiscal com varios produtos = 1 despesa com o total');
+
+  // 12c) Print de corrida Uber/99 (a IA chama de "outros") → despesa de transporte
+  const mUber = msgFalsa({ tipo_documento: 'outros', itens: [{ tipo_doc: 'outros', categoria: 'diversos', valor: 25.8, data: hoje, fornecedor: null, descricao: 'Uber trip' }] });
+  mUber.body = 'Uber - Maceió centro';
+  await obras.onMessage(mUber, {}); await esperar();
+  const uber = linhas().find(l => l.valor === 25.8);
+  assert.strictEqual(uber.status, 'lancado'); assert.strictEqual(uber.categoria, 'transporte_combustivel');
+  console.log('ok 12c print de corrida Uber/99 entra como despesa');
+
+  // 12d) Auditor IA da foto: toda despesa lançada recebe a leitura antifraude (auditoria_ia)
+  await esperar(); await obras._auditarFotos(50); await esperar();
+  const semAud = linhas().filter(l => l.status === 'lancado' && l.arquivo_path && !l.auditoria_ia);
+  assert.strictEqual(semAud.length, 0, 'todas as fotos lancadas deveriam estar auditadas');
+  assert.ok(linhas().filter(l => l.auditoria_ia).every(l => ['baixo', 'medio', 'alto', 'nao_lido'].includes(l.auditoria_ia.risco)));
+  console.log('ok 12d todas as fotos passam pelo auditor IA');
 
   // 13) Modo sombra (servidor novo em paralelo): grava só em obras_comprovantes_sombra e na pasta sombra/
   const sb2 = criarSupabaseFalso();

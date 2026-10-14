@@ -1,4 +1,5 @@
-// Comum às telas de Obras (Contas a Pagar, Presidente, Financeiro, Relatórios): login do Portal, formatação, PDF e utilidades.
+// Comum às telas de Obras (Contas a Pagar, Presidente, Relatórios): login do Portal, formatação, PDF e utilidades.
+// 14/10/2026: o Financeiro saiu do fluxo — é direto despesa → pagamento ("Já paguei" do Presidente).
 const SB_URL = 'https://rdztzurfesnobfkazgpm.supabase.co';
 const SB_KEY = 'sb_publishable_4LHSO4TrP7F4m4tpJyH44g_BGmfC92h';
 // Dentro do Portal (mesmo endereço github.io) usa a MESMA sessão do Portal: não pede login de novo.
@@ -18,11 +19,11 @@ const CATS = {materiais_insumos: 'Materiais e insumos', alimentacao: 'Alimentaç
   estacionamento: 'Estacionamento', frete: 'Frete', mao_de_obra_prestador: 'Mão de obra/prestador', hospedagem: 'Hospedagem',
   equipamento_manutencao: 'Equipamentos/manutenção', taxas: 'Taxas', diversos: 'Diversos'};
 // Situação de cada despesa (view obras_despesas_pagamento)
-const SIT = {a_pagar: ['A pagar', 's-fechada'], parcial: ['Pago em parte', 's-aprovada'], com_financeiro: ['Com o Financeiro', 's-aberta'],
+const SIT = {a_pagar: ['A pagar', 's-fechada'], parcial: ['Pago em parte', 's-aprovada'], com_financeiro: ['Aguardando pagamento', 's-aberta'],
   pago: ['Pago', 's-auditada'], recusado: ['Recusada', 's-pendencia'], orcamento: ['Orçamento', 's-cinza'], duplicada: ['Duplicada', 's-cinza'],
-  pendente_leitura: ['Sem leitura', 's-cinza']};
+  pendente_leitura: ['Sem leitura', 's-cinza'], agrupado: ['Somado na nota', 's-cinza']};
 // Situação de cada pagamento (lote)
-const PAG = {aprovado: ['Aprovado · com o Financeiro', 's-aberta'], pago: ['Pago · em auditoria', 's-paga'], auditado: ['Pago e auditado', 's-auditada'],
+const PAG = {aprovado: ['Aprovado · aguardando pagamento', 's-aberta'], pago: ['Pago · em auditoria', 's-paga'], auditado: ['Pago e auditado', 's-auditada'],
   pendencia: ['Pago · com pendência', 's-pendencia'], cancelado: ['Cancelado', 's-cinza']};
 const RISCO = {normal: ['NORMAL', 'r-normal'], atencao: ['ATENÇÃO', 'r-atencao'], critico: ['CRÍTICO', 'r-critico']};
 const FORMAS = {pix: 'PIX', transferencia: 'Transferência', dinheiro: 'Dinheiro', boleto: 'Boleto', cartao: 'Cartão'};
@@ -51,15 +52,15 @@ function toast(m, ms = 4000) { const t = $('toast'); t.textContent = m; t.style.
 
 // Quem não aparece mais nas visões de pagamento (pedido do Ricardo, 11/10/2026). Voltam a aparecer sozinhos
 // se tiverem valor em aberto ou com o Financeiro — nunca some dinheiro devido da tela.
-const PRESTADORES_OCULTOS = ['victor kleber', 'enildo', 'everton nunes luz'];
+const PRESTADORES_OCULTOS = ['victor kleber', 'enildo', 'everton nunes luz', 'paulo almeida'];
 const prestVisivel = s => !PRESTADORES_OCULTOS.includes(String(s.prestador || '').trim().toLowerCase())
   || Number(s.saldo_devedor) > 0 || Number(s.com_financeiro) > 0 || Number(s.em_aberto) > 0;
 
 // Menu entre as telas do módulo
 function menu(ativo) {
   if (EMBUTIDO) return '';  // dentro do módulo Obras do Portal o menu é o do próprio módulo
-  const itens = [['contas', '../obras-contas-pagar/', 'Contas a pagar'], ['presidente', '../obras-presidente/', 'Presidente'],
-    ['financeiro', '../obras-financeiro/', 'Financeiro'], ['relatorios', '../obras-relatorios/', 'Relatórios e PDF']];
+  const itens = [['contas', '../obras-contas-pagar/', 'Visão geral'], ['presidente', '../obras-presidente/', 'Pagamentos'],
+    ['relatorios', '../obras-relatorios/', 'Relatórios e PDF']];
   return `<nav class="nav">${itens.map(([k, h, t]) => `<a href="${h}" class="${k === ativo ? 'on' : ''}">${t}</a>`).join('')}</nav>`;
 }
 
@@ -76,20 +77,46 @@ async function todos(montar) {
 
 // Abre o comprovante numa janela dentro da própria tela. (Antes abria aba nova depois de esperar o link assinado —
 // o celular bloqueia esse pop-up e a foto "não abria" na visão do Presidente.)
+// 14/10/2026: o PDF num quadro (iframe) dentro do Portal era bloqueado pelo Chrome ("Esta página foi bloqueada").
+// Agora o arquivo é baixado com a sessão do Portal e mostrado sem quadro: foto como imagem, PDF desenhado página a página.
+let _pdfjs = null;
+async function pdfjs() {
+  if (!_pdfjs) _pdfjs = (async () => {
+    await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    return window.pdfjsLib;
+  })().catch(e => { _pdfjs = null; throw e; });
+  return _pdfjs;
+}
 async function abrirArquivo(path, titulo = 'Comprovante') {
   abrirModal(`<div class="row" style="justify-content:space-between"><h3 style="margin:0">${esc(titulo)}</h3><button class="btn" onclick="fecharModal()">Fechar ✕</button></div>
     <div class="visor" id="visor"><div class="vazio">Carregando…</div></div>`, 'larga');
-  let url = path;
-  if (!/^https?:\/\//.test(path)) {
-    const {data, error} = await sb.storage.from('obras-comprovantes').createSignedUrl(path, 900);
-    if (error) { const v = $('visor'); if (v) v.innerHTML = `<div class="crit">Arquivo indisponível: ${esc(error.message)}</div>`; return; }
-    url = data.signedUrl;
-  }
+  const falha = m => { const v = $('visor'); if (v) v.innerHTML = `<div class="crit">${esc(m)}</div>`; };
+  let blob;
+  try {
+    if (/^https?:\/\//.test(path)) { const r = await fetch(path); if (!r.ok) throw new Error('HTTP ' + r.status); blob = await r.blob(); }
+    else { const {data, error} = await sb.storage.from('obras-comprovantes').download(path); if (error) throw error; blob = data; }
+  } catch (e) { return falha('Arquivo indisponível: ' + msgErro(e)); }
   const v = $('visor'); if (!v) return;
-  const pdf = /\.pdf($|\?)/i.test(path);
-  v.innerHTML = (pdf ? `<iframe src="${esc(url)}#view=FitH" title="PDF"></iframe>`
-      : `<img src="${esc(url)}" alt="comprovante" onerror="this.outerHTML='<div class=crit>Não foi possível mostrar a imagem.</div>'">`)
-    + `<div class="row" style="justify-content:center;margin-top:8px"><a class="btn b-pri" href="${esc(url)}" target="_blank" rel="noopener">Abrir em tela cheia / baixar</a></div>`;
+  const pdf = /\.pdf($|\?)/i.test(path) || blob.type === 'application/pdf';
+  const url = URL.createObjectURL(pdf ? new Blob([blob], {type: 'application/pdf'}) : blob);
+  const nome = String(path).split('/').pop().split('?')[0] || 'comprovante';
+  const baixar = `<div class="row" style="justify-content:center;margin-top:8px"><a class="btn b-pri" href="${url}" download="${esc(nome)}">Baixar arquivo</a></div>`;
+  if (!pdf) { v.innerHTML = `<img src="${url}" alt="comprovante" onerror="this.outerHTML='<div class=crit>Não foi possível mostrar a imagem.</div>'">` + baixar; return; }
+  v.innerHTML = '<div class="vazio">Abrindo o PDF…</div>';
+  try {
+    const lib = await pdfjs(), doc = await lib.getDocument({data: new Uint8Array(await blob.arrayBuffer())}).promise;
+    v.innerHTML = '';
+    const larg = Math.min(880, (v.clientWidth || 800));
+    for (let n = 1; n <= Math.min(doc.numPages, 30); n++) {
+      const pg = await doc.getPage(n), vp0 = pg.getViewport({scale: 1}), esc2 = larg / vp0.width * (window.devicePixelRatio || 1);
+      const vp = pg.getViewport({scale: esc2}), c = document.createElement('canvas');
+      c.width = vp.width; c.height = vp.height; c.style.width = '100%'; c.className = 'pdfpag';
+      v.appendChild(c); await pg.render({canvasContext: c.getContext('2d'), viewport: vp}).promise;
+    }
+    if (doc.numPages > 30) v.insertAdjacentHTML('beforeend', `<div class="small mut">Mostrando 30 de ${doc.numPages} páginas — baixe o arquivo para ver todas.</div>`);
+    v.insertAdjacentHTML('beforeend', baixar);
+  } catch (e) { v.innerHTML = `<div class="crit">Não foi possível mostrar o PDF (${esc(msgErro(e))}).</div>` + baixar; }
 }
 const ARQ = [];
 const linkArquivo = (path, txt = 'ver') => path ? `<a href="#" onclick="abrirArquivo(ARQ[${ARQ.push(path) - 1}]);return false">${txt}</a>` : '';
@@ -149,18 +176,43 @@ function iniciarLogin(onEntrar) {
 
 async function papeis() {
   const q = p => sb.rpc('obras_tem_papel', {p_papel: p}).then(r => r.data === true, () => false);
-  const [presidente, financeiro, admin] = await Promise.all([q('presidente'), q('financeiro'), q('__admin__')]);
-  return {presidente, financeiro, admin};
+  const [presidente, admin] = await Promise.all([q('presidente'), q('__admin__')]);
+  return {presidente, admin};
 }
 
 // ---------- Dados ----------
 const COLS_DESP = 'id,prestador,semana,semana_fim,data_despesa,hora_documento,fornecedor,categoria,descricao,tipo_doc,valor,status,situacao_pagamento,situacao,' +
-  'valor_pago,valor_reservado,saldo,arquivo_path,obra,remetente,remetente_numero,confianca_ocr,criticos,atencoes,achados,pago_em,ultimo_pagamento_numero,recusado_motivo,recusado_por,recusado_em,pagamento_id,pagador';
+  'valor_pago,valor_reservado,saldo,arquivo_path,obra_id,obra,legenda,remetente,remetente_numero,confianca_ocr,criticos,atencoes,achados,pago_em,ultimo_pagamento_numero,recusado_motivo,recusado_por,recusado_em,pagamento_id,pagador';
 const carregarDespesas = (filtro = q => q) => todos(() => filtro(sb.from('obras_despesas_pagamento').select(COLS_DESP)).order('data_despesa', {ascending: true}).order('id'));
 const carregarSaldos = () => todos(() => sb.from('obras_saldo_prestador').select('*').order('prestador'));
 const carregarPagamentos = () => todos(() => sb.from('obras_pagamentos').select('*').order('created_at', {ascending: false}));
 const carregarItens = () => todos(() => sb.from('obras_pagamento_itens').select('pagamento_id,comprovante_id,valor').order('id'));
 const carregarAdiantamentos = () => todos(() => sb.from('obras_adiantamentos').select('*').order('data', {ascending: false}));
+const carregarObras = () => todos(() => sb.from('obras').select('id,codigo,nome,status,palavras').order('nome'));
+const carregarPrestacoes = () => todos(() => sb.from('obras_prestacoes').select('id,numero,responsavel,periodo_inicio,periodo_fim,valor_declarado,quitada_em').order('periodo_inicio', {ascending: false, nullsFirst: false}));
+const nomeObra = n => String(n || '').replace(/^Obras\/Reformas — /, '').replace(/^Loja /, '') || 'Sem obra';
+const semPrestador = p => !p || /^a definir/i.test(p) || p === 'Desconhecido';
+
+// ---------- Período e semana (fechamento é semanal: segunda a domingo) ----------
+const somaDias = (iso, n) => { const x = new Date(iso + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+const segundaDe = iso => { const x = new Date((iso || hojeISO()) + 'T12:00:00'); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x.toISOString().slice(0, 10); };
+const PERIODOS = [['7', '7 dias'], ['15', '15 dias'], ['30', '30 dias'], ['sem', 'Por semana'], ['tudo', 'Tudo']];
+// filtro = {p: '7'|'15'|'30'|'sem'|'tudo', sem: 'YYYY-MM-DD' (segunda)} → {de, ate, rotulo}
+function intervalo(f) {
+  const hoje = hojeISO();
+  if (f.p === 'sem') { const de = f.sem || segundaDe(hoje); return {de, ate: somaDias(de, 6), rotulo: `semana ${dBR(de)} a ${dBR(somaDias(de, 6))}`}; }
+  if (f.p === 'tudo') return {de: null, ate: null, rotulo: 'todo o período'};
+  const n = Number(f.p) || 30; return {de: somaDias(hoje, -(n - 1)), ate: hoje, rotulo: `últimos ${n} dias`};
+}
+const noIntervalo = (iso, i) => !!iso && (!i.de || iso.slice(0, 10) >= i.de) && (!i.ate || iso.slice(0, 10) <= i.ate);
+function lerFiltro(chave) { try { return JSON.parse(localStorage.getItem(chave) || 'null') || {p: '30'}; } catch (e) { return {p: '30'}; } }
+function salvarFiltro(chave, f) { try { localStorage.setItem(chave, JSON.stringify(f)); } catch (e) {} }
+// Barra de período: botões 7/15/30 dias, por semana (com escolha da semana) e tudo
+function barraPeriodo(f, semanas, onMuda) {
+  window.__mudaPeriodo = (p, sem) => onMuda({...f, p, sem: sem || f.sem || semanas[0]});
+  return `<div class="periodo"><div class="tabs">${PERIODOS.map(([k, t]) => `<button class="${f.p === k ? 'on' : ''}" onclick="__mudaPeriodo('${k}')">${t}</button>`).join('')}</div>
+    ${f.p === 'sem' ? `<select onchange="__mudaPeriodo('sem', this.value)" aria-label="Semana">${semanas.map(s => `<option value="${s}" ${s === f.sem ? 'selected' : ''}>Semana ${dBR(s)} a ${dBR(somaDias(s, 6))}${s === segundaDe() ? ' (atual)' : ''}</option>`).join('')}</select>` : ''}</div>`;
+}
 
 // ---------- Exportação: PDF e planilha ----------
 let _pdfLib = null;
@@ -249,7 +301,7 @@ function baixarCSV(nome, cab, linhas) {
 }
 const nCSV = v => Number(v || 0).toFixed(2).replace('.', ',');
 
-// Recibo de um pagamento (lote) em PDF — usado pelo Presidente, Financeiro e Relatórios
+// Recibo de um pagamento (lote) em PDF — usado pelo Presidente e Relatórios
 async function pdfPagamento(pagId) {
   const [{data: p, error: e1}, itens] = await Promise.all([
     sb.from('obras_pagamentos').select('*').eq('id', pagId).single(),
@@ -269,7 +321,7 @@ async function pdfPagamento(pagId) {
       {titulo: 'Histórico', cab: ['Quando', 'O quê', 'Quem', 'Detalhe'], linhas: ev.map(e => [dtBR(e.created_at), e.evento.replace(/_/g, ' '), e.usuario || '',
         Object.entries(e.detalhes || {}).filter(([k]) => !['arquivo'].includes(k)).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' | ')])},
       ...(p.auditoria_resultado ? [{titulo: 'Agente Auditor', cab: ['Resultado'], linhas: [[p.auditoria_resultado]]}] : [])],
-    assinaturas: ['Presidente', 'Financeiro', `Prestador: ${p.prestador}`], arquivo: `pagamento_${p.numero}_${p.prestador}`});
+    assinaturas: ['Presidente', `Prestador: ${p.prestador}`], arquivo: `pagamento_${p.numero}_${p.prestador}`});
 }
 
 // Extrato completo de um prestador (despesas, pagamentos, adiantamentos e saldo). periodo = {de, ate} opcional.
@@ -285,7 +337,7 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   return {titulo: `Extrato do prestador - ${prestador}`, subtitulo: `Obras & Reformas - Esposende - ${per}`,
     resumo: [['Despesas no período', brl(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor'))], ['Pago no período', brl(soma(lanc, 'valor_pago'))],
       ['Em aberto (hoje)', brl(saldo.em_aberto)], ['Adiantamento a descontar', brl(saldo.adiantamento_disponivel)],
-      ['TOTAL A PAGAR (hoje)', brl(saldo.saldo_devedor)], ['Com o Financeiro', brl(saldo.com_financeiro)],
+      ['TOTAL A PAGAR (hoje)', brl(saldo.saldo_devedor)],
       ['PIX / conta', saldo.pix_chave ? `${saldo.pix_tipo || ''} ${saldo.pix_chave}` : (saldo.banco ? `${saldo.banco} ${saldo.agencia || ''} ${saldo.conta || ''}` : 'nao cadastrado')]],
     secoes: [
       {titulo: `Contas a pagar em aberto (${abertos.length})`, nota: 'Saldo acumulado de todas as semanas ainda não pagas.', cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Situação'],
@@ -298,7 +350,7 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
         linhas: ad.map(a => [dBRano(a.data), V(a.valor), a.observacao || '', a.registrado_por || '']), direita: [1], rodape: ['Total', V(soma(ad, 'valor')), '', '']}] : []),
       {titulo: `Todas as despesas do período (${lanc.length})`, cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Pago', 'Em aberto', 'Situação'],
         linhas: lanc.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total (sem recusadas)', V(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor')), V(soma(lanc, 'valor_pago')), V(soma(lanc, 'saldo')), '']}],
-    assinaturas: ['Presidente', 'Financeiro', `Prestador: ${prestador}`], arquivo: `extrato_${prestador}_${hojeISO()}`, paisagem: false};
+    assinaturas: ['Presidente', `Prestador: ${prestador}`], arquivo: `extrato_${prestador}_${hojeISO()}`, paisagem: false};
 }
 const pdfExtrato = (...a) => gerarPDF(modeloExtrato(...a));
 
