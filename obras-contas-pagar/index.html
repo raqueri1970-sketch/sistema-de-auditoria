@@ -172,7 +172,7 @@ function renderFraude() {
   const pct = D.fotos ? Math.round(D.fotosAud / D.fotos * 100) : 0;
   const mostrar = VER_FRAUDE_TUDO ? l : l.slice(0, 12);
   $('fraude').innerHTML = `<h2>Possível fraude ou desvio de finalidade (${l.length})</h2><div class="card ${crit ? 'k-bad' : ''}">
-    <div class="row" style="justify-content:space-between"><div class="small">${crit ? `<b style="color:#fca5a5">${crit} crítico(s)</b> · ` : ''}${abertos} em despesa ainda não paga · o Auditor confere todas as despesas, inclusive as já pagas</div>
+    <div class="row" style="justify-content:space-between"><div class="small"><b>Total envolvido: ${brl([...new Map(l.map(a => [a.d.id, a.d])).values()].reduce((t, d) => t + Number(d.valor), 0))}</b> · ${crit ? `<b style="color:#fca5a5">${crit} crítico(s)</b> · ` : ''}${abertos} em despesa ainda não paga · o Auditor confere todas as despesas, inclusive as já pagas</div>
       <div class="small mut">Fotos auditadas pela IA: <b>${D.fotosAud}</b> de ${D.fotos} (${pct}%)${pct < 100 ? ' · o capturador audita em lotes a cada 15 min' : ''}</div></div>
     ${l.length ? `<div class="tw"><table><tr><th>Nível</th><th>Despesa</th><th>O que o Auditor viu</th><th></th></tr>${mostrar.map((a, i) => `<tr>
       <td>${riscoChip(a.nivel)}<div class="small mut" style="margin-top:4px">${esc(FRAUDE[a.regra] || a.regra)}</div></td>
