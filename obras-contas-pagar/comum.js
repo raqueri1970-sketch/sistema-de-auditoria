@@ -214,6 +214,38 @@ function barraPeriodo(f, semanas, onMuda) {
     ${f.p === 'sem' ? `<select onchange="__mudaPeriodo('sem', this.value)" aria-label="Semana">${semanas.map(s => `<option value="${s}" ${s === f.sem ? 'selected' : ''}>Semana ${dBR(s)} a ${dBR(somaDias(s, 6))}${s === segundaDe() ? ' (atual)' : ''}</option>`).join('')}</select>` : ''}</div>`;
 }
 
+// ---------- Conta do prestador (14/10/2026, pedido do Ricardo) ----------
+// Adiantamento recebido − despesas das fotos (na ordem em que chegaram) = saldo que ainda está com o prestador
+// (ou, se ficar negativo, quanto a empresa tem de reembolsar). Cada foto com dúvida/possível fraude vem marcada.
+function contaPrestador(s, desp, adis, pags) {
+  const disp = Number(s.adiantamento_disponivel || 0);
+  const abertas = desp.filter(d => d.prestador === s.prestador && Number(d.saldo) > 0)
+    .sort((a, b) => String(a.data_despesa).localeCompare(String(b.data_despesa)) || String(a.hora_documento || '').localeCompare(String(b.hora_documento || '')));
+  const gasto = abertas.reduce((t, d) => t + Number(d.saldo), 0), saldo = disp - gasto;
+  // adiantamentos recebidos depois do último pagamento que descontou adiantamento = os que ainda compõem o saldo
+  const ultAbate = pags.filter(p => p.prestador === s.prestador && Number(p.valor_abatido) > 0 && p.status !== 'cancelado').map(p => (p.pago_em || p.created_at || '').slice(0, 10)).sort().pop() || '';
+  const recebidos = adis.filter(a => a.prestador === s.prestador && !a.cancelado && (a.data || '') >= ultAbate.slice(0, 10)).sort((a, b) => a.data.localeCompare(b.data));
+  return {disp, gasto, saldo, abertas, recebidos};
+}
+function contaResumoHTML(c) {
+  return `<div class="mini"><div><b>${brl(c.disp)}</b><span>adiantamento recebido</span></div><div><b>− ${brl(c.gasto)}</b><span>${c.abertas.length} despesa(s) das fotos</span></div>
+    <div><b style="color:${c.saldo >= 0 ? '#86efac' : '#fcd34d'}">${brl(Math.abs(c.saldo))}</b><span>${c.saldo >= 0 ? 'saldo ainda com o prestador' : 'a reembolsar ao prestador'}</span></div></div>`;
+}
+function contaExtratoHTML(c) {
+  let corr = c.disp;
+  const lin = c.abertas.map(d => { corr -= Number(d.saldo);
+    const ach = (d.achados || []), crit = ach.some(a => a.nivel === 'critico');
+    return `<tr><td>${dBR(d.data_despesa)}${d.hora_documento ? ' ' + esc(String(d.hora_documento).slice(0, 5)) : ''}</td>
+      <td>${esc(d.fornecedor || 'Fornecedor não lido')}<div class="mut small">${esc(CATS[d.categoria] || d.categoria || '')} · ${esc(nomeObra(d.obra))}${d.legenda ? ' · ' + esc(String(d.legenda).slice(0, 60)) : ''}</div>
+        ${ach.length ? `<div class="${crit ? 'crit' : 'warn'}" style="margin:2px 0 0">⚠ ${ach.map(a => esc(a.mensagem)).join('<br>⚠ ')}</div>` : ''}
+        <div class="small">${linkArquivo(d.arquivo_path, 'ver foto')}</div></td>
+      <td class="r">− ${brl(d.saldo)}</td><td class="r"><b style="color:${corr >= 0 ? 'inherit' : '#fcd34d'}">${brl(corr)}</b></td></tr>`; }).join('');
+  return `<div class="tw"><table><tr><th>Data</th><th>Lançamento</th><th class="r">Valor</th><th class="r">Saldo</th></tr>
+    <tr><td>${c.recebidos.length ? c.recebidos.map(a => dBR(a.data)).join(', ') : '—'}</td><td><b>Adiantamento recebido</b>${c.recebidos.map(a => `<div class="mut small">${brl(a.valor)} · ${esc(String(a.observacao || '').slice(0, 90))}</div>`).join('')}</td>
+      <td class="r">+ ${brl(c.disp)}</td><td class="r"><b>${brl(c.disp)}</b></td></tr>${lin}
+    <tfoot><tr><td colspan="2">${c.saldo >= 0 ? 'Saldo do adiantamento ainda com o prestador' : 'A reembolsar ao prestador'}</td><td></td><td class="r">${brl(Math.abs(c.saldo))}</td></tr></tfoot></table></div>`;
+}
+
 // ---------- Exportação: PDF e planilha ----------
 let _pdfLib = null;
 function carregarScript(src) { return new Promise((ok, erro) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => erro(new Error('Não carregou ' + src)); document.head.appendChild(s); }); }
