@@ -173,8 +173,9 @@ const MODELOS = {
     lin.sort((a, b) => a[0].localeCompare(b[0]) * -1);
     const crit = lin.filter(l => l[0] === 'CRÍTICO').length;
     return {titulo: 'Pontos do Agente Auditor', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''} - o Auditor só aponta, nunca altera`,
-      resumo: [['Pontos em aberto', String(lin.length)], ['Críticos', String(crit)], ['Atenção', String(lin.length - crit)], ['Em despesas ainda não pagas', String(ds.filter(d => Number(d.saldo) > 0).reduce((t, d) => t + d.achados.length, 0))]],
-      secoes: [{titulo: `Pontos (${lin.length})`, cab: ['Nível', 'Prestador', 'Data', 'Fornecedor', 'Valor', 'Situação', 'O que o Auditor viu'], direita: [4], linhas: lin}],
+      resumo: [['Valor das despesas com ponto', brl(soma(ds, 'valor'))], ['Pontos em aberto', String(lin.length)], ['Críticos', String(crit)], ['Atenção', String(lin.length - crit)], ['Em despesas ainda não pagas', String(ds.filter(d => Number(d.saldo) > 0).reduce((t, d) => t + d.achados.length, 0))]],
+      secoes: [{titulo: `Pontos (${lin.length})`, cab: ['Nível', 'Prestador', 'Data', 'Fornecedor', 'Valor', 'Situação', 'O que o Auditor viu'], direita: [4], linhas: lin,
+        rodape: [`Total (${ds.length} despesa(s))`, '', '', '', V(soma(ds, 'valor')), '', 'cada despesa somada uma vez, mesmo com vários pontos']}],
       paisagem: true, arquivo: `auditor_${f.prest || 'todos'}_${hojeISO()}`};
   }
 };
