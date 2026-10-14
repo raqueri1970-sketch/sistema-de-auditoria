@@ -319,7 +319,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     const nome = `OB_${ts}_${idMsg}_${(nomeRemetente || 'sem_nome').replace(/[^A-Za-z0-9]+/g, '_').substring(0, 20)}${isPdf ? '.pdf' : '.jpeg'}`;
     fs.writeFileSync(path.join(PASTA, nome), buf);
 
-    const { data: dupHash } = await sb.from(TAB).select('id,wa_msg_id').eq('arquivo_hash', hash).limit(1);
+    const { data: dupHash } = await sb.from(TAB).select('id,wa_msg_id,valor,fornecedor,data_despesa,categoria').eq('arquivo_hash', hash).limit(1);
     const waData = new Date(ts).toISOString();
     const caminho = `${sombra ? 'sombra/' : ''}wa/${waData.substring(0, 7)}/${nome}`;
     // Contas a pagar (08/10/2026): todo recibo novo entra "a_pagar" e fecha por semana, por número de quem mandou.
@@ -328,9 +328,11 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
       arquivo_nome: nome, arquivo_path: caminho, arquivo_hash: hash };
 
     if (dupHash && dupHash.length) {
-      // Mesma foto reenviada: registra só a marcação (valor 0, status duplicada) — não soma de novo.
-      await sb.from(TAB).insert({ ...base, wa_msg_id: `${idMsg}#0`, categoria: 'diversos', valor: 0,
-        status: 'duplicada', descricao: `Foto reenviada (igual a ${dupHash[0].wa_msg_id})`, revisado: false });
+      // Mesma foto reenviada: status duplicada com o VALOR da foto original (para saber quanto foi duplicado) — não soma de novo.
+      const o = dupHash[0];
+      await sb.from(TAB).insert({ ...base, wa_msg_id: `${idMsg}#0`, categoria: CATEGORIAS.includes(o.categoria) ? o.categoria : 'diversos', valor: Number(o.valor) || 0,
+        fornecedor: o.fornecedor || null, data_despesa: o.data_despesa || null,
+        status: 'duplicada', descricao: `Foto reenviada (igual a ${o.wa_msg_id}) — valor da foto original, NÃO somado`, revisado: false });
       L(`Foto reenviada por ${nomeRemetente} — igual a ${dupHash[0].wa_msg_id}, nao somada`, 'warn');
       return 'duplicada';
     }
