@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="comum.css?v=20261014-3">
+<link rel="stylesheet" href="comum.css?v=20261014-4">
 </head>
 <body>
 
@@ -58,7 +58,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="comum.js?v=20261014-3"></script>
+<script src="comum.js?v=20261014-4"></script>
 <script>
 let D = null, TIMER = null, VER_HISTORICO = false, PAP = {};
 let F = {p: '30', obra: '', prest: '', ...lerFiltro('obras-visao-filtro')};
@@ -71,7 +71,7 @@ async function carregar() {
     const st = await sb.from('capturador_status').select('*').order('atualizado_em', {ascending: false});
     const [saldos, desp, pags, obras, prest, fraude, fotos, fotosAud, adis, dups] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('status', ['lancado', 'orcamento'])),
       carregarPagamentos(), carregarObras(), carregarPrestacoes(),
-      todos(() => sb.from('obras_auditoria_achados').select('id,comprovante_id,regra,nivel,mensagem').eq('resolvido', false).in('regra', Object.keys(FRAUDE)).order('criado_em', {ascending: false})),
+      todos(() => sb.from('obras_auditoria_achados').select('id,comprovante_id,regra,nivel,mensagem,relacionado_id').eq('resolvido', false).in('regra', Object.keys(FRAUDE)).order('criado_em', {ascending: false})),
       sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null),
       sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null).not('auditoria_ia', 'is', null),
       carregarAdiantamentos(),
@@ -162,7 +162,8 @@ function render() {
 // Possível fraude ou desvio de finalidade: o Agente Auditor olha TODAS as despesas (inclusive as já pagas) e a IA olha cada foto.
 const FRAUDE = {ia_suspeita: 'IA viu sinal na foto', desvio_finalidade_grave: 'Desvio de finalidade', desvio_finalidade: 'Item de uso pessoal',
   pix_para_o_proprio: 'Pagou a si mesmo', material_sem_nota: 'Material sem nota fiscal', outra_cidade: 'Outra cidade', compra_domingo: 'Compra no domingo',
-  compra_madrugada: 'Despesa de madrugada', duplicidade_autenticacao: 'Pagamento repetido', arquivo_repetido: 'Comprovante repetido'};
+  compra_madrugada: 'Despesa de madrugada', duplicidade_autenticacao: 'Pagamento repetido', arquivo_repetido: 'Comprovante repetido',
+  duplicidade_valor_data_fornecedor: 'Possível duplicidade'};
 let VER_FRAUDE_TUDO = false;
 function renderFraude() {
   const porId = new Map(D.desp.map(d => [d.id, d]));
@@ -180,7 +181,7 @@ function renderFraude() {
       <td>${riscoChip(a.nivel)}<div class="small mut" style="margin-top:4px">${esc(FRAUDE[a.regra] || a.regra)}</div></td>
       <td class="small"><b>${esc(a.d.prestador || '')}</b> · ${dBR(a.d.data_despesa)} · ${esc(a.d.fornecedor || '')}<div class="mut">${brl(a.d.valor)} · ${esc(nomeObra(a.d.obra))} · ${(SIT[a.d.situacao] || [''])[0]}</div>
         <div>${linkArquivo(a.d.arquivo_path, 'ver comprovante')}</div></td>
-      <td class="small">${esc(a.mensagem)}</td>
+      <td class="small">${esc(a.mensagem)}${linkComparar(a.d, a) ? `<div style="margin-top:4px">${linkComparar(a.d, a)}</div>` : ''}</td>
       <td><button class="btn" onclick="resolverFraude(${l.indexOf(a)})">Conferido</button></td></tr>`).join('')}</table></div>
       ${l.length > 12 ? `<button class="btn" style="margin-top:8px" onclick="VER_FRAUDE_TUDO=!VER_FRAUDE_TUDO;renderFraude()">${VER_FRAUDE_TUDO ? 'Mostrar só os 12 primeiros' : `Ver todos os ${l.length}`}</button>` : ''}`
       : '<div class="small mut" style="margin-top:8px">Nenhum sinal de fraude ou desvio nas despesas.</div>'}</div>`;
@@ -313,7 +314,8 @@ function renderAuditor() {
     ${lista.length ? `<div class="tw"><table><tr><th>Nível</th><th>Despesa</th><th>O que o Auditor viu</th><th></th></tr>${lista.slice(0, 150).map((g, i) => {
       const d = g.d, n = g.itens.length, total = soma(g.itens, 'valor');
       return `<tr><td>${riscoChip(g.critico ? 'critico' : 'atencao')}</td><td class="small">${esc(d.prestador || '')}<div class="mut">${dBR(d.data_despesa)} · ${esc(d.fornecedor || '')} · ${brl(total)}${n > 1 ? ` · <b>${n} itens da mesma nota</b>` : ''} · ${(SIT[d.situacao] || [''])[0]}</div>
-        <div>${linkArquivo(d.arquivo_path, 'ver comprovante')}</div></td><td class="small">${g.msgs.map(esc).join('<br>')}</td>
+        <div>${linkArquivo(d.arquivo_path, 'ver comprovante')}</div></td><td class="small">${g.msgs.map(esc).join('<br>')}
+        ${[...new Map(g.itens.flatMap(x => (x.achados || []).map(a => [a.regra + (a.relacionado_id || ''), linkComparar(x, a)])).filter(([, h]) => h)).values()].map(h => `<div style="margin-top:4px">${h}</div>`).join('')}</td>
         <td><button class="btn${g.achados.length > 1 ? ' b-pri' : ''}" onclick="resolverGrupo(${i})">${n > 1 ? 'Aprovar nota inteira' : g.achados.length > 1 ? `Aprovar (${g.achados.length})` : 'Resolver'}</button></td></tr>`;
     }).join('')}</table></div>
       ${lista.length > 150 ? `<div class="small mut">Mostrando 150 de ${lista.length}. O relatório traz todos.</div>` : ''}` : '<div class="small mut" style="margin-top:8px">Nenhum ponto em aberto.</div>'}`;

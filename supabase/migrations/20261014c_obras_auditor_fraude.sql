@@ -122,3 +122,15 @@ update public.obras_comprovantes set remetente = 'Josemar Henrique' where remete
 update public.obras_comprovantes set remetente = 'Jhony' where remetente = 'Jhony Pedi';
 -- 7. Adiantamento da 23ª (R$ 9.680,87) reativado: já descontado no pagamento nº 10 (decisão do Ricardo, 14/10)
 update public.obras_adiantamentos set cancelado = false where prestador = 'Josemar Henrique' and valor = 9680.87 and data = '2026-10-05';
+
+-- 8. Os pontos do Auditor na view levam a regra e a outra despesa (relacionado_id) — a tela mostra as 2 fotos lado a lado.
+do $$
+declare d text;
+begin
+  d := pg_get_viewdef('public.obras_despesas_pagamento'::regclass);
+  if position('relacionado_id' in d) = 0 then
+    d := replace(d, $q$'mensagem', obras_auditoria_achados.mensagem)$q$,
+      $q$'mensagem', obras_auditoria_achados.mensagem, 'regra', obras_auditoria_achados.regra, 'relacionado_id', obras_auditoria_achados.relacionado_id)$q$);
+    execute 'create or replace view public.obras_despesas_pagamento as ' || d;
+  end if;
+end $$;

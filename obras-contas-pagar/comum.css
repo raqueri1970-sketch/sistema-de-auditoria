@@ -182,3 +182,7 @@ details.card>summary{cursor:pointer;font-weight:700;list-style:none}details.card
 details.card>summary::before{content:"▸ ";color:var(--mut)}details.card[open]>summary::before{content:"▾ "}
 .semrow td{background:rgba(59,130,246,.05);font-weight:700}
 @media (max-width:620px){.periodo select{min-width:0;width:100%}.periodo .tabs button{padding:7px 10px;font-size:13px}}
+/* Comparar fotos (possível duplicidade) */
+.cmp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:12px;margin-top:10px}
+.cmp-col{background:var(--card2);border:1px solid var(--line2);border-radius:12px;padding:10px;min-width:0}
+.cmp-col .visor img{max-height:60vh}
