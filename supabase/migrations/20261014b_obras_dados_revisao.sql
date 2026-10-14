@@ -68,3 +68,14 @@ end $$;
 
 -- 8. Prestações já todas pagas ficam quitadas.
 select obras_interno.quitar_prestacoes(null);
+
+-- 9. Foto reenviada guarda o valor da foto original (status duplicada, NÃO somado) — para saber quanto foi duplicado.
+with o as (
+  select d.id, x.valor, x.fornecedor, x.data_despesa, x.categoria, x.status st_orig
+    from public.obras_comprovantes d
+    join public.obras_comprovantes x on x.wa_msg_id = substring(d.descricao from 'igual a ([^)]+)\)')
+   where d.origem = 'whatsapp' and d.valor = 0 and d.descricao like 'Foto reenviada (igual a %')
+update public.obras_comprovantes d set status = 'duplicada', valor = o.valor, fornecedor = coalesce(d.fornecedor, o.fornecedor),
+       data_despesa = coalesce(d.data_despesa, o.data_despesa), categoria = o.categoria,
+       descricao = d.descricao || ' — valor da foto original, NÃO somado' || case when o.st_orig = 'pagamento' then ' (comprovante de pagamento do Presidente)' else '' end
+  from o where d.id = o.id;

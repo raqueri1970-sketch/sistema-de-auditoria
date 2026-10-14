@@ -111,7 +111,8 @@ const item = (o) => ({ tipo_documento: 'comprovante', itens: [{ tipo_doc: 'cupom
   const reenvio = { ...m1, id: { id: 'MSG' + (++nMsg) + 'REENVIO' } }; historico.push(reenvio);
   await obras.onMessage(reenvio, {}); await esperar();
   assert.strictEqual(linhas().filter(l => l.status === 'duplicada').length, 1);
-  console.log('ok 2 foto reenviada = duplicada (hash)');
+  assert.strictEqual(linhas().find(l => l.status === 'duplicada').valor, 150.5, 'duplicada guarda o valor da original');
+  console.log('ok 2 foto reenviada = duplicada (hash), com o valor da original');
 
   // 3) Outra foto do MESMO pagamento (mesma autenticação) → duplicada
   await obras.onMessage(msgFalsa(item({ valor: 150.5, data: hoje, fornecedor: 'Casa do Construtor', autenticacao: 'NSU123456', tipo_doc: 'comprovante_cartao' })), {}); await esperar();

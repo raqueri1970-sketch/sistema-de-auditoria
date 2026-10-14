@@ -69,13 +69,14 @@ const soma = (a, f) => a.reduce((t, x) => t + Number((typeof f === 'function' ? 
 async function carregar() {
   try {
     const st = await sb.from('capturador_status').select('*').order('atualizado_em', {ascending: false});
-    const [saldos, desp, pags, obras, prest, fraude, fotos, fotosAud, adis] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('status', ['lancado', 'orcamento'])),
+    const [saldos, desp, pags, obras, prest, fraude, fotos, fotosAud, adis, dups] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('status', ['lancado', 'orcamento'])),
       carregarPagamentos(), carregarObras(), carregarPrestacoes(),
       todos(() => sb.from('obras_auditoria_achados').select('id,comprovante_id,regra,nivel,mensagem').eq('resolvido', false).in('regra', Object.keys(FRAUDE)).order('criado_em', {ascending: false})),
       sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null),
       sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null).not('auditoria_ia', 'is', null),
-      carregarAdiantamentos()]);
-    D = {saude: st.error ? null : st.data, saldos, desp, pags, obras, prest, fraude, fotos: fotos.count || 0, fotosAud: fotosAud.count || 0, adis};
+      carregarAdiantamentos(),
+      todos(() => sb.from('obras_comprovantes').select('id,valor,data_despesa,responsavel,fornecedor,descricao,arquivo_path').eq('status', 'duplicada').order('data_despesa', {ascending: false}))]);
+    D = {saude: st.error ? null : st.data, saldos, desp, pags, obras, prest, fraude, fotos: fotos.count || 0, fotosAud: fotosAud.count || 0, adis, dups};
     render();
     $('atual').textContent = 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
   } catch (e) {
@@ -173,6 +174,7 @@ function renderFraude() {
   const mostrar = VER_FRAUDE_TUDO ? l : l.slice(0, 12);
   $('fraude').innerHTML = `<h2>Possível fraude ou desvio de finalidade (${l.length})</h2><div class="card ${crit ? 'k-bad' : ''}">
     <div class="row" style="justify-content:space-between"><div class="small"><b>Total envolvido: ${brl([...new Map(l.map(a => [a.d.id, a.d])).values()].reduce((t, d) => t + Number(d.valor), 0))}</b> · ${crit ? `<b style="color:#fca5a5">${crit} crítico(s)</b> · ` : ''}${abertos} em despesa ainda não paga · o Auditor confere todas as despesas, inclusive as já pagas</div>
+      <div class="small"><b style="color:#fca5a5">Duplicidades barradas: ${D.dups.filter(d => !F.prest || d.responsavel === F.prest).length} · ${brl(soma(D.dups.filter(d => !F.prest || d.responsavel === F.prest), 'valor'))}</b> <span class="mut">(não somadas)</span></div>
       <div class="small mut">Fotos auditadas pela IA: <b>${D.fotosAud}</b> de ${D.fotos} (${pct}%)${pct < 100 ? ' · o capturador audita em lotes a cada 15 min' : ''}</div></div>
     ${l.length ? `<div class="tw"><table><tr><th>Nível</th><th>Despesa</th><th>O que o Auditor viu</th><th></th></tr>${mostrar.map((a, i) => `<tr>
       <td>${riscoChip(a.nivel)}<div class="small mut" style="margin-top:4px">${esc(FRAUDE[a.regra] || a.regra)}</div></td>
