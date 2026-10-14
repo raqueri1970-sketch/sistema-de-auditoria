@@ -88,16 +88,16 @@ async function pdfjs() {
   })().catch(e => { _pdfjs = null; throw e; });
   return _pdfjs;
 }
-async function abrirArquivo(path, titulo = 'Comprovante') {
-  abrirModal(`<div class="row" style="justify-content:space-between"><h3 style="margin:0">${esc(titulo)}</h3><button class="btn" onclick="fecharModal()">Fechar ✕</button></div>
-    <div class="visor" id="visor"><div class="vazio">Carregando…</div></div>`, 'larga');
-  const falha = m => { const v = $('visor'); if (v) v.innerHTML = `<div class="crit">${esc(m)}</div>`; };
+// Mostra um arquivo (foto ou PDF) dentro de um elemento: baixa com a sessão do Portal, sem quadro (o Chrome bloqueava o PDF).
+async function mostrarArquivoEm(v, path, larguraMax = 880) {
+  if (!v) return;
+  if (!path) { v.innerHTML = '<div class="crit">Sem arquivo do comprovante.</div>'; return; }
+  v.innerHTML = '<div class="vazio">Carregando…</div>';
   let blob;
   try {
     if (/^https?:\/\//.test(path)) { const r = await fetch(path); if (!r.ok) throw new Error('HTTP ' + r.status); blob = await r.blob(); }
     else { const {data, error} = await sb.storage.from('obras-comprovantes').download(path); if (error) throw error; blob = data; }
-  } catch (e) { return falha('Arquivo indisponível: ' + msgErro(e)); }
-  const v = $('visor'); if (!v) return;
+  } catch (e) { v.innerHTML = `<div class="crit">Arquivo indisponível: ${esc(msgErro(e))}</div>`; return; }
   const pdf = /\.pdf($|\?)/i.test(path) || blob.type === 'application/pdf';
   const url = URL.createObjectURL(pdf ? new Blob([blob], {type: 'application/pdf'}) : blob);
   const nome = String(path).split('/').pop().split('?')[0] || 'comprovante';
@@ -107,7 +107,7 @@ async function abrirArquivo(path, titulo = 'Comprovante') {
   try {
     const lib = await pdfjs(), doc = await lib.getDocument({data: new Uint8Array(await blob.arrayBuffer())}).promise;
     v.innerHTML = '';
-    const larg = Math.min(880, (v.clientWidth || 800));
+    const larg = Math.min(larguraMax, (v.clientWidth || 800));
     for (let n = 1; n <= Math.min(doc.numPages, 30); n++) {
       const pg = await doc.getPage(n), vp0 = pg.getViewport({scale: 1}), esc2 = larg / vp0.width * (window.devicePixelRatio || 1);
       const vp = pg.getViewport({scale: esc2}), c = document.createElement('canvas');
@@ -117,6 +117,65 @@ async function abrirArquivo(path, titulo = 'Comprovante') {
     if (doc.numPages > 30) v.insertAdjacentHTML('beforeend', `<div class="small mut">Mostrando 30 de ${doc.numPages} páginas — baixe o arquivo para ver todas.</div>`);
     v.insertAdjacentHTML('beforeend', baixar);
   } catch (e) { v.innerHTML = `<div class="crit">Não foi possível mostrar o PDF (${esc(msgErro(e))}).</div>` + baixar; }
+}
+async function abrirArquivo(path, titulo = 'Comprovante') {
+  abrirModal(`<div class="row" style="justify-content:space-between"><h3 style="margin:0">${esc(titulo)}</h3><button class="btn" onclick="fecharModal()">Fechar ✕</button></div>
+    <div class="visor" id="visor"><div class="vazio">Carregando…</div></div>`, 'larga');
+  await mostrarArquivoEm($('visor'), path);
+}
+
+// ---------- Possível duplicidade: as fotos lado a lado (14/10/2026, pedido do Ricardo) ----------
+const REGRAS_DUP = ['duplicidade_valor_data_fornecedor', 'duplicidade_autenticacao', 'arquivo_repetido'];
+// Link "comparar as fotos" para um ponto do Auditor (a = {regra, relacionado_id, id}) da despesa d
+function linkComparar(d, a) {
+  if (!d || !a) return '';
+  if (REGRAS_DUP.includes(a.regra) && a.relacionado_id) return `<a href="#" onclick="compararFotos(['${d.id}','${a.relacionado_id}'],['${a.id}']);return false">🔍 comparar as 2 fotos</a>`;
+  if (a.regra === 'fornecedor_varias_vezes_dia') return `<a href="#" onclick="compararMesmoDia('${d.id}',['${a.id}']);return false">🔍 ver as fotos do dia</a>`;
+  return '';
+}
+async function compararMesmoDia(id, achados) {
+  const {data: d} = await sb.from('obras_despesas_pagamento').select('id,prestador,data_despesa,fornecedor').eq('id', id).single();
+  if (!d) return toast('Despesa não encontrada.');
+  const {data} = await sb.from('obras_despesas_pagamento').select('id,fornecedor').eq('prestador', d.prestador).eq('data_despesa', d.data_despesa).eq('status', 'lancado');
+  const chave = s => normTxt(s).split(' ').slice(0, 2).join(' ');
+  const ids = (data || []).filter(x => chave(x.fornecedor) === chave(d.fornecedor)).map(x => x.id);
+  compararFotos(ids.length ? ids : [id], achados);
+}
+async function compararFotos(ids, achados = []) {
+  ids = [...new Set(ids)].slice(0, 8);
+  abrirModal(`<div class="row" style="justify-content:space-between"><h3 style="margin:0">Possível duplicidade · compare as fotos</h3><button class="btn" onclick="fecharModal()">Fechar ✕</button></div>
+    <div id="cmp" class="vazio">Carregando…</div>`, 'larga');
+  const {data, error} = await sb.from('obras_despesas_pagamento').select(COLS_DESP + ',wa_data').in('id', ids);
+  if (error) { $('cmp').innerHTML = `<div class="crit">${esc(msgErro(error))}</div>`; return; }
+  const l = (data || []).sort((a, b) => String(a.wa_data || a.data_despesa).localeCompare(String(b.wa_data || b.data_despesa)));
+  window.CMP = {l, achados};
+  const box = $('cmp'); box.className = '';
+  box.innerHTML = `<div class="cmp-grid">${l.map((d, i) => `<div class="cmp-col"><div class="small"><b>${i === 0 ? 'Chegou primeiro' : 'Chegou depois'}</b> · ${dtBR(d.wa_data) !== '—' ? 'enviada ' + dtBR(d.wa_data) : ''}</div>
+      <div style="font-weight:800;margin-top:4px">${esc(d.fornecedor || 'Fornecedor não lido')}</div>
+      <div class="small">${dBRano(d.data_despesa)}${d.hora_documento ? ' ' + esc(String(d.hora_documento).slice(0, 5)) : ''} · <b>${brl(d.valor)}</b> · ${esc(d.prestador || '')} · ${(SIT[d.situacao] || [d.situacao])[0]}</div>
+      <div class="small mut">${esc(String(d.descricao || '').slice(0, 140))}</div>
+      <div class="visor" id="cmpv_${i}" style="margin-top:6px"></div></div>`).join('')}</div>
+    ${PODE_DECIDIR() && l.length >= 2 ? `<div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="btn" onclick="naoEhDuplicada()">Não é duplicada (são gastos diferentes)</button>
+      <button class="btn b-bad" onclick="ehDuplicada()">É duplicada: recusar a que chegou depois</button></div>` : ''}`;
+  l.forEach((d, i) => mostrarArquivoEm($('cmpv_' + i), d.arquivo_path, 440));
+}
+const PODE_DECIDIR = () => typeof PAP === 'object' && PAP && (PAP.presidente || PAP.admin);
+async function naoEhDuplicada() {
+  const ids = (CMP.achados || []).filter(Boolean);
+  // resolve os pontos de duplicidade das despesas comparadas
+  const todos = CMP.l.flatMap(d => (d.achados || []).filter(a => REGRAS_DUP.includes(a.regra) || a.regra === 'fornecedor_varias_vezes_dia').map(a => a.id));
+  const {error} = await sb.rpc('obras_resolver_achados', {p_ids: [...new Set([...ids, ...todos])], p_observacao: 'Fotos comparadas: não é duplicidade (gastos diferentes)'});
+  if (error) return toast(msgErro(error), 6000);
+  fecharModal(); toast('Registrado: não é duplicada.'); if (typeof carregar === 'function') carregar();
+}
+async function ehDuplicada() {
+  const d = CMP.l[CMP.l.length - 1];
+  if (Number(d.valor_pago) > 0) return toast('A que chegou depois já foi paga — cancele o pagamento antes.', 6000);
+  if (!confirm(`Recusar "${d.fornecedor || ''}" de ${brl(d.valor)} (a que chegou depois)? Ela sai do total como duplicada.`)) return;
+  const {error} = await sb.rpc('obras_despesa_recusar', {p_comp: d.id, p_motivo: 'Duplicidade confirmada na comparação das fotos (igual à que chegou primeiro)'});
+  if (error) return toast(msgErro(error), 6000);
+  fecharModal(); toast('Duplicada recusada: saiu do total.'); if (typeof carregar === 'function') carregar();
 }
 const ARQ = [];
 const linkArquivo = (path, txt = 'ver') => path ? `<a href="#" onclick="abrirArquivo(ARQ[${ARQ.push(path) - 1}]);return false">${txt}</a>` : '';
@@ -237,7 +296,7 @@ function contaExtratoHTML(c) {
     const ach = (d.achados || []), crit = ach.some(a => a.nivel === 'critico');
     return `<tr><td>${dBR(d.data_despesa)}${d.hora_documento ? ' ' + esc(String(d.hora_documento).slice(0, 5)) : ''}</td>
       <td>${esc(d.fornecedor || 'Fornecedor não lido')}<div class="mut small">${esc(CATS[d.categoria] || d.categoria || '')} · ${esc(nomeObra(d.obra))}${d.legenda ? ' · ' + esc(String(d.legenda).slice(0, 60)) : ''}</div>
-        ${ach.length ? `<div class="${crit ? 'crit' : 'warn'}" style="margin:2px 0 0">⚠ ${ach.map(a => esc(a.mensagem)).join('<br>⚠ ')}</div>` : ''}
+        ${ach.length ? `<div class="${crit ? 'crit' : 'warn'}" style="margin:2px 0 0">${ach.map(a => `⚠ ${esc(a.mensagem)} ${linkComparar(d, a)}`).join('<br>')}</div>` : ''}
         <div class="small">${linkArquivo(d.arquivo_path, 'ver foto')}</div></td>
       <td class="r">− ${brl(d.saldo)}</td><td class="r"><b style="color:${corr >= 0 ? 'inherit' : '#fcd34d'}">${brl(corr)}</b></td></tr>`; }).join('');
   return `<div class="tw"><table><tr><th>Data</th><th>Lançamento</th><th class="r">Valor</th><th class="r">Saldo</th></tr>
