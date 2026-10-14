@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261011-3">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261014-1">
 </head>
 <body>
 
@@ -38,7 +38,7 @@
     <div><label>De</label><input id="fDe" type="date" onchange="mostrar()"></div>
     <div><label>Até</label><input id="fAte" type="date" onchange="mostrar()"></div>
     <div><label>Atalho</label><select id="fAtalho" onchange="atalho(this.value)">
-      <option value="">—</option><option value="semana">Esta semana</option><option value="mes">Este mês</option><option value="mes_ant">Mês passado</option>
+      <option value="">—</option><option value="d7">Últimos 7 dias</option><option value="d15">Últimos 15 dias</option><option value="d30">Últimos 30 dias</option><option value="semana">Esta semana</option><option value="mes">Este mês</option><option value="mes_ant">Mês passado</option>
       <option value="ano">Este ano</option><option value="tudo">Tudo</option></select></div>
   </div>
 
@@ -50,10 +50,10 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js?v=20261011-3"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261014-1"></script>
 <script>
 let D = null, REL = 'aberto', MODELO = null;
-const RELS = {aberto: 'Contas a pagar em aberto', extrato: 'Extrato do prestador', fluxo: 'Fluxo de caixa semanal', pagamentos: 'Pagamentos realizados',
+const RELS = {aberto: 'Contas a pagar em aberto', semanas: 'Fechamento por semana', extrato: 'Extrato do prestador', fluxo: 'Fluxo de caixa semanal', pagamentos: 'Pagamentos realizados',
   categorias: 'Despesas por categoria e obra', auditor: 'Pontos do Agente Auditor'};
 const REGRAS = {duplicidade_autenticacao: 'Pagamento repetido (mesma autenticação)', duplicidade_valor_data_fornecedor: 'Possível duplicidade',
   arquivo_repetido: 'Comprovante repetido', sem_comprovante: 'Sem documento', leitura_baixa_confianca: 'Leitura duvidosa', valor_atipico: 'Valor fora do padrão',
@@ -61,9 +61,9 @@ const REGRAS = {duplicidade_autenticacao: 'Pagamento repetido (mesma autenticaç
 
 async function carregar() {
   try {
-    const [desp, saldos, pags, itens, adis, fluxo] = await Promise.all([carregarDespesas(), carregarSaldos(), carregarPagamentos(), carregarItens(), carregarAdiantamentos(),
-      todos(() => sb.from('obras_fluxo_semanal').select('*').order('prestador').order('semana'))]);
-    D = {desp, saldos, pags, itens, adis, fluxo};
+    const [desp, saldos, pags, itens, adis, fluxo, prest] = await Promise.all([carregarDespesas(), carregarSaldos(), carregarPagamentos(), carregarItens(), carregarAdiantamentos(),
+      todos(() => sb.from('obras_fluxo_semanal').select('*').order('prestador').order('semana')), carregarPrestacoes()]);
+    D = {desp, saldos, pags, itens, adis, fluxo, prest};
   } catch (e) { $('saida').innerHTML = `<div class="card err">Erro ao carregar: ${esc(msgErro(e))}</div>`; return; }
   const sel = $('fPrest').value;
   $('fPrest').innerHTML = '<option value="">Todos os prestadores</option>' + D.saldos.map(s => `<option ${s.prestador === sel ? 'selected' : ''}>${esc(s.prestador)}</option>`).join('');
@@ -72,6 +72,7 @@ async function carregar() {
 
 function atalho(v) {
   const h = hojeISO(), d = new Date(h + 'T12:00:00'), iso = x => x.toISOString().slice(0, 10);
+  if (/^d\d+$/.test(v)) { $('fDe').value = somaDias(h, -(Number(v.slice(1)) - 1)); $('fAte').value = h; }
   if (v === 'semana') { const s = new Date(d); s.setDate(d.getDate() - (d.getDay() + 6) % 7); $('fDe').value = iso(s); $('fAte').value = h; }
   if (v === 'mes') { $('fDe').value = h.slice(0, 8) + '01'; $('fAte').value = h; }
   if (v === 'mes_ant') { const a = new Date(d.getFullYear(), d.getMonth() - 1, 1, 12), b = new Date(d.getFullYear(), d.getMonth(), 0, 12); $('fDe').value = iso(a); $('fAte').value = iso(b); }
@@ -93,16 +94,33 @@ const MODELOS = {
     const sal = D.saldos.filter(f.doPrest), abertos = D.desp.filter(d => Number(d.saldo) > 0 && f.doPrest(d));
     return {titulo: 'Contas a pagar em aberto', subtitulo: `Obras & Reformas - Esposende - situação em ${dBRano(hojeISO())}${f.prest ? ' - ' + f.prest : ''}`,
       resumo: [['Total a pagar', brl(soma(sal, 'saldo_devedor'))], ['Despesas em aberto', brl(soma(sal, 'em_aberto'))], ['Adiantamentos a descontar', brl(soma(sal, 'adiantamento_disponivel'))],
-        ['Com o Financeiro (aprovado)', brl(soma(sal, 'com_financeiro'))]],
-      secoes: [{titulo: 'Por prestador', cab: ['Prestador', 'Despesas', 'Em aberto', 'Adiantamento', 'Total a pagar', 'Com o Financeiro', 'Desde', 'Risco'], direita: [1, 2, 3, 4, 5],
-          linhas: sal.map(s => [s.prestador, s.itens_abertos, V(s.em_aberto), V(s.adiantamento_disponivel), V(s.saldo_devedor), V(s.com_financeiro), dBRano(s.semana_mais_antiga), (RISCO[s.risco] || [''])[0]]),
-          rodape: ['Total', soma(sal, 'itens_abertos'), V(soma(sal, 'em_aberto')), V(soma(sal, 'adiantamento_disponivel')), V(soma(sal, 'saldo_devedor')), V(soma(sal, 'com_financeiro')), '', '']},
+        ['Semanas em aberto', String(new Set(abertos.map(d => d.prestador + d.semana)).size)]],
+      secoes: [{titulo: 'Por prestador', cab: ['Prestador', 'Despesas', 'Em aberto', 'Adiantamento', 'Total a pagar', 'Desde', 'Risco'], direita: [1, 2, 3, 4],
+          linhas: sal.map(s => [s.prestador, s.itens_abertos, V(s.em_aberto), V(s.adiantamento_disponivel), V(s.saldo_devedor), dBRano(s.semana_mais_antiga), (RISCO[s.risco] || [''])[0]]),
+          rodape: ['Total', soma(sal, 'itens_abertos'), V(soma(sal, 'em_aberto')), V(soma(sal, 'adiantamento_disponivel')), V(soma(sal, 'saldo_devedor')), '', '']},
         {titulo: `Despesas em aberto (${abertos.length})`, nota: 'Inclui o que sobrou de pagamentos parciais. Acumula todas as semanas.',
           cab: ['Prestador', 'Semana', 'Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Alertas'], direita: [5, 6, 7],
           linhas: abertos.map(d => [d.prestador, dBR(d.semana), dBRano(d.data_despesa), d.fornecedor || '', CATS[d.categoria] || d.categoria, V(d.valor), V(d.valor_pago), V(d.saldo),
             d.criticos ? `${d.criticos} crítico(s)` : d.atencoes ? `${d.atencoes} atenção` : '']),
           rodape: ['Total', '', '', '', '', V(soma(abertos, 'valor')), V(soma(abertos, 'valor_pago')), V(soma(abertos, 'saldo')), '']}],
       paisagem: true, arquivo: `contas_a_pagar_${f.prest || 'todos'}_${hojeISO()}`};
+  },
+  semanas(f) {
+    // Fechamento semanal (segunda a domingo): despesas da semana, quanto já foi pago e se a semana/prestação está QUITADA
+    const ds = D.desp.filter(d => d.status === 'lancado' && d.situacao !== 'recusado' && d.semana && f.doPrest(d) && f.noPer(d.data_despesa));
+    const m = {};
+    for (const d of ds) { const k = d.semana + '|' + d.prestador; const x = m[k] = m[k] || {sem: d.semana, prest: d.prestador, n: 0, v: 0, p: 0, a: 0, obras: new Set()};
+      x.n++; x.v += Number(d.valor); x.p += Number(d.valor_pago); x.a += Number(d.saldo); x.obras.add(nomeObra(d.obra)); }
+    const l = Object.values(m).sort((a, b) => b.sem.localeCompare(a.sem) || a.prest.localeCompare(b.prest));
+    const pr = x => D.prest.find(p => p.responsavel === x.prest && p.periodo_inicio && p.periodo_inicio <= somaDias(x.sem, 6) && (p.periodo_fim || somaDias(p.periodo_inicio, 6)) >= x.sem);
+    return {titulo: 'Fechamento por semana', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
+      resumo: [['Despesas', brl(soma(l, 'v'))], ['Pago', brl(soma(l, 'p'))], ['Em aberto', brl(soma(l, 'a'))], ['Semanas quitadas', `${l.filter(x => x.a < 0.005).length} de ${l.length}`]],
+      secoes: [{titulo: `Semanas (${l.length})`, nota: 'Semana quitada = todas as despesas da semana pagas. A prestação de contas da semana fica quitada junto.',
+        cab: ['Semana', 'Prestador', 'Obras', 'Prestação', 'Despesas', 'Pago', 'Em aberto', 'Situação'], direita: [4, 5, 6],
+        linhas: l.map(x => { const p = pr(x); return [`${dBR(x.sem)} a ${dBR(somaDias(x.sem, 6))}`, x.prest, [...x.obras].join(', '), p ? p.numero : '', V(x.v), V(x.p), V(x.a),
+          x.a < 0.005 ? 'QUITADA' : x.p > 0.005 ? 'Paga em parte' : 'Em aberto']; }),
+        rodape: ['Total', '', '', '', V(soma(l, 'v')), V(soma(l, 'p')), V(soma(l, 'a')), '']}],
+      paisagem: true, arquivo: `fechamento_semanal_${f.prest || 'todos'}_${hojeISO()}`};
   },
   extrato(f) {
     if (!f.prest) return {titulo: 'Extrato do prestador', secoes: [], vazio: 'Escolha um prestador no filtro para ver o extrato completo.'};
@@ -126,7 +144,7 @@ const MODELOS = {
     const ps = D.pags.filter(p => f.doPrest(p) && f.noPer((p.pago_em || p.created_at).slice(0, 10)));
     const ef = ps.filter(p => ['pago', 'auditado', 'pendencia'].includes(p.status));
     return {titulo: 'Pagamentos realizados', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
-      resumo: [['Pago', brl(soma(ef, 'valor_pago'))], ['Pagamentos', String(ef.length)], ['Aguardando o Financeiro', brl(soma(ps.filter(p => p.status === 'aprovado'), 'valor_aprovado'))],
+      resumo: [['Pago', brl(soma(ef, 'valor_pago'))], ['Pagamentos', String(ef.length)], ['Aprovados sem pagamento', brl(soma(ps.filter(p => p.status === 'aprovado'), 'valor_aprovado'))],
         ['Com pendência', String(ps.filter(p => p.status === 'pendencia').length)]],
       secoes: [{titulo: `Pagamentos (${ps.length})`, cab: ['Nº', 'Prestador', 'Aprovado', 'Pago em', 'Despesas', 'Adiant. desc.', 'Valor pago', 'Forma', 'Situação', 'Aprovado / pago por'],
         direita: [4, 5, 6], linhas: ps.map(p => [p.numero, p.prestador, dtBR(p.aprovado_em), p.pago_em ? dtBR(p.pago_em) : '', V(p.valor_itens), V(p.valor_abatido),
@@ -143,7 +161,7 @@ const MODELOS = {
       linhas: g.map(([k, x]) => [k, x.qtd, V(x.v), pct(x.v), V(x.p), V(x.a)]), rodape: ['Total', ds.length, V(tot), '100%', V(soma(ds, 'valor_pago')), V(soma(ds, 'saldo'))]});
     return {titulo: 'Despesas por categoria e obra', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
       resumo: [['Total de despesas', brl(tot)], ['Recibos', String(ds.length)], ['Pago', brl(soma(ds, 'valor_pago'))], ['Em aberto', brl(soma(ds, 'saldo'))]],
-      secoes: [sec('Por categoria', 'Categoria', agrupa(d => CATS[d.categoria] || d.categoria)), sec('Por obra', 'Obra', agrupa(d => (d.obra || '').replace(/^Obras\/Reformas — /, ''))),
+      secoes: [sec('Por categoria', 'Categoria', agrupa(d => CATS[d.categoria] || d.categoria)), sec('Por obra', 'Obra', agrupa(d => nomeObra(d.obra))),
         ...(!f.prest ? [sec('Por prestador', 'Prestador', agrupa(d => d.prestador))] : []), {...sec('Maiores fornecedores (20)', 'Fornecedor', agrupa(d => d.fornecedor).slice(0, 20)), rodape: null}],
       arquivo: `despesas_categoria_${f.prest || 'todos'}_${hojeISO()}`};
   },

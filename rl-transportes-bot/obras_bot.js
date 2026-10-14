@@ -29,6 +29,9 @@ recibo manuscrito, comprovante PIX/cartao, ou um PDF de "prestacao de contas" co
 
 Extraia CADA despesa como um item. Se o documento tiver varios comprovantes (ex.: PDF de prestacao), liste todos.
 Nao conte duas vezes o mesmo pagamento (ex.: cupom + comprovante do cartao da mesma compra = 1 item so).
+Cupom fiscal / NF / NFC-e com varios produtos = UM item so, com o VALOR TOTAL da nota (o "valor a pagar");
+liste os produtos na descricao (ex.: "Cadeado 93,00; Parafusos 11,50; ..."). Nunca um item por produto.
+Print de corrida Uber/99/taxi com valor = comprovante de despesa (tipo_doc "recibo", categoria transporte_combustivel).
 
 tipo_doc de cada item: cupom_fiscal | nf | nfs | comprovante_pix | comprovante_ted | comprovante_boleto | comprovante_cartao | recibo | orcamento | outros
 - "orcamento": cotacao/proposta/previsao (NAO e gasto realizado)
@@ -177,12 +180,38 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     const t = new Date(ok + 'T12:00:00-03:00').getTime(); return (t >= tsMsg - 120 * 864e5 && t <= tsMsg + 3 * 864e5) ? ok : null; };
   const dataOk = d => (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= '2024-01-01' && d <= '2030-12-31') ? d : null;
 
+  // Nota fiscal = UMA despesa (14/10/2026): se a IA ainda devolver um item por produto da mesma nota
+  // (mesmo fornecedor, data e autenticação), junta tudo num item só com o total e os produtos na descrição.
+  const NOTAS = ['cupom_fiscal', 'nf', 'nfs', 'recibo'];
+  function juntarItensDaNota(itens) {
+    const grupos = new Map(), saida = [];
+    for (const it of itens) {
+      const v = num(it.valor);
+      if (!NOTAS.includes(it.tipo_doc) || !(v > 0)) { saida.push(it); continue; }
+      const k = [it.tipo_doc, normForn(it.fornecedor), it.data || '', String(it.autenticacao || '').replace(/\s+/g, '')].join('|');
+      const g = grupos.get(k);
+      if (!g) { const novo = { ...it, valor: v, _produtos: [it] }; grupos.set(k, novo); saida.push(novo); continue; }
+      g.valor = Math.round((g.valor + v) * 100) / 100; g._produtos.push(it);
+      g.confianca = Math.min(g.confianca ?? 1, it.confianca ?? 1);
+    }
+    return saida.map(it => {
+      if (!it._produtos) return it;
+      const { _produtos, ...resto } = it;
+      if (_produtos.length === 1) return resto;
+      const fmt = x => Number(num(x.valor) || 0).toFixed(2).replace('.', ',');
+      return { ...resto, descricao: `Nota com ${_produtos.length} itens: ${_produtos.map(x => `${x.descricao || 'item'} R$ ${fmt(x)}`).join('; ')}`.substring(0, 2000) };
+    });
+  }
+  // Print de corrida de app (Uber/99) com valor é despesa de transporte, não "outros".
+  const ehCorridaApp = (it, legenda) => /\b(uber|99|99pop|taxi|t[aá]xi)\b|corrida|viagem de/i.test(`${it.fornecedor || ''} ${it.descricao || ''} ${legenda || ''}`);
+
   // Converte a resposta da IA em linhas de obras_comprovantes (uma por comprovante do documento).
   function montarLinhas(ia, erroIA, base, idMsg, ts) {
     const waData = new Date(ts).toISOString();
-    const itens = (ia && Array.isArray(ia.itens) && ia.itens.length) ? ia.itens : [{}];
+    const itens = (ia && Array.isArray(ia.itens) && ia.itens.length) ? juntarItensDaNota(ia.itens) : [{}];
     return itens.map((it, i) => {
-      const tipo = it.tipo_doc || (ia ? 'outros' : null);
+      let tipo = it.tipo_doc || (ia ? 'outros' : null);
+      if (tipo === 'outros' && num(it.valor) > 0 && ehCorridaApp(it, base.legenda)) { tipo = 'recibo'; it = { ...it, categoria: 'transporte_combustivel' }; }
       const valor = num(it.valor);
       const ehDespesa = TIPOS_DESPESA.includes(tipo) && valor > 0;
       return { ...base, wa_msg_id: `${idMsg}#${i}`,
@@ -274,14 +303,14 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     const hash = crypto.createHash('sha256').update(buf).digest('hex');
     const ts = msg.timestamp ? msg.timestamp * 1000 : Date.now();
     const idMsg = idMsgCurto(msg) || crypto.randomBytes(6).toString('hex');
-    const nome = `OB_${ts}_${idMsg}_${nomeRemetente.replace(/[^A-Za-z0-9]+/g, '_').substring(0, 20)}${isPdf ? '.pdf' : '.jpeg'}`;
+    const nome = `OB_${ts}_${idMsg}_${(nomeRemetente || 'sem_nome').replace(/[^A-Za-z0-9]+/g, '_').substring(0, 20)}${isPdf ? '.pdf' : '.jpeg'}`;
     fs.writeFileSync(path.join(PASTA, nome), buf);
 
     const { data: dupHash } = await sb.from(TAB).select('id,wa_msg_id').eq('arquivo_hash', hash).limit(1);
     const waData = new Date(ts).toISOString();
     const caminho = `${sombra ? 'sombra/' : ''}wa/${waData.substring(0, 7)}/${nome}`;
     // Contas a pagar (08/10/2026): todo recibo novo entra "a_pagar" e fecha por semana, por número de quem mandou.
-    const base = { origem: 'whatsapp', remetente: nomeRemetente, remetente_numero: numero, situacao_pagamento: 'a_pagar',
+    const base = { origem: 'whatsapp', remetente: nomeRemetente || null, remetente_numero: numero, situacao_pagamento: 'a_pagar',
       wa_data: waData, legenda: (msg.body || '').substring(0, 500) || null,
       arquivo_nome: nome, arquivo_path: caminho, arquivo_hash: hash };
 
@@ -314,7 +343,8 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
 
   // ── TEXTO DE PAGAMENTO (13/10/2026) ─────────────────────────────────────────────────────────────
   // O Jhony escreve no grupo blocos "Favorecido / Pix: chave / R$ valor / o que é / data". Pedido do Ricardo:
-  // cada bloco entra como despesa JÁ PAGA PELO FINANCEIRO (não vira reembolso a pagar ao prestador), com a loja/obra citada.
+  // cada bloco entra como despesa JÁ PAGA (não vira reembolso a pagar ao prestador), com a loja/obra citada.
+  // (14/10/2026: o Financeiro saiu do fluxo — é direto despesa e pagamento.)
   const AUTORES_TEXTO = (process.env.OBRAS_TEXTO_PAGO_AUTORES || 'jhony').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
   const NUMEROS_TEXTO = (process.env.OBRAS_TEXTO_PAGO_NUMEROS || '5511917849843,551117849843,226886227640325').split(',').map(x => x.trim()).filter(Boolean);
   const CIDADES = /\b(petrolina|recife|macei[oó]|caruaru|carpina|jo[aã]o pessoa|natal|aracaju|garanhuns|olinda|paulista|jaboat[aã]o|arapiraca|campina grande|mossor[oó]|juazeiro|feira de santana|salvador|teresina|fortaleza|cabo de santo agostinho|vit[oó]ria de santo ant[aã]o|santa cruz do capibaribe|toritama|surubim|limoeiro|goiana|igarassu|serra talhada|arcoverde|palmares|escada|gravat[aá]|bezerros|belo jardim|pesqueira)\b/i;
@@ -365,20 +395,20 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
       const hash = crypto.createHash('sha256').update('TXT|' + b.bruto.replace(/\s+/g, ' ').toUpperCase()).digest('hex');
       const { data: dup } = await sb.from(TAB).select('id,wa_msg_id').eq('arquivo_hash', hash).limit(1);
       const descr = [b.descricao, b.venc ? `vencimento ${b.venc.split('-').reverse().join('/')}${b.obsData ? ' (' + b.obsData + ')' : ''}` : null,
-        b.pix ? `Pix: ${b.pix}` : null, 'pago pelo Financeiro'].filter(Boolean).join(' — ');
+        b.pix ? `Pix: ${b.pix}` : null, 'já pago'].filter(Boolean).join(' — ');
       const cat = /estrutur|manuten|servi|instala|empreit|m[aã]o de obra|pintur|pedreir|eletric|plataforma/i.test(b.descricao || '') ? 'mao_de_obra_prestador' : 'diversos';
-      linhas.push({ origem: 'whatsapp', remetente: nomeRemetente, remetente_numero: numero, wa_data: waData,
+      linhas.push({ origem: 'whatsapp', remetente: nomeRemetente || null, remetente_numero: numero, wa_data: waData,
         wa_msg_id: `${idMsg}#T${i}`, legenda: b.bruto.substring(0, 500), arquivo_hash: hash, arquivo_nome: null, arquivo_path: null,
         tipo_doc: 'comprovante_pix', forma_pagamento: 'pix', categoria: cat, valor: b.valor,
-        data_despesa: waData.substring(0, 10), fornecedor: b.favorecido, pagador: 'Financeiro', loja: b.loja,
+        data_despesa: waData.substring(0, 10), fornecedor: b.favorecido, pagador: 'Esposende', loja: b.loja,
         status: dup && dup.length ? 'duplicada' : 'lancado', situacao_pagamento: 'pago', pago_em: waData,
         descricao: ((dup && dup.length ? `Texto repetido (igual a ${dup[0].wa_msg_id}) — nao somado. ` : '') + descr).substring(0, 500),
         confianca_ocr: 1, revisado: false,
-        ia_json: i === 0 ? { fonte: 'texto_whatsapp', regra: 'pago_pelo_financeiro', blocos: blocos.map(x => ({ ...x, bruto: undefined })) } : null });
+        ia_json: i === 0 ? { fonte: 'texto_whatsapp', regra: 'ja_pago', blocos: blocos.map(x => ({ ...x, bruto: undefined })) } : null });
     }
     const { error } = await sb.from(TAB).insert(linhas);
     if (error) { L(`Gravar texto no Supabase falhou (${idMsg}): ${error.message}`, 'error'); throw new Error(error.message); }
-    L(`${nomeRemetente}: texto com ${linhas.length} pagamento(s) pelo Financeiro — R$ ${linhas.filter(l => l.status === 'lancado').reduce((s, l) => s + l.valor, 0).toFixed(2)}`);
+    L(`${nomeRemetente}: texto com ${linhas.length} pagamento(s) já pago(s) — R$ ${linhas.filter(l => l.status === 'lancado').reduce((s, l) => s + l.valor, 0).toFixed(2)}`);
     return linhas.length;
   }
 
@@ -405,8 +435,9 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     try {
       const c = await m.getContact();
       const numero = String(c.number || c.id?.user || '').replace(/\D/g, '') || null;
-      return { nome: c.pushname || c.name || c.number || 'Desconhecido', numero };
-    } catch (e) { return { nome: 'Desconhecido', numero: null }; }
+      // Sem nome no WhatsApp: vai vazio e o Supabase aloca no prestador do número (nunca "Desconhecido").
+      return { nome: c.pushname || c.name || c.number || '', numero };
+    } catch (e) { return { nome: '', numero: null }; }
   }
 
   async function mensagensPeriodo(deMs, ateMs) {

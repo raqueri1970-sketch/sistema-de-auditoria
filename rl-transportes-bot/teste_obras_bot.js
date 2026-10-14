@@ -180,6 +180,26 @@ const item = (o) => ({ tipo_documento: 'comprovante', itens: [{ tipo_doc: 'cupom
   assert.deepStrictEqual([...sb.tabelas], ['obras_comprovantes']);
   console.log('ok 12 PIX grava o pagador (ex.: Mar Aberto)');
 
+  // 12b) NF/cupom com vários produtos (a IA devolve um item por produto) → UMA despesa com o total da nota
+  await obras.onMessage(msgFalsa({ tipo_documento: 'comprovante', itens: [
+    { tipo_doc: 'cupom_fiscal', categoria: 'materiais_insumos', valor: 93, data: hoje, hora: '15:13:25', fornecedor: 'CASA DOS PARAFUSOS', autenticacao: '227260284244130', descricao: 'CADEADO' },
+    { tipo_doc: 'cupom_fiscal', categoria: 'materiais_insumos', valor: 11.5, data: hoje, hora: '15:13:25', fornecedor: 'CASA DOS PARAFUSOS', autenticacao: '227260284244130', descricao: 'PARAFUSO' },
+    { tipo_doc: 'cupom_fiscal', categoria: 'materiais_insumos', valor: 6.8, data: hoje, hora: '15:13:25', fornecedor: 'CASA DOS PARAFUSOS', autenticacao: '227260284244130', descricao: 'ARRUELA' }] }), {});
+  await esperar();
+  const nf = linhas().filter(l => l.fornecedor === 'CASA DOS PARAFUSOS');
+  assert.strictEqual(nf.length, 1, 'a nota deveria virar uma linha so');
+  assert.strictEqual(nf[0].valor, 111.3); assert.strictEqual(nf[0].status, 'lancado');
+  assert.ok(/Nota com 3 itens/.test(nf[0].descricao));
+  console.log('ok 12b nota fiscal com varios produtos = 1 despesa com o total');
+
+  // 12c) Print de corrida Uber/99 (a IA chama de "outros") → despesa de transporte
+  const mUber = msgFalsa({ tipo_documento: 'outros', itens: [{ tipo_doc: 'outros', categoria: 'diversos', valor: 25.8, data: hoje, fornecedor: null, descricao: 'Uber trip' }] });
+  mUber.body = 'Uber - Maceió centro';
+  await obras.onMessage(mUber, {}); await esperar();
+  const uber = linhas().find(l => l.valor === 25.8);
+  assert.strictEqual(uber.status, 'lancado'); assert.strictEqual(uber.categoria, 'transporte_combustivel');
+  console.log('ok 12c print de corrida Uber/99 entra como despesa');
+
   // 13) Modo sombra (servidor novo em paralelo): grava só em obras_comprovantes_sombra e na pasta sombra/
   const sb2 = criarSupabaseFalso();
   const sombra = require(path.join(dir, 'obras_bot.js'))({ client, log: () => {}, sb: sb2, baixarMidiaPelaPagina: null, sombra: true });

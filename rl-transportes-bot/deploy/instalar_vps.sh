@@ -53,5 +53,5 @@ CRON
 echo
 echo "PRONTO. Agora leia o QR Code com o celular do WhatsApp do grupo (Aparelhos conectados > Conectar aparelho):"
 echo "   docker compose -f $BASE/codigo/rl-transportes-bot/deploy/docker-compose.yml logs -f capturador"
-echo "Telas de Obras (Presidente, Financeiro, Relatorios):  https://$SITE_HOST/obras/"
+echo "Telas de Obras (Pagamentos, Visao geral, Relatorios):  https://$SITE_HOST/obras/"
 echo "Atualizar depois:  cd $BASE/codigo && git pull && cd rl-transportes-bot/deploy && docker compose up -d --build"

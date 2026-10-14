@@ -1,4 +1,4 @@
-# Telas de Obras & Reformas (Presidente, Financeiro, Contas a pagar, Relatórios) servidas pelo próprio servidor.
+# Telas de Obras & Reformas (Pagamentos do Presidente, Visão geral, Relatórios) servidas pelo próprio servidor.
 # HTTPS automático (Let's Encrypt) no endereço gratuito <ip-com-traços>.sslip.io — não precisa de domínio.
 # Só arquivos estáticos: os dados ficam no Supabase, protegidos pelo login do Portal.
 {$SITE_HOST} {
