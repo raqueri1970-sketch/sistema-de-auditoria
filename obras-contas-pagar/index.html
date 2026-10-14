@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="comum.css?v=20261014-1">
+<link rel="stylesheet" href="comum.css?v=20261014-2">
 </head>
 <body>
 
@@ -35,6 +35,8 @@
   <div class="filtro-bar" id="filtros"></div>
   <div class="grid" id="kpis" style="margin-top:12px"></div>
 
+  <div id="fraude"></div>
+
   <h2>Fechamento por semana <span class="mut" style="text-transform:none;letter-spacing:0;font-weight:500">· segunda a domingo</span></h2>
   <div class="card" id="semanas"></div>
 
@@ -55,7 +57,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="comum.js?v=20261014-1"></script>
+<script src="comum.js?v=20261014-2"></script>
 <script>
 let D = null, TIMER = null, VER_HISTORICO = false, PAP = {};
 let F = {p: '30', obra: '', prest: '', ...lerFiltro('obras-visao-filtro')};
@@ -66,9 +68,12 @@ const soma = (a, f) => a.reduce((t, x) => t + Number((typeof f === 'function' ? 
 async function carregar() {
   try {
     const st = await sb.from('capturador_status').select('*').order('atualizado_em', {ascending: false});
-    const [saldos, desp, pags, obras, prest] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('status', ['lancado', 'orcamento'])),
-      carregarPagamentos(), carregarObras(), carregarPrestacoes()]);
-    D = {saude: st.error ? null : st.data, saldos, desp, pags, obras, prest};
+    const [saldos, desp, pags, obras, prest, fraude, fotos, fotosAud] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('status', ['lancado', 'orcamento'])),
+      carregarPagamentos(), carregarObras(), carregarPrestacoes(),
+      todos(() => sb.from('obras_auditoria_achados').select('id,comprovante_id,regra,nivel,mensagem').eq('resolvido', false).in('regra', Object.keys(FRAUDE)).order('criado_em', {ascending: false})),
+      sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null),
+      sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null).not('auditoria_ia', 'is', null)]);
+    D = {saude: st.error ? null : st.data, saldos, desp, pags, obras, prest, fraude, fotos: fotos.count || 0, fotosAud: fotosAud.count || 0};
     render();
     $('atual').textContent = 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
   } catch (e) {
@@ -148,7 +153,40 @@ function render() {
   graficoRosca($('gObra'), obrasL.map(o => ({...o, det: `<div><span>Em aberto</span><span>${brl(o.aberto)}</span></div>`})), {vazio: 'Nenhuma despesa no período.', centro: 'Despesas',
     aoClicar: i => mudarFiltro({obra: obrasL[i].id})});
 
-  renderPessoas(); renderAlocar(); renderOrcamentos(); renderAuditor();
+  renderPessoas(); renderAlocar(); renderOrcamentos(); renderAuditor(); renderFraude();
+}
+
+// Possível fraude ou desvio de finalidade: o Agente Auditor olha TODAS as despesas (inclusive as já pagas) e a IA olha cada foto.
+const FRAUDE = {ia_suspeita: 'IA viu sinal na foto', desvio_finalidade_grave: 'Desvio de finalidade', desvio_finalidade: 'Item de uso pessoal',
+  pix_para_o_proprio: 'Pagou a si mesmo', material_sem_nota: 'Material sem nota fiscal', outra_cidade: 'Outra cidade', compra_domingo: 'Compra no domingo',
+  compra_madrugada: 'Despesa de madrugada', duplicidade_autenticacao: 'Pagamento repetido', arquivo_repetido: 'Comprovante repetido'};
+let VER_FRAUDE_TUDO = false;
+function renderFraude() {
+  const porId = new Map(D.desp.map(d => [d.id, d]));
+  const l = D.fraude.map(a => ({...a, d: porId.get(a.comprovante_id)})).filter(a => a.d && (!F.prest || a.d.prestador === F.prest))
+    .sort((a, b) => (b.nivel === 'critico') - (a.nivel === 'critico') || (Number(b.d.saldo) > 0) - (Number(a.d.saldo) > 0) || String(b.d.data_despesa).localeCompare(String(a.d.data_despesa)));
+  window.FR = l;
+  const crit = l.filter(a => a.nivel === 'critico').length, abertos = l.filter(a => Number(a.d.saldo) > 0).length;
+  const pct = D.fotos ? Math.round(D.fotosAud / D.fotos * 100) : 0;
+  const mostrar = VER_FRAUDE_TUDO ? l : l.slice(0, 12);
+  $('fraude').innerHTML = `<h2>Possível fraude ou desvio de finalidade (${l.length})</h2><div class="card ${crit ? 'k-bad' : ''}">
+    <div class="row" style="justify-content:space-between"><div class="small">${crit ? `<b style="color:#fca5a5">${crit} crítico(s)</b> · ` : ''}${abertos} em despesa ainda não paga · o Auditor confere todas as despesas, inclusive as já pagas</div>
+      <div class="small mut">Fotos auditadas pela IA: <b>${D.fotosAud}</b> de ${D.fotos} (${pct}%)${pct < 100 ? ' · o capturador audita em lotes a cada 15 min' : ''}</div></div>
+    ${l.length ? `<div class="tw"><table><tr><th>Nível</th><th>Despesa</th><th>O que o Auditor viu</th><th></th></tr>${mostrar.map((a, i) => `<tr>
+      <td>${riscoChip(a.nivel)}<div class="small mut" style="margin-top:4px">${esc(FRAUDE[a.regra] || a.regra)}</div></td>
+      <td class="small"><b>${esc(a.d.prestador || '')}</b> · ${dBR(a.d.data_despesa)} · ${esc(a.d.fornecedor || '')}<div class="mut">${brl(a.d.valor)} · ${esc(nomeObra(a.d.obra))} · ${(SIT[a.d.situacao] || [''])[0]}</div>
+        <div>${linkArquivo(a.d.arquivo_path, 'ver comprovante')}</div></td>
+      <td class="small">${esc(a.mensagem)}</td>
+      <td><button class="btn" onclick="resolverFraude(${l.indexOf(a)})">Conferido</button></td></tr>`).join('')}</table></div>
+      ${l.length > 12 ? `<button class="btn" style="margin-top:8px" onclick="VER_FRAUDE_TUDO=!VER_FRAUDE_TUDO;renderFraude()">${VER_FRAUDE_TUDO ? 'Mostrar só os 12 primeiros' : `Ver todos os ${l.length}`}</button>` : ''}`
+      : '<div class="small mut" style="margin-top:8px">Nenhum sinal de fraude ou desvio nas despesas.</div>'}</div>`;
+}
+async function resolverFraude(i) {
+  const a = FR[i], obs = prompt(`${FRAUDE[a.regra] || a.regra}: ${a.mensagem}\n\nO que foi conferido? (fica registrado com o seu nome)`, 'Conferido com o prestador: gasto da obra');
+  if (!obs) return;
+  const {error} = await sb.rpc('obras_resolver_achados', {p_ids: [a.id], p_observacao: obs});
+  if (error) return toast(msgErro(error), 6000);
+  toast('Registrado.'); carregar();
 }
 
 // Agrupa por semana (seg–dom) e, dentro dela, por prestador

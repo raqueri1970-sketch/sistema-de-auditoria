@@ -62,6 +62,19 @@ Se o documento for a CAPA de uma prestacao de contas com totais, preencha tambem
 Responda SOMENTE JSON valido, sem markdown:
 {"tipo_documento":"comprovante|prestacao_contas|orcamento|outros","itens":[{"tipo_doc":"cupom_fiscal","categoria":"materiais_insumos","valor":null,"data":null,"hora":null,"fornecedor":null,"pagador":null,"cnpj":null,"descricao":null,"loja_obra":null,"forma_pagamento":null,"autenticacao":null,"confianca":0.5}],"resumo":{"responsavel":null,"periodo":null,"valor_total":null,"valor_adiantado":null,"reembolso":null}}`;
 
+// Auditoria antifraude da FOTO (14/10/2026): a IA olha cada comprovante como auditor e aponta fraude/desvio de finalidade.
+const PROMPT_AUDITOR = `Voce e AUDITOR ANTIFRAUDE de despesas de obras/reformas de lojas (rede de calcados Esposende).
+O prestador manda a foto/PDF do comprovante no WhatsApp e a empresa reembolsa. Olhe o documento com desconfianca profissional e procure:
+- adulteracao/montagem: numeros ou data com fonte, cor ou alinhamento diferente, borrao/recorte sobre valor ou data, rasura, valor reescrito
+- print de tela ou foto de foto no lugar do comprovante original; PIX "agendado" ou nao concluido; comprovante sem autenticacao
+- recibo manuscrito generico (sem CNPJ/CPF do emissor, sem descricao do servico), valor redondo sem nota fiscal
+- desvio de finalidade: bebida alcoolica, cigarro, cosmeticos, roupas, presentes, lazer, comida fora do razoavel, itens de uso pessoal
+- estabelecimento incompativel com obra; cupom em nome/CPF de outra pessoa; documento de outra cidade/data muito antiga
+- divergencia entre a foto e o que foi lancado (dados abaixo)
+Lancado no sistema: {LANCADO}
+Seja justo: comprovante comum, legivel e coerente = risco "baixo" e motivos vazio. So use "alto" com sinal concreto.
+Responda SOMENTE JSON: {"risco":"baixo|medio|alto","motivos":["frase curta em portugues"],"valor_na_foto":null,"data_na_foto":null}`;
+
 module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPagina, sombra = false }) {
   // Modo sombra: tudo vai para obras_comprovantes_sombra e para a pasta sombra/ do bucket (nada oficial é tocado).
   // OBRAS_OFICIAL=1 (13/10/2026): a VPS em MODO=sombra para a RL passa a gravar Obras na tabela OFICIAL
@@ -124,9 +137,9 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   let claudeSemCredito = false;
 
   // Claude primeiro (melhor em manuscrito/PDF de prestação); sem crédito/erro → Gemini; os dois falharam → pendente_leitura.
-  async function lerComIA(base64, mimetype) {
+  async function lerComIA(base64, mimetype, prompt = PROMPT) {
     if (anthropic && !claudeSemCredito) {
-      try { return await lerComClaude(base64, mimetype); }
+      try { return await lerComClaude(base64, mimetype, prompt); }
       catch (e) {
         if (/credit balance|billing|401|403/i.test(e.message)) { claudeSemCredito = true; L('Claude sem credito — usando Gemini', 'warn'); }
         else L(`Claude falhou (${e.message.substring(0, 120)}) — tentando Gemini`, 'warn');
@@ -136,7 +149,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     const mimeType = /image\/|application\/pdf/.test(mimetype) ? mimetype : 'image/jpeg';
     for (let t = 1; t <= 3; t++) {
       try {
-        const r = await gemini.generateContent([{ inlineData: { mimeType, data: base64 } }, { text: PROMPT }]);
+        const r = await gemini.generateContent([{ inlineData: { mimeType, data: base64 } }, { text: prompt }]);
         const txt = r.response.text().trim().replace(/^```json?\s*/i, '').replace(/\s*```$/, '');
         return JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
       } catch (e) {
@@ -147,7 +160,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     }
   }
 
-  async function lerComClaude(base64, mimetype) {
+  async function lerComClaude(base64, mimetype, prompt = PROMPT) {
     const bloco = mimetype === 'application/pdf'
       ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
       : { type: 'image', source: { type: 'base64', media_type: /image\/(png|gif|webp)/.test(mimetype) ? mimetype : 'image/jpeg', data: base64 } };
@@ -155,7 +168,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
       try {
         const r = await anthropic.messages.create({
           model: MODELO, max_tokens: 8000,
-          messages: [{ role: 'user', content: [bloco, { type: 'text', text: PROMPT }] }]
+          messages: [{ role: 'user', content: [bloco, { type: 'text', text: prompt }] }]
         });
         const txt = r.content.filter(c => c.type === 'text').map(c => c.text).join('').trim()
           .replace(/^```json?\s*/i, '').replace(/\s*```$/, '');
@@ -338,6 +351,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     if (error) { L(`Gravar no Supabase falhou (${nome}): ${error.message}`, 'error'); throw new Error(error.message); }
     const total = linhas.filter(l => l.status === 'lancado').reduce((s, l) => s + l.valor, 0);
     L(`${nomeRemetente}: ${linhas.length} item(ns) de ${nome} — R$ ${total.toFixed(2)} lancado`);
+    if (linhas.some(l => l.status === 'lancado')) setTimeout(() => enfileirar(() => auditarArquivo(caminho).catch(e => L(`Auditor IA (${nome}): ${e.message}`, 'warn'))), 5000);
     return linhas.length;
   }
 
@@ -410,6 +424,55 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     if (error) { L(`Gravar texto no Supabase falhou (${idMsg}): ${error.message}`, 'error'); throw new Error(error.message); }
     L(`${nomeRemetente}: texto com ${linhas.length} pagamento(s) já pago(s) — R$ ${linhas.filter(l => l.status === 'lancado').reduce((s, l) => s + l.valor, 0).toFixed(2)}`);
     return linhas.length;
+  }
+
+  // ── AUDITORIA ANTIFRAUDE DAS FOTOS (14/10/2026) ──────────────────────────────────────────────────
+  // Cada arquivo de comprovante lançado é lido de novo pela IA como auditor. O resultado vai para auditoria_ia
+  // e o Agente Auditor do Supabase transforma em ponto de atenção/crítico. Novos primeiro; os antigos em lotes.
+  const LOTE_AUDITORIA = Number(process.env.OBRAS_AUDITORIA_LOTE || 12);
+  async function auditarArquivo(arquivoPath) {
+    const { data: linhas, error } = await sb.from(TAB).select('id,valor,data_despesa,fornecedor,descricao,categoria,tipo_doc,legenda,responsavel,arquivo_nome')
+      .eq('arquivo_path', arquivoPath).eq('status', 'lancado').limit(60);
+    if (error || !linhas || !linhas.length) return false;
+    let buf = null;
+    const local = linhas[0].arquivo_nome ? path.join(PASTA, linhas[0].arquivo_nome) : null;
+    if (local && fs.existsSync(local)) buf = fs.readFileSync(local);
+    else { const dl = await sb.storage.from('obras-comprovantes').download(arquivoPath); if (!dl.error) buf = Buffer.from(await dl.data.arrayBuffer()); }
+    const marcar = async aud => { const { error: e } = await sb.from(TAB).update({ auditoria_ia: aud }).eq('arquivo_path', arquivoPath).eq('status', 'lancado'); if (e) throw new Error(e.message); };
+    if (!buf) { await marcar({ risco: 'nao_lido', motivos: ['arquivo nao encontrado para auditar'], em: new Date().toISOString() }); return false; }
+    const mt = /\.pdf$/i.test(arquivoPath) ? 'application/pdf' : /\.png$/i.test(arquivoPath) ? 'image/png' : 'image/jpeg';
+    const lancado = linhas.slice(0, 15).map(l => `R$ ${Number(l.valor).toFixed(2)} em ${l.data_despesa} · ${l.fornecedor || '?'} · ${l.categoria} · ${l.tipo_doc} · ${(l.descricao || '').substring(0, 80)}`).join(' | ')
+      + ` · legenda: "${(linhas[0].legenda || '').substring(0, 120)}" · prestador: ${linhas[0].responsavel || '?'}`;
+    const r = await lerComIA(buf.toString('base64'), mt, PROMPT_AUDITOR.replace('{LANCADO}', lancado));
+    const motivos = Array.isArray(r && r.motivos) ? r.motivos.filter(Boolean).map(String).slice(0, 6) : [];
+    let risco = ['baixo', 'medio', 'alto'].includes(String(r && r.risco).toLowerCase()) ? String(r.risco).toLowerCase() : 'baixo';
+    // valor da foto x valor lançado (só quando o arquivo é um comprovante só)
+    const vf = num(r && r.valor_na_foto);
+    if (linhas.length === 1 && vf > 0 && Math.abs(vf - Number(linhas[0].valor)) > Math.max(1, Number(linhas[0].valor) * 0.01)) {
+      motivos.unshift(`valor na foto R$ ${vf.toFixed(2)} diferente do lançado R$ ${Number(linhas[0].valor).toFixed(2)}`);
+      if (risco === 'baixo') risco = 'medio';
+    }
+    await marcar({ risco, motivos, valor_na_foto: vf ?? null, data_na_foto: r && r.data_na_foto || null, em: new Date().toISOString() });
+    if (risco !== 'baixo') L(`Auditor IA: ${risco.toUpperCase()} em ${arquivoPath} — ${motivos.join('; ')}`, 'warn');
+    return true;
+  }
+  let auditando = false;
+  async function auditarFotos(max = LOTE_AUDITORIA) {
+    if (!sb || auditando || !(anthropic || gemini)) return 0;
+    auditando = true; let n = 0;
+    try {
+      const { data, error } = await sb.from(TAB).select('arquivo_path,created_at').eq('status', 'lancado').is('auditoria_ia', null)
+        .not('arquivo_path', 'is', null).order('created_at', { ascending: false }).limit(max * 8);
+      if (error) throw new Error(error.message);
+      const arquivos = [...new Set((data || []).map(d => d.arquivo_path))].slice(0, max);
+      for (const a of arquivos) {
+        try { if (await auditarArquivo(a)) n++; }
+        catch (e) { L(`Auditor IA falhou em ${a}: ${e.message}`, 'warn'); if (/nenhuma IA|quota|RESOURCE_EXHAUSTED/i.test(e.message)) break; }
+      }
+      if (n) L(`Auditor IA: ${n} comprovante(s) auditado(s)`);
+    } catch (e) { L(`Auditor IA: ${e.message}`, 'warn'); }
+    auditando = false;
+    return n;
   }
 
   // Fila serial: WhatsApp + IA uma de cada vez (evita corrida no dedup e estouro de limite)
@@ -513,6 +576,8 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   client.on('ready', () => setTimeout(() => enfileirar(() => varrerPerdidas('reconexao')), 20 * 1000));
   setTimeout(() => enfileirar(() => varrerPerdidas('inicio')), 3 * 60 * 1000);
   setInterval(() => enfileirar(() => varrerPerdidas('rotina 2h')), 2 * 60 * 60 * 1000 + 5 * 60 * 1000);
+  // Fotos antigas e as que ficaram sem auditoria: um lote a cada 15 min, sem atrapalhar a leitura das novas.
+  setInterval(() => { if (naFila === 0) enfileirar(() => auditarFotos()); }, 15 * 60 * 1000);
   function jsonResp(res, data, status = 200) {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(data));
@@ -550,6 +615,6 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
 
   L(`Modulo Obras ativo — grupo "${GRUPO}", IA ${anthropic ? MODELO : '-'} / ${gemini ? 'gemini' : '-'}`);
   return { ehGrupo, onMessage, http, _lerComIA: lerComIA, _relerPendentes: relerPendentes, _varrerPerdidas: varrerPerdidas,
-    _fila: () => naFila, _tabela: () => TAB, _lerBlocosPagamento: lerBlocosPagamento,
+    _fila: () => naFila, _auditarFotos: auditarFotos, _tabela: () => TAB, _lerBlocosPagamento: lerBlocosPagamento,
     _estadoIA: () => [anthropic && !claudeSemCredito ? 'claude' : (anthropic ? 'claude SEM CREDITO' : null), gemini ? 'gemini' : null].filter(Boolean).join(' + ') || 'nenhuma' };
 };

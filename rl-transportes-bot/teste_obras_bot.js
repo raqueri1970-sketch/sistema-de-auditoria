@@ -21,6 +21,7 @@ function criarSupabaseFalso() {
       eq(c, v) { f.filtros.push(r => r[c] === v); return api; },
       like(c, p) { const re = new RegExp('^' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*') + '$'); f.filtros.push(r => re.test(String(r[c] ?? ''))); return api; },
       not(c, op, v) { f.filtros.push(r => r[c] != null); return api; },
+      is(c, v) { f.filtros.push(r => (r[c] ?? null) === v); return api; },
       order(c, o = {}) { f.ordem = [c, o.ascending !== false]; return api; },
       limit(n) { f.lim = n; return api; },
       insert(d) { f.acao = 'insert'; f.dados = Array.isArray(d) ? d : [d]; return api; },
@@ -199,6 +200,13 @@ const item = (o) => ({ tipo_documento: 'comprovante', itens: [{ tipo_doc: 'cupom
   const uber = linhas().find(l => l.valor === 25.8);
   assert.strictEqual(uber.status, 'lancado'); assert.strictEqual(uber.categoria, 'transporte_combustivel');
   console.log('ok 12c print de corrida Uber/99 entra como despesa');
+
+  // 12d) Auditor IA da foto: toda despesa lançada recebe a leitura antifraude (auditoria_ia)
+  await esperar(); await obras._auditarFotos(50); await esperar();
+  const semAud = linhas().filter(l => l.status === 'lancado' && l.arquivo_path && !l.auditoria_ia);
+  assert.strictEqual(semAud.length, 0, 'todas as fotos lancadas deveriam estar auditadas');
+  assert.ok(linhas().filter(l => l.auditoria_ia).every(l => ['baixo', 'medio', 'alto', 'nao_lido'].includes(l.auditoria_ia.risco)));
+  console.log('ok 12d todas as fotos passam pelo auditor IA');
 
   // 13) Modo sombra (servidor novo em paralelo): grava só em obras_comprovantes_sombra e na pasta sombra/
   const sb2 = criarSupabaseFalso();

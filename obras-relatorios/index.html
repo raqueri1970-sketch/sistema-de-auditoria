@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261014-1">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261014-2">
 </head>
 <body>
 
@@ -50,14 +50,16 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js?v=20261014-1"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261014-2"></script>
 <script>
 let D = null, REL = 'aberto', MODELO = null;
 const RELS = {aberto: 'Contas a pagar em aberto', semanas: 'Fechamento por semana', extrato: 'Extrato do prestador', fluxo: 'Fluxo de caixa semanal', pagamentos: 'Pagamentos realizados',
   categorias: 'Despesas por categoria e obra', auditor: 'Pontos do Agente Auditor'};
 const REGRAS = {duplicidade_autenticacao: 'Pagamento repetido (mesma autenticação)', duplicidade_valor_data_fornecedor: 'Possível duplicidade',
   arquivo_repetido: 'Comprovante repetido', sem_comprovante: 'Sem documento', leitura_baixa_confianca: 'Leitura duvidosa', valor_atipico: 'Valor fora do padrão',
-  sem_obra: 'Sem obra', data_incoerente: 'Data incoerente', pix_pessoa_fisica_material: 'PIX p/ pessoa física', fornecedor_varias_vezes_dia: 'Fornecedor repetido no dia'};
+  sem_obra: 'Sem obra', data_incoerente: 'Data incoerente', pix_pessoa_fisica_material: 'PIX p/ pessoa física', fornecedor_varias_vezes_dia: 'Fornecedor repetido no dia',
+  ia_suspeita: 'IA viu sinal na foto', desvio_finalidade_grave: 'Desvio de finalidade', desvio_finalidade: 'Item de uso pessoal', pix_para_o_proprio: 'Pagou a si mesmo',
+  material_sem_nota: 'Material sem nota fiscal', outra_cidade: 'Outra cidade', compra_domingo: 'Compra no domingo', compra_madrugada: 'Despesa de madrugada'};
 
 async function carregar() {
   try {

@@ -77,20 +77,46 @@ async function todos(montar) {
 
 // Abre o comprovante numa janela dentro da própria tela. (Antes abria aba nova depois de esperar o link assinado —
 // o celular bloqueia esse pop-up e a foto "não abria" na visão do Presidente.)
+// 14/10/2026: o PDF num quadro (iframe) dentro do Portal era bloqueado pelo Chrome ("Esta página foi bloqueada").
+// Agora o arquivo é baixado com a sessão do Portal e mostrado sem quadro: foto como imagem, PDF desenhado página a página.
+let _pdfjs = null;
+async function pdfjs() {
+  if (!_pdfjs) _pdfjs = (async () => {
+    await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    return window.pdfjsLib;
+  })().catch(e => { _pdfjs = null; throw e; });
+  return _pdfjs;
+}
 async function abrirArquivo(path, titulo = 'Comprovante') {
   abrirModal(`<div class="row" style="justify-content:space-between"><h3 style="margin:0">${esc(titulo)}</h3><button class="btn" onclick="fecharModal()">Fechar ✕</button></div>
     <div class="visor" id="visor"><div class="vazio">Carregando…</div></div>`, 'larga');
-  let url = path;
-  if (!/^https?:\/\//.test(path)) {
-    const {data, error} = await sb.storage.from('obras-comprovantes').createSignedUrl(path, 900);
-    if (error) { const v = $('visor'); if (v) v.innerHTML = `<div class="crit">Arquivo indisponível: ${esc(error.message)}</div>`; return; }
-    url = data.signedUrl;
-  }
+  const falha = m => { const v = $('visor'); if (v) v.innerHTML = `<div class="crit">${esc(m)}</div>`; };
+  let blob;
+  try {
+    if (/^https?:\/\//.test(path)) { const r = await fetch(path); if (!r.ok) throw new Error('HTTP ' + r.status); blob = await r.blob(); }
+    else { const {data, error} = await sb.storage.from('obras-comprovantes').download(path); if (error) throw error; blob = data; }
+  } catch (e) { return falha('Arquivo indisponível: ' + msgErro(e)); }
   const v = $('visor'); if (!v) return;
-  const pdf = /\.pdf($|\?)/i.test(path);
-  v.innerHTML = (pdf ? `<iframe src="${esc(url)}#view=FitH" title="PDF"></iframe>`
-      : `<img src="${esc(url)}" alt="comprovante" onerror="this.outerHTML='<div class=crit>Não foi possível mostrar a imagem.</div>'">`)
-    + `<div class="row" style="justify-content:center;margin-top:8px"><a class="btn b-pri" href="${esc(url)}" target="_blank" rel="noopener">Abrir em tela cheia / baixar</a></div>`;
+  const pdf = /\.pdf($|\?)/i.test(path) || blob.type === 'application/pdf';
+  const url = URL.createObjectURL(pdf ? new Blob([blob], {type: 'application/pdf'}) : blob);
+  const nome = String(path).split('/').pop().split('?')[0] || 'comprovante';
+  const baixar = `<div class="row" style="justify-content:center;margin-top:8px"><a class="btn b-pri" href="${url}" download="${esc(nome)}">Baixar arquivo</a></div>`;
+  if (!pdf) { v.innerHTML = `<img src="${url}" alt="comprovante" onerror="this.outerHTML='<div class=crit>Não foi possível mostrar a imagem.</div>'">` + baixar; return; }
+  v.innerHTML = '<div class="vazio">Abrindo o PDF…</div>';
+  try {
+    const lib = await pdfjs(), doc = await lib.getDocument({data: new Uint8Array(await blob.arrayBuffer())}).promise;
+    v.innerHTML = '';
+    const larg = Math.min(880, (v.clientWidth || 800));
+    for (let n = 1; n <= Math.min(doc.numPages, 30); n++) {
+      const pg = await doc.getPage(n), vp0 = pg.getViewport({scale: 1}), esc2 = larg / vp0.width * (window.devicePixelRatio || 1);
+      const vp = pg.getViewport({scale: esc2}), c = document.createElement('canvas');
+      c.width = vp.width; c.height = vp.height; c.style.width = '100%'; c.className = 'pdfpag';
+      v.appendChild(c); await pg.render({canvasContext: c.getContext('2d'), viewport: vp}).promise;
+    }
+    if (doc.numPages > 30) v.insertAdjacentHTML('beforeend', `<div class="small mut">Mostrando 30 de ${doc.numPages} páginas — baixe o arquivo para ver todas.</div>`);
+    v.insertAdjacentHTML('beforeend', baixar);
+  } catch (e) { v.innerHTML = `<div class="crit">Não foi possível mostrar o PDF (${esc(msgErro(e))}).</div>` + baixar; }
 }
 const ARQ = [];
 const linkArquivo = (path, txt = 'ver') => path ? `<a href="#" onclick="abrirArquivo(ARQ[${ARQ.push(path) - 1}]);return false">${txt}</a>` : '';
