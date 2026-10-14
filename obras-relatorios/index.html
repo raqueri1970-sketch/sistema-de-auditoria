@@ -50,10 +50,10 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js?v=20261014-4"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261014-5"></script>
 <script>
 let D = null, REL = 'aberto', MODELO = null;
-const RELS = {aberto: 'Contas a pagar em aberto', semanas: 'Fechamento por semana', extrato: 'Extrato do prestador', fluxo: 'Fluxo de caixa semanal', pagamentos: 'Pagamentos realizados',
+const RELS = {aberto: 'Contas a pagar em aberto', semanas: 'Fechamento por semana', duplicadas: 'Duplicidades já pagas', extrato: 'Extrato do prestador', fluxo: 'Fluxo de caixa semanal', pagamentos: 'Pagamentos realizados',
   categorias: 'Despesas por categoria e obra', auditor: 'Pontos do Agente Auditor'};
 const REGRAS = {duplicidade_autenticacao: 'Pagamento repetido (mesma autenticação)', duplicidade_valor_data_fornecedor: 'Possível duplicidade',
   arquivo_repetido: 'Comprovante repetido', sem_comprovante: 'Sem documento', leitura_baixa_confianca: 'Leitura duvidosa', valor_atipico: 'Valor fora do padrão',
@@ -63,9 +63,10 @@ const REGRAS = {duplicidade_autenticacao: 'Pagamento repetido (mesma autenticaç
 
 async function carregar() {
   try {
-    const [desp, saldos, pags, itens, adis, fluxo, prest] = await Promise.all([carregarDespesas(), carregarSaldos(), carregarPagamentos(), carregarItens(), carregarAdiantamentos(),
-      todos(() => sb.from('obras_fluxo_semanal').select('*').order('prestador').order('semana')), carregarPrestacoes()]);
-    D = {desp, saldos, pags, itens, adis, fluxo, prest};
+    const [desp, saldos, pags, itens, adis, fluxo, prest, prestIds] = await Promise.all([carregarDespesas(), carregarSaldos(), carregarPagamentos(), carregarItens(), carregarAdiantamentos(),
+      todos(() => sb.from('obras_fluxo_semanal').select('*').order('prestador').order('semana')), carregarPrestacoes(),
+      todos(() => sb.from('obras_comprovantes').select('id,prestacao_id').in('status', ['duplicada', 'lancado']).not('prestacao_id', 'is', null))]);
+    D = {desp, saldos, pags, itens, adis, fluxo, prest, prestDe: new Map(prestIds.map(x => [x.id, x.prestacao_id]))};
   } catch (e) { $('saida').innerHTML = `<div class="card err">Erro ao carregar: ${esc(msgErro(e))}</div>`; return; }
   const sel = $('fPrest').value;
   $('fPrest').innerHTML = '<option value="">Todos os prestadores</option>' + D.saldos.map(s => `<option ${s.prestador === sel ? 'selected' : ''}>${esc(s.prestador)}</option>`).join('');
@@ -106,6 +107,33 @@ const MODELOS = {
             d.criticos ? `${d.criticos} crítico(s)` : d.atencoes ? `${d.atencoes} atenção` : '']),
           rodape: ['Total', '', '', '', '', V(soma(abertos, 'valor')), V(soma(abertos, 'valor_pago')), V(soma(abertos, 'saldo')), '']}],
       paisagem: true, arquivo: `contas_a_pagar_${f.prest || 'todos'}_${hojeISO()}`};
+  },
+  duplicadas(f) {
+    // Duplicidades que JÁ FORAM PAGAS: a prestação foi paga pelo total que o prestador declarou, e esse total somou a mesma despesa 2 vezes.
+    // (Na 23ª em diante o pagamento é pelas fotos lançadas: a duplicata fica fora e não entra aqui.)
+    const pr = id => D.prest.find(p => p.id === D.prestDe.get(id));
+    const ds = D.desp.filter(d => d.status === 'duplicada' && d.situacao_pagamento === 'pago' && D.prestDe.get(d.id) && f.doPrest(d) && f.noPer(d.data_despesa))
+      .sort((a, b) => a.prestador.localeCompare(b.prestador) || String(a.data_despesa).localeCompare(String(b.data_despesa)));
+    const limpa = t => String(t || '').replace(/\s+/g, ' ').replace(/â€”|â€"/g, '—').replace(/^.*?\[DUP\]\s*/, '');
+    const prests = [...new Set(ds.map(d => d.prestador))].sort((a, b) => soma(ds.filter(d => d.prestador === b), 'valor') - soma(ds.filter(d => d.prestador === a), 'valor'));
+    const porPrest = prests.map(p => { const l = ds.filter(d => d.prestador === p);
+      return {titulo: `${p} — ${l.length} duplicidade(s) · ${brl(soma(l, 'valor'))}`, cab: ['Prestação', 'Data', 'Fornecedor', 'O que foi duplicado', 'Pago a mais'], direita: [4],
+        linhas: l.map(d => [(pr(d.id) || {}).numero || '', dBRano(d.data_despesa), d.fornecedor || '', limpa(d.descricao), V(d.valor)]),
+        rodape: ['Total', '', '', `${l.length} item(ns)`, V(soma(l, 'valor'))]}; });
+    // conferência por prestação: declarado na capa x fotos válidas x duplicado
+    const ids = [...new Set(ds.map(d => D.prestDe.get(d.id)))];
+    const conf = ids.map(id => { const p = D.prest.find(x => x.id === id) || {}, val = D.desp.filter(d => D.prestDe.get(d.id) === id && d.status === 'lancado');
+      const dup = ds.filter(d => D.prestDe.get(d.id) === id);
+      return [p.responsavel || '', p.numero || '', p.valor_declarado != null ? V(p.valor_declarado) : 'sem capa', V(soma(val, 'valor')), V(soma(dup, 'valor')),
+        p.valor_declarado != null ? V(Number(p.valor_declarado) - soma(val, 'valor')) : '—']; })
+      .sort((a, b) => a[0].localeCompare(b[0]));
+    return {titulo: 'Duplicidades já pagas nas prestações de contas', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''} - mesma despesa apresentada 2 vezes e paga pelo total declarado`,
+      resumo: [['Total pago a mais', brl(soma(ds, 'valor'))], ['Duplicidades', String(ds.length)], ...prests.slice(0, 3).map(p => [p, brl(soma(ds.filter(d => d.prestador === p), 'valor'))])],
+      secoes: [...porPrest,
+        {titulo: 'Conferência por prestação', nota: 'Declarado = total que o prestador pôs na capa (foi o valor pago). Fotos válidas = soma das despesas sem as duplicadas. A diferença mostra o que foi pago a mais.',
+          cab: ['Prestador', 'Prestação', 'Declarado (pago)', 'Fotos válidas', 'Duplicado', 'Declarado − válidas'], direita: [2, 3, 4, 5], linhas: conf,
+          rodape: ['Total', '', '', '', V(soma(ds, 'valor')), '']}],
+      paisagem: true, arquivo: `duplicidades_pagas_${f.prest || 'todos'}_${hojeISO()}`};
   },
   semanas(f) {
     // Fechamento semanal (segunda a domingo): despesas da semana, quanto já foi pago e se a semana/prestação está QUITADA

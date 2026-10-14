@@ -316,7 +316,7 @@ async function pdfLib() {
   })().catch(e => { _pdfLib = null; throw e; });
   return _pdfLib;
 }
-const pdfTxt = s => String(s ?? '').replace(/[^\x00-\xFF€]/g, '');  // a fonte padrão do PDF não tem emoji
+const pdfTxt = s => String(s ?? '').replace(/[–—−]/g, '-').replace(/[^\x00-\xFF€]/g, '');  // a fonte padrão do PDF não tem emoji nem travessão
 let _logo;
 function logoPDF() {
   if (_logo === undefined) _logo = fetch(new URL('../obras-contas-pagar/logo-esposende.jpg', location.href)).then(r => r.ok ? r.blob() : null)
@@ -364,7 +364,7 @@ async function gerarPDF(doc) {
     if (s.nota) { pdf.setFontSize(8.5); pdf.setTextColor(90); const ls = pdf.splitTextToSize(pdfTxt(s.nota), W - 2 * M); pdf.text(ls, M, y + 9); y += 9 + ls.length * 10; pdf.setTextColor(20); }
     const colStyles = {}; (s.direita || []).forEach(i => colStyles[i] = {halign: 'right'});
     // colunas de valor: alinhadas à direita e sem quebra (as casas decimais ficam uma embaixo da outra)
-    (s.direita || []).forEach(i => colStyles[i] = {halign: 'right', overflow: 'visible', cellWidth: 'wrap'});
+    (s.direita || []).forEach(i => colStyles[i] = {halign: 'right', overflow: 'visible', cellWidth: 72});
     pdf.autoTable({startY: y + 4, head: [s.cab.map(pdfTxt)], body: s.linhas.map(l => l.map(c => pdfTxt(celTxt(c)))), foot: s.rodape ? [s.rodape.map(c => pdfTxt(celTxt(c)))] : undefined,
       margin: {left: M, right: M}, styles: {fontSize: 8, cellPadding: 3.5, overflow: 'linebreak', valign: 'middle'}, columnStyles: colStyles,
       headStyles: {fillColor: [37, 99, 235], textColor: 255}, footStyles: {fillColor: [235, 238, 245], textColor: 20, fontStyle: 'bold'},
