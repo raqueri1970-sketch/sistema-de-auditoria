@@ -202,6 +202,21 @@ const item = (o) => ({ tipo_documento: 'comprovante', itens: [{ tipo_doc: 'cupom
   assert.strictEqual(uber.status, 'lancado'); assert.strictEqual(uber.categoria, 'transporte_combustivel');
   console.log('ok 12c print de corrida Uber/99 entra como despesa');
 
+  // 12e) Legenda do WhatsApp vira a descrição (no lugar de "Transferência PIX"); nome de arquivo não conta como legenda
+  const mLeg = msgFalsa(item({ tipo_doc: 'comprovante_pix', valor: 130, data: hoje, fornecedor: 'Edimar', descricao: 'Transferência PIX' }));
+  mLeg.body = 'Diaria servente 12/10 - Maceió centro';
+  await obras.onMessage(mLeg, {}); await esperar();
+  assert.strictEqual(linhas().find(l => l.valor === 130).descricao, 'Diaria servente 12/10 - Maceió centro');
+  const mLeg2 = msgFalsa(item({ valor: 88.8, data: hoje, fornecedor: 'Loja X', descricao: 'Cimento 2 sacos' }));
+  mLeg2.body = 'Insumos - Maceió centro';
+  await obras.onMessage(mLeg2, {}); await esperar();
+  assert.strictEqual(linhas().find(l => l.valor === 88.8).descricao, 'Insumos - Maceió centro · Cimento 2 sacos');
+  const mLeg3 = msgFalsa(item({ valor: 66.6, data: hoje, fornecedor: 'Loja Y', descricao: 'Areia' }));
+  mLeg3.body = 'comprovante_pix_13-10.pdf';
+  await obras.onMessage(mLeg3, {}); await esperar();
+  assert.strictEqual(linhas().find(l => l.valor === 66.6).descricao, 'Areia');
+  console.log('ok 12e legenda do WhatsApp entra na descricao da despesa');
+
   // 12d) Auditor IA da foto: toda despesa lançada recebe a leitura antifraude (auditoria_ia)
   await esperar(); await obras._auditarFotos(50); await esperar();
   const semAud = linhas().filter(l => l.status === 'lancado' && l.arquivo_path && !l.auditoria_ia);

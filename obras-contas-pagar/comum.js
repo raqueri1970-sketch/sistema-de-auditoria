@@ -145,7 +145,7 @@ async function compararFotos(ids, achados = []) {
   ids = [...new Set(ids)].slice(0, 8);
   abrirModal(`<div class="row" style="justify-content:space-between"><h3 style="margin:0">Possível duplicidade · compare as fotos</h3><button class="btn" onclick="fecharModal()">Fechar ✕</button></div>
     <div id="cmp" class="vazio">Carregando…</div>`, 'larga');
-  const {data, error} = await sb.from('obras_despesas_pagamento').select(COLS_DESP + ',wa_data').in('id', ids);
+  const {data, error} = await sb.from('obras_despesas_pagamento').select(COLS_DESP).in('id', ids);
   if (error) { $('cmp').innerHTML = `<div class="crit">${esc(msgErro(error))}</div>`; return; }
   const l = (data || []).sort((a, b) => String(a.wa_data || a.data_despesa).localeCompare(String(b.wa_data || b.data_despesa)));
   window.CMP = {l, achados};
@@ -161,21 +161,155 @@ async function compararFotos(ids, achados = []) {
   l.forEach((d, i) => mostrarArquivoEm($('cmpv_' + i), d.arquivo_path, 440));
 }
 const PODE_DECIDIR = () => typeof PAP === 'object' && PAP && (PAP.presidente || PAP.admin);
+// Comparou as fotos e NÃO é duplicada: aprova todas as comparadas (as somadas continuam somadas; a barrada passa a somar).
 async function naoEhDuplicada() {
   const ids = (CMP.achados || []).filter(Boolean);
-  // resolve os pontos de duplicidade das despesas comparadas
-  const todos = CMP.l.flatMap(d => (d.achados || []).filter(a => REGRAS_DUP.includes(a.regra) || a.regra === 'fornecedor_varias_vezes_dia').map(a => a.id));
-  const {error} = await sb.rpc('obras_resolver_achados', {p_ids: [...new Set([...ids, ...todos])], p_observacao: 'Fotos comparadas: não é duplicidade (gastos diferentes)'});
-  if (error) return toast(msgErro(error), 6000);
-  fecharModal(); toast('Registrado: não é duplicada.'); if (typeof carregar === 'function') carregar();
+  const outros = CMP.l.flatMap(d => (d.achados || []).filter(a => a.regra === 'fornecedor_varias_vezes_dia').map(a => a.id));
+  for (const d of CMP.l) {
+    const {error} = await sb.rpc('obras_duplicidade_decidir', {p_comp: d.id, p_aprovar: true, p_observacao: 'Fotos comparadas: não é duplicidade (gastos diferentes)', p_glosar: false});
+    if (error) return toast(msgErro(error), 6000);
+  }
+  if (ids.length || outros.length) await sb.rpc('obras_resolver_achados', {p_ids: [...new Set([...ids, ...outros])], p_observacao: 'Fotos comparadas: não é duplicidade (gastos diferentes)'});
+  fecharModal(); toast('Aprovado: não é duplicada.'); if (typeof carregar === 'function') carregar();
 }
-async function ehDuplicada() {
-  const d = CMP.l[CMP.l.length - 1];
-  if (Number(d.valor_pago) > 0) return toast('A que chegou depois já foi paga — cancele o pagamento antes.', 6000);
-  if (!confirm(`Recusar "${d.fornecedor || ''}" de ${brl(d.valor)} (a que chegou depois)? Ela sai do total como duplicada.`)) return;
-  const {error} = await sb.rpc('obras_despesa_recusar', {p_comp: d.id, p_motivo: 'Duplicidade confirmada na comparação das fotos (igual à que chegou primeiro)'});
-  if (error) return toast(msgErro(error), 6000);
-  fecharModal(); toast('Duplicada recusada: saiu do total.'); if (typeof carregar === 'function') carregar();
+// É duplicada: reprova a que chegou depois (sai do total; se já foi paga, pode virar desconto no próximo pagamento).
+function ehDuplicada() { const d = CMP.l[CMP.l.length - 1]; decidirDup(d, false); }
+
+// ---------- Duplicidades: somada ou não, aprovar / reprovar (15/10/2026, pedido do Ricardo) ----------
+// Cada duplicidade cai em um destes casos — o texto diz SEM dúvida se o valor está ou não no total:
+//   somada_aberta  → ESTÁ SOMADA no a pagar (ainda não paga)      reprovar = sai do total e o a pagar é recalculado
+//   somada_paga    → ESTÁ SOMADA e JÁ FOI PAGA                     reprovar = sai do total + desconto no próximo pagamento
+//   barrada        → NÃO está somada (o sistema barrou)             reprovar = só sai desta lista
+//   barrada_paga   → NÃO está somada, mas JÁ FOI PAGA na prestação  reprovar = sai da lista (+ desconto, se marcar)
+//   recusada       → NÃO está somada (foi recusada)                 reprovar = confirma como duplicada
+const DUP_CASO = {
+  somada_aberta: {chip: 'SOMADA NO A PAGAR', cls: 's-pendencia', txt: 'Este valor ESTÁ SOMADO no total a pagar.'},
+  somada_paga: {chip: 'SOMADA · JÁ PAGA', cls: 's-pendencia', txt: 'Este valor ESTÁ SOMADO e JÁ FOI PAGO ao prestador.'},
+  barrada_paga: {chip: 'NÃO SOMADA · MAS JÁ PAGA', cls: 's-fechada', txt: 'O sistema NÃO soma este valor, mas ele JÁ FOI PAGO na prestação de contas (pago a mais).'},
+  barrada: {chip: 'NÃO SOMADA', cls: 's-cinza', txt: 'O sistema barrou: este valor NÃO está somado em nenhum total.'},
+  recusada: {chip: 'NÃO SOMADA (recusada)', cls: 's-cinza', txt: 'Esta despesa foi recusada: NÃO está somada no a pagar.'}};
+function casoDup(d) {
+  if (d.status === 'duplicada') return d.situacao_pagamento === 'pago' ? 'barrada_paga' : 'barrada';
+  if (d.situacao === 'recusado') return 'recusada';
+  return Number(d.valor_pago) > 0 ? 'somada_paga' : 'somada_aberta';
+}
+const ehDupAchado = a => REGRAS_DUP.includes(a.regra);
+// Junta as duplicidades pendentes (sem decisão): as somadas (com ponto do Auditor) em pares e as barradas pelo robô.
+// desp = linhas da view obras_despesas_pagamento (lançadas e duplicadas); devolve [{d, par, caso}]
+function listaDuplicidades(desp) {
+  const porId = new Map(desp.map(d => [d.id, d])), vistos = new Set(), out = [];
+  const quando = d => String(d.wa_data || d.data_despesa || '') + d.id;
+  for (const d of desp) {
+    if (d.dup_decisao) continue;
+    if (d.status === 'duplicada') {
+      if (/^Foto reenviada|^Texto repetido/.test(d.descricao || '') && Number(d.valor) === 0) continue;
+      out.push({d, par: null, caso: casoDup(d)}); continue;
+    }
+    if (d.status !== 'lancado') continue;
+    for (const a of (d.achados || []).filter(ehDupAchado)) {
+      const o = a.relacionado_id && porId.get(a.relacionado_id);
+      const k = [d.id, a.relacionado_id || ''].sort().join('|');
+      if (vistos.has(k)) continue; vistos.add(k);
+      // a que chegou depois é a suspeita (é ela que sai do total se reprovar)
+      const [orig, dup] = o && quando(o) > quando(d) ? [d, o] : [o, d];
+      if (dup.dup_decisao) continue;
+      out.push({d: dup, par: orig || null, caso: casoDup(dup), achado: a});
+    }
+  }
+  const ordem = ['somada_aberta', 'somada_paga', 'barrada_paga', 'recusada', 'barrada'];
+  return out.sort((x, y) => ordem.indexOf(x.caso) - ordem.indexOf(y.caso) || String(y.d.data_despesa).localeCompare(String(x.d.data_despesa)));
+}
+let DUPS_VER_TODAS = false;
+function painelDuplicidadesHTML(lista, {limite = 15} = {}) {
+  window.DUPL = lista;
+  const tot = c => lista.filter(x => c.includes(x.caso)), sv = l => l.reduce((t, x) => t + Number(x.d.valor || 0), 0);
+  const somA = tot(['somada_aberta']), somP = tot(['somada_paga']), barr = tot(['barrada', 'recusada', 'barrada_paga']), barrP = tot(['barrada_paga']);
+  const mostrar = DUPS_VER_TODAS ? lista : lista.slice(0, limite), pode = PODE_DECIDIR();
+  const lin = (x, i) => { const d = x.d, c = DUP_CASO[x.caso], o = x.par;
+    return `<tr><td><span class="chip ${c.cls}">${c.chip}</span></td>
+      <td class="small"><b>${esc(d.prestador || '')}</b> · ${dBRano(d.data_despesa)} · ${esc(d.fornecedor || 'Fornecedor não lido')}<div><b>${brl(d.valor)}</b> · ${esc(nomeObra(d.obra))}</div>
+        ${d.descricao ? `<div class="mut">${esc(String(d.descricao).slice(0, 140))}</div>` : ''}
+        ${o ? `<div class="mut">Igual a: ${esc(o.prestador || '')} · ${dBRano(o.data_despesa)} · ${esc(o.fornecedor || '')} · ${brl(o.valor)}${o.prestador !== d.prestador ? ' <b style="color:#fca5a5">(OUTRO prestador)</b>' : ''}</div>` : ''}</td>
+      <td class="small">${esc(c.txt)}${x.achado ? `<div class="mut">${esc(x.achado.mensagem)}</div>` : ''}
+        <div style="margin-top:4px">${o ? `<a href="#" onclick="compararFotos(['${o.id}','${d.id}']);return false">🔍 comparar as 2 fotos</a>` : linkArquivo(d.arquivo_path, 'ver foto')}</div></td>
+      <td>${pode ? `<div class="row" style="flex-wrap:nowrap"><button class="btn b-ok" onclick="decidirDup(DUPL[${lista.indexOf(x)}].d, true)">Aprovar</button><button class="btn b-bad" onclick="decidirDup(DUPL[${lista.indexOf(x)}].d, false)">Reprovar</button></div>` : ''}</td></tr>`; };
+  return `<div class="row dup-chips" style="gap:8px;margin:4px 0 10px">
+      <span class="chip s-pendencia">SOMADAS no a pagar (ainda não pagas): ${somA.length} · ${brl(sv(somA))}</span>
+      <span class="chip s-fechada">SOMADAS e já pagas: ${somP.length} · ${brl(sv(somP))}</span>
+      <span class="chip s-cinza">NÃO somadas (barradas): ${barr.length} · ${brl(sv(barr))}${barrP.length ? ` · ${barrP.length} já paga(s) na prestação ${brl(sv(barrP))}` : ''}</span></div>
+    <div class="small" style="margin-bottom:6px"><b>Somada</b> = o valor está dentro do total de despesas (e do a pagar, se ainda não foi paga). <b>Não somada</b> = o sistema já deixou fora de todos os totais.</div>
+    <div class="small mut">Aprovar = não é duplicada (a barrada passa a somar; a somada continua). Reprovar = é duplicada: se estava somada, sai do total e o a pagar é recalculado; se não estava, só sai desta lista. Se já foi paga, dá para lançar o valor como desconto no próximo pagamento.</div>
+    ${lista.length ? `<div class="tw"><table class="dup-t"><tr><th>Situação no total</th><th>Despesa</th><th>O que o sistema viu</th><th></th></tr>${mostrar.map(lin).join('')}</table></div>
+      ${lista.length > limite ? `<button class="btn" style="margin-top:8px" onclick="DUPS_VER_TODAS=!DUPS_VER_TODAS;if(typeof renderDuplicidades==='function')renderDuplicidades()">${DUPS_VER_TODAS ? `Mostrar só as ${limite} primeiras` : `Ver todas as ${lista.length}`}</button>` : ''}`
+      : '<div class="small mut" style="margin-top:8px">✔ Nenhuma duplicidade esperando decisão.</div>'}`;
+}
+// Janela de decisão: diz exatamente o que acontece com o total antes de confirmar.
+function decidirDup(d, aprovar) {
+  if (!PODE_DECIDIR()) return toast('Só o Presidente ou a Controladoria decidem duplicidade.');
+  const caso = casoDup(d), pago = caso === 'somada_paga' || caso === 'barrada_paga', v = brl(caso === 'somada_paga' ? d.valor_pago : d.valor);
+  const efeito = aprovar
+    ? (caso.startsWith('somada') ? `Continua SOMADA no total. Os alertas de duplicidade somem.` : caso === 'recusada' ? `Os alertas somem; a despesa continua recusada (use "desfazer" na tela de pagamento se quiser pagar).` : `Passa a SOMAR ${brl(d.valor)} no total de ${esc(d.prestador || '')}${pago ? ' (já consta como paga)' : ' — o a pagar SOBE esse valor'}.`)
+    : (caso === 'somada_aberta' ? `SAI do total: o a pagar de ${esc(d.prestador || '')} CAI ${brl(d.valor)} e é recalculado na hora.`
+      : caso === 'somada_paga' ? `SAI do total. Ela JÁ FOI PAGA (${v}).`
+      : caso === 'barrada_paga' ? `Continua FORA do total e sai desta lista. Ela JÁ FOI PAGA na prestação (${v} pago a mais).`
+      : `Continua FORA do total (não estava somada). Só sai desta lista.`);
+  abrirModal(`<h3>${aprovar ? 'Aprovar: não é duplicada' : 'Reprovar: é duplicada'}</h3>
+    <div class="small">${esc(d.prestador || '')} · ${dBRano(d.data_despesa)} · ${esc(d.fornecedor || '')}</div><div class="big">${brl(d.valor)}</div>
+    <div class="small"><span class="chip ${DUP_CASO[caso].cls}">${DUP_CASO[caso].chip}</span></div>
+    <div class="${aprovar ? 'small' : 'warn'}" style="margin:10px 0"><b>O que acontece:</b> ${efeito}</div>
+    ${!aprovar && pago ? `<label class="chk"><input type="checkbox" id="dGlosa" checked> Descontar ${v} do prestador no próximo pagamento (glosa)</label>` : ''}
+    <label>Observação (fica registrada com o seu nome)</label><input id="dObs" maxlength="300" placeholder="${aprovar ? 'ex.: são 2 passagens diferentes' : 'ex.: mesma nota enviada 2 vezes'}">
+    <div class="err" id="mErr"></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn" onclick="fecharModal()">Voltar</button>
+      <button class="btn ${aprovar ? 'b-ok' : 'b-bad'}" id="mOk" onclick="decidirDupOk('${d.id}', ${aprovar})">${aprovar ? 'Aprovar' : 'Reprovar'}</button></div>`);
+}
+async function decidirDupOk(id, aprovar) {
+  const btn = $('mOk'); btn.disabled = true; btn.textContent = 'Gravando…';
+  const {data, error} = await sb.rpc('obras_duplicidade_decidir', {p_comp: id, p_aprovar: aprovar, p_observacao: ($('dObs').value || '').trim() || null, p_glosar: !!($('dGlosa') && $('dGlosa').checked)});
+  if (error) { btn.disabled = false; btn.textContent = aprovar ? 'Aprovar' : 'Reprovar'; $('mErr').textContent = msgErro(error); return; }
+  fecharModal(); toast((data && data.acao) || 'Registrado.', 8000); if (typeof carregar === 'function') carregar();
+}
+
+// ---------- Despesas por fornecedor (15/10/2026) ----------
+// Junta variações do mesmo nome ("PS Descartaveis" / "PS Descartáveis", "LTDA", CNPJ entre parênteses).
+const chaveForn = s => normTxt(String(s || '').replace(/\(.*?\)/g, ' ')).replace(/\b(ltda|me|epp|eireli|s a|sa|comercio|de|da|do|e)\b/g, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' ') || '—';
+function porFornecedor(lista) {
+  const m = new Map();
+  for (const d of lista) { const k = chaveForn(d.fornecedor), g = m.get(k) || {nome: d.fornecedor || 'Fornecedor não lido', n: 0, valor: 0, nomes: {}};
+    g.n++; g.valor += Number(d.valor || 0); g.nomes[d.fornecedor || 'Fornecedor não lido'] = (g.nomes[d.fornecedor || 'Fornecedor não lido'] || 0) + 1; m.set(k, g); }
+  return [...m.values()].map(g => ({...g, nome: Object.entries(g.nomes).sort((a, b) => b[1] - a[1])[0][0]})).sort((a, b) => b.valor - a.valor);
+}
+function fornecedoresHTML(lista, max = 8) {
+  const fs = porFornecedor(lista), tot = fs.reduce((t, f) => t + f.valor, 0) || 1, top = fs[0] ? fs[0].valor : 1;
+  if (!fs.length) return '<div class="small mut">Nenhuma despesa no período.</div>';
+  return `<div class="forn-lista">${fs.slice(0, max).map(f => `<div class="forn-l"><div class="forn-n"><span>${esc(f.nome)}</span><b>${brl(f.valor)}</b></div>
+      <div class="forn-b"><i style="width:${Math.max(2, f.valor / top * 100).toFixed(1)}%"></i></div><div class="small mut">${f.n} despesa(s) · ${(f.valor / tot * 100).toLocaleString('pt-BR', {maximumFractionDigits: 1})}%</div></div>`).join('')}</div>
+    ${fs.length > max ? `<div class="small mut" style="margin-top:4px">+ ${fs.length - max} fornecedor(es) · ${brl(fs.slice(max).reduce((t, f) => t + f.valor, 0))}</div>` : ''}`;
+}
+
+// ---------- Adiantamento × gasto por prestador (15/10/2026) ----------
+// itens = [{rotulo, credito, gasto}] → duas barras por prestador e o resultado (a pagar ou crédito que sobra)
+function graficoAdiantGasto(el, itens) {
+  itens = itens.filter(i => i.credito > 0 || i.gasto > 0);
+  if (!itens.length) { el.innerHTML = '<div class="vazio">Nenhum adiantamento nem gasto em aberto.</div>'; return; }
+  const W = 600, LBL = 130, VAL = 150, H = 62, max = Math.max(...itens.flatMap(i => [i.credito, i.gasto])) || 1, larg = W - LBL - VAL;
+  const linhas = itens.map((it, i) => { const y = i * H, w1 = Math.max(2, it.credito / max * larg), w2 = Math.max(2, it.gasto / max * larg), res = it.credito - it.gasto;
+    return `<g data-g="${i}"><text x="0" y="${y + 24}" style="fill:var(--txt2);font-size:12.5px;font-weight:700">${esc(it.rotulo.length > 17 ? it.rotulo.slice(0, 16) + '…' : it.rotulo)}</text>
+      <text x="0" y="${y + 41}" style="font-size:11px;fill:${res >= 0 ? '#86efac' : '#fcd34d'}">${res >= 0 ? 'sobra ' + esc(brlCurto(res)) : 'a pagar ' + esc(brlCurto(-res))}</text>
+      <rect x="${LBL}" y="${y + 8}" width="${w1}" height="16" rx="4" fill="${COR.s1}"/><text class="vl" x="${LBL + w1 + 6}" y="${y + 20}">${esc(brlCurto(it.credito))} crédito</text>
+      <rect x="${LBL}" y="${y + 28}" width="${w2}" height="16" rx="4" fill="${COR.s2}"/><text class="vl" x="${LBL + w2 + 6}" y="${y + 40}">${esc(brlCurto(it.gasto))} gasto</text></g>
+      <rect class="hit" data-i="${i}" x="0" y="${y}" width="${W}" height="${H}"/>`; }).join('');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${itens.length * H}" style="max-width:720px;display:block" role="img" aria-label="Adiantamento e gasto por prestador">${linhas}</svg>`;
+  ligarDicas(el, i => { const it = itens[i], res = it.credito - it.gasto;
+    return `<b>${esc(it.rotulo)}</b><div><span><i style="background:${COR.s1}"></i>Adiantamento (crédito)</span><span>${brl(it.credito)}</span></div>
+      <div><span><i style="background:${COR.s2}"></i>Gasto em aberto</span><span>${brl(it.gasto)}</span></div>
+      <div><span>${res >= 0 ? 'Crédito que sobra' : 'A pagar'}</span><span>${brl(Math.abs(res))}</span></div>${it.det || ''}`; });
+}
+const legendaAG = () => `<span class="leg"><span><i style="background:${COR.s1}"></i>Adiantamento (crédito)</span><span><i style="background:${COR.s2}"></i>Gasto em aberto</span></span>`;
+// Descrição da despesa: o que o prestador escreveu no WhatsApp (legenda) + o que a IA leu da foto.
+function descrHTML(d, max = 160) {
+  const t = String(d.descricao || d.legenda || '').trim();
+  return t ? `<div class="small descr">📝 ${esc(t.length > max ? t.slice(0, max - 1) + '…' : t)}</div>` : '<div class="small mut">📝 sem descrição — pedir ao prestador</div>';
 }
 const ARQ = [];
 const linkArquivo = (path, txt = 'ver') => path ? `<a href="#" onclick="abrirArquivo(ARQ[${ARQ.push(path) - 1}]);return false">${txt}</a>` : '';
@@ -241,7 +375,8 @@ async function papeis() {
 
 // ---------- Dados ----------
 const COLS_DESP = 'id,prestador,semana,semana_fim,data_despesa,hora_documento,fornecedor,categoria,descricao,tipo_doc,valor,status,situacao_pagamento,situacao,' +
-  'valor_pago,valor_reservado,saldo,arquivo_path,obra_id,obra,legenda,remetente,remetente_numero,confianca_ocr,criticos,atencoes,achados,pago_em,ultimo_pagamento_numero,recusado_motivo,recusado_por,recusado_em,pagamento_id,pagador';
+  'valor_pago,valor_reservado,saldo,arquivo_path,obra_id,obra,legenda,remetente,remetente_numero,confianca_ocr,criticos,atencoes,achados,pago_em,ultimo_pagamento_numero,recusado_motivo,recusado_por,recusado_em,pagamento_id,pagador,' +
+  'dup_decisao,dup_decidido_por,dup_decidido_em,dup_obs,origem,prestacao_id,wa_data';
 const carregarDespesas = (filtro = q => q) => todos(() => filtro(sb.from('obras_despesas_pagamento').select(COLS_DESP)).order('data_despesa', {ascending: true}).order('id'));
 const carregarSaldos = () => todos(() => sb.from('obras_saldo_prestador').select('*').order('prestador'));
 const carregarPagamentos = () => todos(() => sb.from('obras_pagamentos').select('*').order('created_at', {ascending: false}));
@@ -295,7 +430,7 @@ function contaExtratoHTML(c) {
   const lin = c.abertas.map(d => { corr -= Number(d.saldo);
     const ach = (d.achados || []), crit = ach.some(a => a.nivel === 'critico');
     return `<tr><td>${dBR(d.data_despesa)}${d.hora_documento ? ' ' + esc(String(d.hora_documento).slice(0, 5)) : ''}</td>
-      <td>${esc(d.fornecedor || 'Fornecedor não lido')}<div class="mut small">${esc(CATS[d.categoria] || d.categoria || '')} · ${esc(nomeObra(d.obra))}${d.legenda ? ' · ' + esc(String(d.legenda).slice(0, 60)) : ''}</div>
+      <td>${esc(d.fornecedor || 'Fornecedor não lido')}<div class="mut small">${esc(CATS[d.categoria] || d.categoria || '')} · ${esc(nomeObra(d.obra))}</div>${descrHTML(d)}
         ${ach.length ? `<div class="${crit ? 'crit' : 'warn'}" style="margin:2px 0 0">${ach.map(a => `⚠ ${esc(a.mensagem)} ${linkComparar(d, a)}`).join('<br>')}</div>` : ''}
         <div class="small">${linkArquivo(d.arquivo_path, 'ver foto')}</div></td>
       <td class="r">− ${brl(d.saldo)}</td><td class="r"><b style="color:${corr >= 0 ? 'inherit' : '#fcd34d'}">${brl(corr)}</b></td></tr>`; }).join('');
