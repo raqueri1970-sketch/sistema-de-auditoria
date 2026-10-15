@@ -10,7 +10,8 @@ const Database = require('better-sqlite3');
 const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 const APLICAR = process.argv[2] === 'aplicar';
-const db = new Database(path.join(__dirname, 'rl_transportes.db'), { readonly: true });
+// Na nuvem o banco fica em DADOS_DIR (/dados), igual ao bot_v3.js; no D90, na pasta do código (15/10/2026).
+const db = new Database(path.join(process.env.DADOS_DIR || __dirname, 'rl_transportes.db'), { readonly: true, fileMustExist: true });
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const json = s => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 
