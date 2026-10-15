@@ -991,6 +991,17 @@ setTimeout(() => sincronizarSupabase('inicio do bot'), 3 * 60 * 1000);
 setInterval(() => sincronizarSupabase('rotina 2h'), 2 * 60 * 60 * 1000 + 20 * 60 * 1000);
 setInterval(() => { reprocessarZeradas({ automatico: true }).catch(e => log(`Erro reprocessar zeradas (auto): ${e.message}`, 'warn')); }, 2 * 60 * 60 * 1000 + 10 * 60 * 1000);
 
+// OBRAS_FROMME_1210 (12/10/2026): o evento 'message' nao dispara para o que sai do proprio numero conectado.
+// 'message_create' cobre essas mensagens; aqui so as enviadas por este numero (fromMe) no grupo de Obras.
+// Duplicidade: processar() checa wa_msg_id (jaLancada) e a fila e serial.
+client.on('message_create', async msg => {
+  if (!msg.fromMe || !msg.hasMedia) return;
+  try {
+    const chat = await msg.getChat();
+    if (chat && chat.isGroup && obras && obras.ehGrupo(chat)) await obras.onMessage(msg, chat);
+  } catch (e) { log(`Erro mensagem propria (obras): ${e.message}`, 'warn'); }
+});
+
 client.on('message', async msg => {
   try {
     const chat = await msg.getChat();
