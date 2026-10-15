@@ -18,4 +18,7 @@ COPY bot_v3.js obras_bot.js capturador_status.js sync_supabase.js leitor_pdf.py 
 # Sessão do WhatsApp, cache da versão do WhatsApp Web, banco/fotos da RL e cópias das fotos de Obras ficam em volumes
 VOLUME ["/app/.wwebjs_auth", "/app/.wwebjs_cache", "/dados", "/app/fotos_obras"]
 EXPOSE 3456
-CMD ["node", "-r", "dotenv/config", "bot_v3.js", "dotenv_config_path=/app/.env"]
+# Recriar o container muda o hostname e o Chromium recusa o perfil travado pelo container anterior
+# ("profile appears to be in use by another Chromium process ... on another computer"). As travas Singleton*
+# são só de processo: apagar ao iniciar é seguro e não mexe na sessão do WhatsApp (15/10/2026).
+CMD ["sh", "-c", "rm -f /app/.wwebjs_auth/session*/Singleton* && exec node -r dotenv/config bot_v3.js dotenv_config_path=/app/.env"]
