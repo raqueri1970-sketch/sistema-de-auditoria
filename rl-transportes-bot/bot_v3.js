@@ -311,13 +311,45 @@ function lerPdfLocal(mediaData) {
   finally { try { fs.unlinkSync(tmp); } catch(e) {} }
 }
 
+// 15/10/2026: a cota gratuita do Gemini acabou e a RL ficou lancando despesas zeradas (o Obras ja usava o Claude).
+// Agora, se o Gemini falhar (cota, 503, chave ausente), a mesma leitura e feita pelo Claude (ANTHROPIC_API_KEY do .env).
+let claudeRL = null;
+try {
+  if (process.env.ANTHROPIC_API_KEY) {
+    const Anthropic = require('@anthropic-ai/sdk');
+    claudeRL = new (Anthropic.default || Anthropic)({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+} catch (e) { log(`SDK Anthropic indisponivel: ${e.message}`, 'warn'); }
+const MODELO_CLAUDE_RL = process.env.RL_MODELO_IA || process.env.OBRAS_MODELO_IA || 'claude-sonnet-5-5';
+
+async function extrairComClaude(mediaData, mimeType) {
+  const bloco = mimeType === 'application/pdf'
+    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: mediaData } }
+    : { type: 'image', source: { type: 'base64', media_type: /image\/(png|gif|webp)/.test(mimeType) ? mimeType : 'image/jpeg', data: mediaData } };
+  const r = await claudeRL.messages.create({
+    model: MODELO_CLAUDE_RL, max_tokens: 1024,
+    messages: [{ role: 'user', content: [bloco, { type: 'text', text: PROMPT_IA }] }]
+  });
+  const txt = r.content.filter(c => c.type === 'text').map(c => c.text).join('').trim();
+  return JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
+}
+
 async function extrairComIA(mediaData, mimetype) {
   if (mimetype === 'application/pdf') {
     const local = lerPdfLocal(mediaData);
     if (local && local.valor > 0) { log(`Leitor local de PDF: R$ ${local.valor} — ${local.fornecedor} (sem usar IA)`); return local; }
   }
-  if (!geminiModel) throw new Error('GEMINI_API_KEY nao configurada');
   const mimeType = (mimetype && (mimetype.startsWith('image/') || mimetype === 'application/pdf')) ? mimetype : 'image/jpeg';
+  try { return await extrairComGemini(mediaData, mimeType); }
+  catch (e) {
+    if (!claudeRL) throw e;
+    log(`Gemini falhou (${String(e.message).substring(0, 100)}) — lendo com Claude`, 'warn');
+    return extrairComClaude(mediaData, mimeType);
+  }
+}
+
+async function extrairComGemini(mediaData, mimeType) {
+  if (!geminiModel) throw new Error('GEMINI_API_KEY nao configurada');
   for (let tentativa = 1; tentativa <= 3; tentativa++) {
     try {
       const result = await geminiModel.generateContent([
@@ -329,7 +361,8 @@ async function extrairComIA(mediaData, mimetype) {
     } catch (e) {
       const rateLimited = /429|quota|RESOURCE_EXHAUSTED/i.test(e.message);
       const overloaded   = /503|Service Unavailable|overloaded/i.test(e.message);
-      if ((rateLimited || overloaded) && tentativa < 3) {
+      // "exceeded your current quota" = cota do dia acabou: esperar nao adianta, vai direto para o Claude
+      if ((rateLimited || overloaded) && tentativa < 3 && !/exceeded your current quota/i.test(e.message)) {
         const espera = rateLimited ? 20000 : 5000 * tentativa;
         log(`Gemini: ${rateLimited ? 'limite de requisicoes' : 'servidor sobrecarregado (503)'} — aguardando ${espera/1000}s e tentando de novo...`, 'warn');
         await new Promise(r => setTimeout(r, espera));
@@ -919,7 +952,7 @@ client.on('ready', async () => {
   waPronto = true; falhasEstado = 0;
   log(`Bot conectado! Grupo: "${GRUPO_ALVO}"`);
   log(`Painel: http://localhost:${PORTA}`);
-  log(`IA: ${ai ? 'ATIVA' : 'SEM CHAVE'} | Banco: ${DB_PATH}`);
+  log(`IA: ${ai ? 'Gemini' : 'sem Gemini'}${claudeRL ? ` + Claude (${MODELO_CLAUDE_RL}) de reserva` : ''} | Banco: ${DB_PATH}`);
   // Processar mensagens perdidas enquanto o PC estava desligado/desconectado.
   // 30s (antes 8s): da tempo do WhatsApp Web sincronizar o historico do grupo.
   setTimeout(() => processarMensagensPerdidas(), 30000);
@@ -991,7 +1024,7 @@ client.initialize();
 // automatico=true: so pega itens dos ultimos 30 dias e ignora orcamentos/anotacoes (que
 // sao zerados de proposito), pra nao gastar IA a cada 2h com os mesmos itens.
 async function reprocessarZeradas({ automatico = false } = {}) {
-  if (!ai) return { erro:'IA nao configurada (GEMINI_API_KEY ausente)' };
+  if (!ai && !claudeRL) return { erro:'IA nao configurada (GEMINI_API_KEY e ANTHROPIC_API_KEY ausentes)' };
   if (reprocessStatus.rodando) return { erro:'Ja existe um reprocessamento em andamento', status:reprocessStatus };
   const filtroAuto = automatico ? `AND tipo_doc IS NOT 'orcamento' AND created_at >= datetime('now','localtime','-30 days')` : '';
   const pendentesDesp = db.prepare(`SELECT * FROM despesas  WHERE (valor IS NULL OR valor=0) AND arquivo IS NOT NULL ${filtroAuto} ORDER BY id ASC`).all().map(d => ({ ...d, _tabela:'despesa' }));
@@ -1437,7 +1470,7 @@ const server = http.createServer((req, res) => {
   if (url.match(/^\/api\/reprocessar-item\/\d+$/) && req.method === 'POST') {
     (async () => {
       try {
-        if (!ai) return jsonResp(res, { erro:'IA nao configurada (GEMINI_API_KEY ausente)' }, 400);
+        if (!ai && !claudeRL) return jsonResp(res, { erro:'IA nao configurada (GEMINI_API_KEY e ANTHROPIC_API_KEY ausentes)' }, 400);
         const id = parseInt(url.split('/').pop());
         const d = db.prepare('SELECT * FROM despesas WHERE id=?').get(id);
         if (!d) return jsonResp(res, { erro:'Despesa nao encontrada' }, 404);
