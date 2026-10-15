@@ -218,6 +218,17 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   // Print de corrida de app (Uber/99) com valor é despesa de transporte, não "outros".
   const ehCorridaApp = (it, legenda) => /\b(uber|99|99pop|taxi|t[aá]xi)\b|corrida|viagem de/i.test(`${it.fornecedor || ''} ${it.descricao || ''} ${legenda || ''}`);
 
+  // A legenda que o prestador escreve na foto ("Diária servente 12/10 - Maceió centro") entra na descrição da despesa
+  // (15/10/2026, pedido do Ricardo). Nome de arquivo como legenda não conta; descrição genérica da IA ("Transferência PIX") é trocada.
+  const legendaUtil = l => { const s = String(l || '').trim(); return s && !/\.(pdf|jpe?g|png|heic)\s*$/i.test(s) ? s : null; };
+  const DESCR_GENERICA = /^\s*(transfer[eê]ncia|pagamento|pix|ifoodbr)(\s+(de\s+)?pix)?\s*$/i;
+  function descricaoCom(descr, legenda) {
+    const leg = legendaUtil(legenda), d = String(descr || '').trim();
+    if (!leg) return d || null;
+    if (!d || DESCR_GENERICA.test(d)) return leg.substring(0, 2000);
+    return d.toLowerCase().includes(leg.toLowerCase()) ? d : `${leg} · ${d}`.substring(0, 2000);
+  }
+
   // Converte a resposta da IA em linhas de obras_comprovantes (uma por comprovante do documento).
   function montarLinhas(ia, erroIA, base, idMsg, ts) {
     const waData = new Date(ts).toISOString();
@@ -231,8 +242,9 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
         categoria: CATEGORIAS.includes(it.categoria) ? it.categoria : 'diversos',
         valor: valor != null && valor >= 0 ? valor : 0,
         data_despesa: dataPlausivel(it.data, ts) || waData.substring(0, 10),
-        hora_documento: it.hora || null, fornecedor: it.fornecedor || null, pagador: it.pagador || null, cnpj: it.cnpj || null,
-        descricao: it.descricao || (erroIA ? `Leitura pendente: ${erroIA}`.substring(0, 300) : null),
+        hora_documento: it.hora || null, pagador: it.pagador || null, cnpj: it.cnpj || null,
+        fornecedor: it.fornecedor || (tipo === 'recibo' && it.categoria === 'transporte_combustivel' && ehCorridaApp(it, base.legenda) ? 'Uber/99 (corrida de app)' : null),
+        descricao: descricaoCom(it.descricao, base.legenda) || (erroIA ? `Leitura pendente: ${erroIA}`.substring(0, 300) : null),
         loja: it.loja_obra || null, forma_pagamento: it.forma_pagamento || null, autenticacao: it.autenticacao || null,
         tipo_doc: tipo, confianca_ocr: typeof it.confianca === 'number' ? it.confianca : null,
         status: !ia ? 'pendente_leitura' : ehDespesa ? 'lancado' : (tipo === 'orcamento' ? 'orcamento' : 'nao_despesa'),
