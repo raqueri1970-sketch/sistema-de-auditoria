@@ -401,7 +401,8 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     const mt = /\.pdf$/i.test(arquivoPath) ? 'application/pdf' : /\.png$/i.test(arquivoPath) ? 'image/png' : 'image/jpeg';
     const lancado = linhas.slice(0, 15).map(l => `R$ ${Number(l.valor).toFixed(2)} em ${l.data_despesa} · ${l.fornecedor || '?'} · ${l.categoria} · ${l.tipo_doc} · ${(l.descricao || '').substring(0, 80)}`).join(' | ')
       + ` · legenda: "${(linhas[0].legenda || '').substring(0, 120)}" · prestador: ${linhas[0].responsavel || '?'}`;
-    const r = await lerComIA(buf.toString('base64'), mt, PROMPT_AUDITOR.replace('{LANCADO}', lancado));
+    // Auditoria é leitura de fundo: só modelos grátis de cota alta (Gemma), nunca o Claude pago nem a cota das despesas novas.
+    const r = await ia.ler(buf.toString('base64'), mt, PROMPT_AUDITOR.replace('{LANCADO}', lancado), { maxTokens: 4096, fundo: true });
     const motivos = Array.isArray(r && r.motivos) ? r.motivos.filter(Boolean).map(String).slice(0, 6) : [];
     let risco = ['baixo', 'medio', 'alto'].includes(String(r && r.risco).toLowerCase()) ? String(r.risco).toLowerCase() : 'baixo';
     // valor da foto x valor lançado (só quando o arquivo é um comprovante só)

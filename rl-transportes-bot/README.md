@@ -66,16 +66,18 @@ Contexto: a nuvem (VPS) e o D90 ficaram ligados juntos, os dois gravando a RL (`
 despesa #1342), e as leituras pararam porque o Claude estava sem crédito e o Gemini gratuito agora aceita só
 **20 leituras por dia por modelo**.
 
-- **IA (`ia.js`):** Claude → `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.0-flash`. Cota diária esgotada:
-  aquele modelo fica de fora até a hora indicada pelo Google e passa para o próximo na hora. Claude sem crédito: pausa
-  30 min e tenta de novo sozinho (antes ficava desligado até reiniciar). O que não for lido fica zerado/`pendente_leitura`
-  e é relido automaticamente quando a IA voltar.
+- **IA (`ia.js`), custo zero:** primeiro só modelos **gratuitos** do Google, cada um com a sua cota diária
+  (`gemini-2.5-flash`, `gemini-flash-latest`, `gemini-3.5-flash`, `gemini-3-flash-preview`, `gemini-3.5-flash-lite`,
+  `gemini-flash-lite-latest`, `gemma-4-26b-a4b-it`, `gemma-4-31b-it`). Cota do dia esgotada: aquele modelo sai até a
+  hora indicada pelo Google e passa para o próximo na hora. O Claude (pago) só é usado se **todos** os grátis falharem
+  (`IA_ORDEM=claude-primeiro` inverte). A auditoria antifraude das fotos antigas usa só o Gemma (`GEMINI_MODELOS_FUNDO`).
+  O que não for lido fica zerado/`pendente_leitura` e é relido automaticamente quando a cota voltar.
 - **Uma instância só (`lider.js`):** com outra instância de prioridade maior no ar (a `nuvem` tem 10, o resto 1), esta
   fica em **reserva**: não lança RL nem Obras. Se a nuvem cair, o D90 assume **só Obras** (a RL do D90 fica parada até
   reiniciar, para não misturar dois bancos SQLite). O papel aparece em `capturador_status.detalhes.papel`.
 - **RL no Supabase:** `insert` → `upsert` (sem mais `duplicate key`).
 
-Variáveis novas (opcionais) no `.env`: `IA_MODELO_CLAUDE`, `GEMINI_MODELOS`, `CAPTURADOR_PRIORIDADE`.
+Variáveis novas (opcionais) no `.env`: `GEMINI_MODELOS`, `GEMINI_MODELOS_FUNDO`, `IA_ORDEM`, `IA_MODELO_CLAUDE`, `CAPTURADOR_PRIORIDADE`.
 
 ```bat
 node teste_obras_bot.js    :: cenários de Obras

@@ -5,7 +5,12 @@
  * ("generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash"). Depois da 20ª o resto do dia ficava sem
  * leitura. E em Obras o Claude, ao dar um erro de crédito uma vez, ficava desligado até reiniciar o bot.
  *
- * Ordem: Claude (ANTHROPIC_API_KEY) → cada modelo Gemini da lista (GEMINI_MODELOS) → erro (quem chama marca para reler).
+ * Ordem (16/10/2026, pedido do Ricardo: custo zero): primeiro os modelos GRATUITOS do Google (GEMINI_MODELOS — cada um tem
+ * a sua cota diária, somados dão bem mais que o volume dos grupos); o Claude (pago) só por último, se todos falharem.
+ * IA_ORDEM=claude-primeiro volta a usar o Claude antes. Leituras de fundo (auditoria antifraude das fotos antigas) usam só
+ * GEMINI_MODELOS_FUNDO (Gemma, a maior cota) e nunca o Claude, para não gastar a cota das despesas novas.
+ * Modelos testados em 16/10/2026 com comprovante real (R$ 1.360,00): flash-latest, 3-flash-preview, 3.5-flash-lite,
+ * flash-lite-latest e gemma-4-26b leram certo; gemini-3.1-flash-lite leu 136,00 (fora da lista); 2.5-flash-lite foi desativado.
  *  - Claude sem crédito/chave recusada: pausa 30 min e tenta de novo sozinho (não fica desligado até reiniciar).
  *  - Gemini com cota DIÁRIA esgotada: aquele modelo fica de fora até a hora que o Google mandou voltar; passa para o próximo
  *    modelo na hora, sem esperar 20 s à toa. Limite POR MINUTO: espera o tempo pedido (até 60 s) e tenta 1 vez.
@@ -13,8 +18,11 @@
 'use strict';
 
 const MODELO_CLAUDE = process.env.IA_MODELO_CLAUDE || process.env.OBRAS_MODELO_IA || 'claude-sonnet-5-5';
-const MODELOS_GEMINI = (process.env.GEMINI_MODELOS || 'gemini-2.5-flash,gemini-2.5-flash-lite,gemini-2.0-flash')
-  .split(',').map(s => s.trim()).filter(Boolean);
+const lista = (v, padrao) => (v || padrao).split(',').map(s => s.trim()).filter(Boolean);
+const MODELOS_GEMINI = lista(process.env.GEMINI_MODELOS,
+  'gemini-2.5-flash,gemini-flash-latest,gemini-3.5-flash,gemini-3-flash-preview,gemini-3.5-flash-lite,gemini-flash-lite-latest,gemma-4-26b-a4b-it,gemma-4-31b-it');
+const MODELOS_FUNDO = lista(process.env.GEMINI_MODELOS_FUNDO, 'gemma-4-26b-a4b-it,gemma-4-31b-it');
+
 const PAUSA_CLAUDE_MS = 30 * 60 * 1000;
 
 const espera = ms => new Promise(r => setTimeout(r, ms));
@@ -38,6 +46,7 @@ const ehSobrecarga = msg => /503|529|overloaded|Service Unavailable|UNAVAILABLE/
 const ehSemCreditoClaude = msg => /credit balance|billing|insufficient|401|403|authentication|invalid x-api-key|permission/i.test(String(msg || ''));
 
 function criarIA({ log = () => {} } = {}) {
+  const CLAUDE_PRIMEIRO = process.env.IA_ORDEM === 'claude-primeiro';
   let anthropic = null;
   try {
     if (process.env.ANTHROPIC_API_KEY) {
@@ -62,7 +71,9 @@ function criarIA({ log = () => {} } = {}) {
   function modeloGemini(nome, maxTokens) {
     const k = `${nome}|${maxTokens}`;
     if (!modelosGemini[k]) {
-      const cfg = { responseMimeType: 'application/json', maxOutputTokens: maxTokens };
+      // Modelos 3.x/"latest" pensam antes de responder e o raciocínio conta no limite de saída: limite maior
+      // (no teste, 1024 cortou a resposta do 3-flash-preview no meio).
+      const cfg = { responseMimeType: 'application/json', maxOutputTokens: /2\.5/.test(nome) ? maxTokens : Math.max(maxTokens, 8192) };
       if (/2\.5/.test(nome)) cfg.thinkingConfig = { thinkingBudget: 0 };
       modelosGemini[k] = genAI.getGenerativeModel({ model: nome, generationConfig: cfg });
     }
@@ -95,43 +106,58 @@ function criarIA({ log = () => {} } = {}) {
       } catch (e) {
         if (ehLimite(e.message) && ehCotaDiaria(e.message)) throw Object.assign(e, { cotaDiaria: true });
         if (ehLimite(e.message) && t < 2) { await espera(Math.min(atrasoPedido(e.message) || 20000, 60000)); continue; }
-        if (ehSobrecarga(e.message) && t < 3) { await espera(5000 * t); continue; }
+        if (ehSobrecarga(e.message) && t < 2) { await espera(5000 * t); continue; }   // ocupado: 1 nova tentativa e vai para o próximo
+        if (/500|Internal/i.test(e.message) && t < 2) { await espera(3000); continue; }
         throw e;
       }
     }
   }
 
-  // Lê um documento (base64) e devolve o JSON pedido no prompt. Lança erro se nenhuma IA conseguiu.
-  async function ler(base64, mimetype, prompt, { maxTokens = 4096 } = {}) {
-    const falhas = [];
-    if (anthropic && Date.now() >= claudePausadoAte) {
-      try { const r = await viaClaude(base64, mimetype, prompt, Math.max(maxTokens, 2048)); ultimaFonte = 'claude'; claudeMotivo = null; return r; }
+  async function tentarClaude(base64, mimetype, prompt, maxTokens, falhas) {
+    if (!anthropic || Date.now() < claudePausadoAte) return undefined;
+    try { const r = await viaClaude(base64, mimetype, prompt, Math.max(maxTokens, 2048)); ultimaFonte = 'claude'; claudeMotivo = null; return r; }
+    catch (e) {
+      if (ehSemCreditoClaude(e.message)) {
+        claudePausadoAte = Date.now() + PAUSA_CLAUDE_MS; claudeMotivo = 'sem credito/chave recusada';
+        log(`IA: Claude recusou (${e.message.substring(0, 140)}) — tenta de novo em 30 min`, 'warn');
+      } else log(`IA: Claude falhou (${e.message.substring(0, 140)})`, 'warn');
+      falhas.push(`claude: ${e.message.substring(0, 120)}`);
+      return undefined;
+    }
+  }
+  async function tentarGemini(modelos, base64, mimetype, prompt, maxTokens, falhas) {
+    if (!genAI) return undefined;
+    for (const nome of modelos) {
+      if ((geminiForaAte[nome] || 0) > Date.now()) continue;
+      try { const r = await viaGemini(nome, base64, mimetype, prompt, maxTokens); ultimaFonte = nome; return r; }
       catch (e) {
-        if (ehSemCreditoClaude(e.message)) {
-          claudePausadoAte = Date.now() + PAUSA_CLAUDE_MS; claudeMotivo = 'sem credito/chave recusada';
-          log(`IA: Claude recusou (${e.message.substring(0, 140)}) — usando Gemini; tenta o Claude de novo em 30 min`, 'warn');
-        } else log(`IA: Claude falhou (${e.message.substring(0, 140)}) — tentando Gemini`, 'warn');
-        falhas.push(`claude: ${e.message.substring(0, 120)}`);
+        if (e.cotaDiaria) {
+          const volta = Date.now() + Math.max(atrasoPedido(e.message) || 0, 30 * 60 * 1000);
+          geminiForaAte[nome] = volta;
+          log(`IA: cota diaria do ${nome} esgotada — volta ${new Date(volta).toLocaleString('pt-BR')}; tentando o proximo modelo`, 'warn');
+        } else if (/not found|404|not supported|no longer available/i.test(e.message)) {
+          geminiForaAte[nome] = Date.now() + 24 * 3600e3;
+          log(`IA: modelo ${nome} indisponivel nesta chave — ignorado por 24h`, 'warn');
+        } else log(`IA: ${nome} falhou (${e.message.substring(0, 140)})`, 'warn');
+        falhas.push(`${nome}: ${e.message.substring(0, 120)}`);
       }
     }
-    if (genAI) {
-      for (const nome of MODELOS_GEMINI) {
-        if ((geminiForaAte[nome] || 0) > Date.now()) continue;
-        try { const r = await viaGemini(nome, base64, mimetype, prompt, maxTokens); ultimaFonte = nome; return r; }
-        catch (e) {
-          if (e.cotaDiaria) {
-            const volta = Date.now() + Math.max(atrasoPedido(e.message) || 0, 30 * 60 * 1000);
-            geminiForaAte[nome] = volta;
-            log(`IA: cota diaria do ${nome} esgotada — volta ${new Date(volta).toLocaleString('pt-BR')}; tentando o proximo modelo`, 'warn');
-          } else if (/not found|404|not supported/i.test(e.message)) {
-            geminiForaAte[nome] = Date.now() + 24 * 3600e3;
-            log(`IA: modelo ${nome} indisponivel nesta chave — ignorado por 24h`, 'warn');
-          } else log(`IA: ${nome} falhou (${e.message.substring(0, 140)})`, 'warn');
-          falhas.push(`${nome}: ${e.message.substring(0, 120)}`);
-        }
-      }
-    }
+    return undefined;
+  }
+
+  // Lê um documento (base64) e devolve o JSON pedido no prompt. Lança erro se nenhuma IA conseguiu.
+  // fundo=true: leitura sem pressa (auditoria das fotos antigas) — só os modelos de fundo, nunca o Claude.
+  async function ler(base64, mimetype, prompt, { maxTokens = 4096, fundo = false } = {}) {
     if (!anthropic && !genAI) throw new Error('nenhuma IA configurada (ANTHROPIC_API_KEY / GEMINI_API_KEY ausentes)');
+    const falhas = [];
+    let r;
+    if (fundo) r = await tentarGemini(MODELOS_FUNDO, base64, mimetype, prompt, maxTokens, falhas);
+    else {
+      if (CLAUDE_PRIMEIRO) r = await tentarClaude(base64, mimetype, prompt, maxTokens, falhas);
+      if (r === undefined) r = await tentarGemini(MODELOS_GEMINI, base64, mimetype, prompt, maxTokens, falhas);
+      if (r === undefined && !CLAUDE_PRIMEIRO) r = await tentarClaude(base64, mimetype, prompt, maxTokens, falhas);
+    }
+    if (r !== undefined) return r;
     const err = new Error(`nenhuma IA disponivel agora — ${falhas.join(' | ') || 'todas em pausa por limite/credito'}`);
     err.semIA = true;
     throw err;
@@ -140,17 +166,21 @@ function criarIA({ log = () => {} } = {}) {
   // Texto curto para o painel de saúde (capturador_status.ia)
   function estado() {
     const agora = Date.now(), partes = [];
-    if (anthropic) partes.push(agora < claudePausadoAte ? `claude PAUSADO (${claudeMotivo}) ate ${new Date(claudePausadoAte).toLocaleTimeString('pt-BR')}` : `claude ${MODELO_CLAUDE}`);
     if (genAI) {
       const livres = MODELOS_GEMINI.filter(m => (geminiForaAte[m] || 0) <= agora);
-      partes.push(livres.length ? `gemini (${livres.join(', ')})` : 'gemini COTA ESGOTADA');
+      partes.push(livres.length ? `gratis: ${livres.length}/${MODELOS_GEMINI.length} modelos livres (${livres[0]}...)` : 'gratis: COTA DO DIA ESGOTADA');
+    }
+    if (anthropic) {
+      const c = agora < claudePausadoAte ? `claude PAUSADO (${claudeMotivo}) ate ${new Date(claudePausadoAte).toLocaleTimeString('pt-BR')}` : `claude ${MODELO_CLAUDE}`;
+      partes.push(CLAUDE_PRIMEIRO ? c : `${c} (so se os gratis falharem)`);
+      if (CLAUDE_PRIMEIRO) partes.reverse();
     }
     return partes.join(' + ') || 'nenhuma';
   }
   const disponivel = () => !!(anthropic || genAI);
   const temAgora = () => (anthropic && Date.now() >= claudePausadoAte) || (genAI && MODELOS_GEMINI.some(m => (geminiForaAte[m] || 0) <= Date.now()));
   // A pausa entre leituras em lote só é necessária no Gemini gratuito (limite por minuto)
-  const pausaEntreLeituras = () => (anthropic && Date.now() >= claudePausadoAte) ? 1500 : 13000;
+  const pausaEntreLeituras = () => 4000;   // vários modelos grátis: o limite por minuto de cada um já é tratado na leitura
 
   log(`IA: ${estado()}`);
   return { ler, estado, disponivel, temAgora, pausaEntreLeituras, ultimaFonte: () => ultimaFonte, MODELO_CLAUDE };

@@ -65,7 +65,17 @@ class AnthropicFalso {
   } }; }
 }
 const origLoad = Module._load;
-Module._load = function (req, ...r) { if (req === '@anthropic-ai/sdk') return AnthropicFalso; return origLoad.call(this, req, ...r); };
+// Gemini falso (16/10/2026: os modelos grátis vêm primeiro e a auditoria de fundo só usa eles) — mesmo comportamento do Claude falso
+class GeminiFalso { getGenerativeModel() { return { generateContent: async (partes) => {
+  if (IA_FORA) throw new Error('503 overloaded');
+  const conteudo = JSON.parse(Buffer.from(partes[0].inlineData.data, 'base64').toString());
+  return { response: { text: () => JSON.stringify(conteudo) } };
+} }; } }
+Module._load = function (req, ...r) {
+  if (req === '@anthropic-ai/sdk') return AnthropicFalso;
+  if (req === '@google/generative-ai') return { GoogleGenerativeAI: GeminiFalso };
+  return origLoad.call(this, req, ...r);
+};
 
 // ── WhatsApp falso ──
 let estado = 'CONNECTED';
@@ -84,7 +94,7 @@ const item = (o) => ({ tipo_documento: 'comprovante', itens: [{ tipo_doc: 'cupom
 
 (async () => {
   process.env.ANTHROPIC_API_KEY = 'teste';
-  delete process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'teste';
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'obras-'));
   for (const f of ['obras_bot.js', 'ia.js']) fs.copyFileSync(path.join(__dirname, f), path.join(dir, f));
   const logs = [];

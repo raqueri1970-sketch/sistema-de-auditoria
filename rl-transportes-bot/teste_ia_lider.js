@@ -39,6 +39,7 @@ global.setInterval = () => 0;
 (async () => {
   process.env.ANTHROPIC_API_KEY = 'x'; process.env.GEMINI_API_KEY = 'y';
   process.env.GEMINI_MODELOS = 'g-flash,g-lite';
+  process.env.GEMINI_MODELOS_FUNDO = 'g-fundo';
   const logs = [];
   const criarIA = require('./ia');
   const { atrasoPedido, ehCotaDiaria } = criarIA._interno;
@@ -51,17 +52,9 @@ global.setInterval = () => 0;
 
   let ia = criarIA({ log: (m, n) => logs.push(`[${n}] ${m}`) });
   let r = await ia.ler('AAA', 'image/jpeg', 'p');
-  assert.strictEqual(r.fonte, 'claude');
-  console.log('ok 2 Claude e a primeira opcao (le JSON mesmo dentro de ```json)');
-
-  cenario.claude = 'sem_credito'; chamadas.length = 0;
-  r = await ia.ler('AAA', 'image/jpeg', 'p');
   assert.strictEqual(r.fonte, 'g-flash');
-  assert.ok(/claude PAUSADO/.test(ia.estado()), ia.estado());
-  chamadas.length = 0;
-  await ia.ler('AAA', 'image/jpeg', 'p');
-  assert.deepStrictEqual(chamadas, ['g-flash'], 'Claude em pausa nao e chamado de novo a cada leitura');
-  console.log('ok 3 Claude sem credito: pausa (nao para sempre) e usa o Gemini');
+  assert.ok(!chamadas.includes('claude'), 'custo zero: Claude nao e chamado quando o gratis funciona');
+  console.log('ok 2 modelos gratuitos primeiro; Claude (pago) nao e chamado');
 
   cenario.gemini['g-flash'] = 'cota_dia'; chamadas.length = 0;
   r = await ia.ler('AAA', 'image/jpeg', 'p');
@@ -69,20 +62,39 @@ global.setInterval = () => 0;
   chamadas.length = 0;
   r = await ia.ler('AAA', 'image/jpeg', 'p');
   assert.deepStrictEqual(chamadas, ['g-lite'], 'modelo com cota diaria esgotada fica de fora');
-  console.log('ok 4 cota diaria esgotada: pula para o proximo modelo na hora');
+  console.log('ok 3 cota diaria esgotada: pula para o proximo modelo gratis na hora');
 
-  cenario.gemini['g-lite'] = 'cota_dia';
+  cenario.gemini['g-lite'] = 'cota_dia'; chamadas.length = 0;
+  r = await ia.ler('AAA', 'image/jpeg', 'p');
+  assert.strictEqual(r.fonte, 'claude');
+  console.log('ok 4 todos os gratis esgotados: Claude como ultimo recurso (le JSON dentro de ```json)');
+
+  cenario.claude = 'sem_credito';
   await assert.rejects(ia.ler('AAA', 'image/jpeg', 'p'), e => e.semIA === true);
   assert.ok(!ia.temAgora());
-  assert.ok(/COTA ESGOTADA/.test(ia.estado()), ia.estado());
-  console.log('ok 5 sem nenhuma IA: erro claro (quem chama marca para reler) e temAgora()=false');
+  assert.ok(/claude PAUSADO/.test(ia.estado()) && /COTA DO DIA ESGOTADA/.test(ia.estado()), ia.estado());
+  chamadas.length = 0;
+  await assert.rejects(ia.ler('AAA', 'image/jpeg', 'p'));
+  assert.deepStrictEqual(chamadas, [], 'tudo em pausa: nao fica batendo nas APIs');
+  console.log('ok 5 sem nenhuma IA: erro claro, temAgora()=false e nada e chamado ate a pausa acabar');
 
+  cenario.claude = 'ok'; cenario.gemini = {}; chamadas.length = 0;
   ia = criarIA({ log: () => {} });
-  cenario.claude = 'fora'; cenario.gemini = { 'g-flash': 'cota_min' }; chamadas.length = 0;
+  r = await ia.ler('AAA', 'image/jpeg', 'p', { fundo: true });
+  assert.strictEqual(r.fonte, 'g-fundo');
+  cenario.gemini['g-fundo'] = 'cota_dia';
+  await assert.rejects(ia.ler('AAA', 'image/jpeg', 'p', { fundo: true }));
+  assert.ok(!chamadas.includes('claude') && !chamadas.includes('g-flash'), 'leitura de fundo nunca usa o Claude nem a cota das despesas novas');
+  console.log('ok 6 leitura de fundo (auditoria) so usa os modelos de fundo');
+
+  process.env.IA_ORDEM = 'claude-primeiro'; cenario.claude = 'fora'; cenario.gemini = { 'g-flash': 'cota_min' }; chamadas.length = 0;
+  ia = criarIA({ log: () => {} });
   r = await ia.ler('AAA', 'image/jpeg', 'p');
+  assert.strictEqual(chamadas[0], 'claude');
   assert.strictEqual(r.fonte, 'g-flash');
-  assert.ok(/claude claude-/.test(ia.estado()), 'Claude sobrecarregado (529) nao entra em pausa: ' + ia.estado());
-  console.log('ok 6 limite por minuto: espera e tenta de novo no mesmo modelo; Claude sobrecarregado nao pausa');
+  assert.ok(!/PAUSADO/.test(ia.estado()), 'Claude sobrecarregado (529) nao entra em pausa: ' + ia.estado());
+  delete process.env.IA_ORDEM;
+  console.log('ok 6b IA_ORDEM=claude-primeiro; limite por minuto tenta de novo no mesmo modelo');
 
   // ── lider.js ──
   const criarLider = require('./lider');
