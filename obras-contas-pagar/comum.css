@@ -202,3 +202,33 @@ details.card>summary::before{content:"▸ ";color:var(--mut)}details.card[open]>
   .dup-t td{display:block;border:0;padding:3px 0}
   .res-prest{grid-template-columns:1fr 1fr}
 }
+
+/* Blocos dos painéis (16/10/2026, Visão geral e Presidente): "hoje" separado do "período", conta em uma linha, pendências num lugar só */
+.banda{margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:18px;background:rgba(15,23,42,.45)}
+.banda-cab{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;margin-bottom:12px}
+.banda-cab b{font-size:15px;letter-spacing:.01em}.banda-cab span{font-size:13px;color:var(--mut)}
+.conta{display:grid;grid-template-columns:1fr auto 1fr auto 1fr 1.15fr;gap:10px;align-items:stretch}
+.conta .op{align-self:center;font-size:26px;font-weight:800;color:var(--mut);padding:0 2px}
+.conta .kpi,.per .kpi{margin:0}
+.conta .k-azul::before{background:var(--s1)}.conta .k-azul .v{color:#93c5fd}
+.conta .k-lar::before{background:var(--s2)}.conta .k-lar .v{color:#fdba74}
+.conta .destaque{border-width:2px}
+.per{display:grid;gap:10px;grid-template-columns:repeat(4,minmax(0,1fr))}
+.progresso{height:8px;border-radius:6px;background:var(--card2);overflow:hidden;margin:8px auto 0;max-width:180px}
+.progresso i{display:block;height:100%;background:var(--ok)}
+.pend{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.pend a{display:inline-flex;gap:8px;align-items:center;padding:9px 13px;border-radius:12px;border:1px solid var(--line2);background:var(--card2);color:var(--txt);text-decoration:none;font-size:14px;font-weight:600}
+.pend a b{font-variant-numeric:tabular-nums}.pend a.ruim{border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.12)}.pend a.aten{border-color:rgba(245,179,1,.4);background:rgba(245,179,1,.1)}
+.pend .ok{color:#86efac;font-size:14px;font-weight:600;padding:9px 2px}
+.pc-caixa{text-align:center;margin:12px 0 10px;padding:12px;border-radius:14px;background:var(--card2);border:1px solid var(--line)}
+.pc-caixa .l{font-size:12.5px;color:var(--txt2);font-weight:600}.pc-caixa .v{font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.pc-caixa .n{font-size:12.5px;color:var(--txt2)}
+.pc-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.pc-3 div{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:8px 3px;text-align:center;min-width:0}
+.pc-3 b{display:block;font-size:13.5px;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:-.01em;margin:2px 0}.pc-3 span{font-size:11.5px;color:var(--txt2)}
+.pc-per{margin-top:10px;font-size:13.5px;color:var(--txt2)}.pc-per b{color:var(--txt)}
+.pc details{margin-top:8px}.pc summary{cursor:pointer;font-size:13px;font-weight:700;color:#93c5fd}
+@media (max-width:900px){.conta{grid-template-columns:1fr 1fr}.conta .op{display:none}.per{grid-template-columns:1fr 1fr}}
+@media (max-width:420px){.banda{padding:12px}.pc-3 b{font-size:13px}}
+
+.pgrid:has(.pc){grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr))}

@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261015-1">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261016-3">
 </head>
 <body>
 
@@ -32,19 +32,20 @@
 
   <!-- Visão geral: um card por prestador com o total em aberto -->
   <div id="vMain">
-    <div class="grid" style="margin-top:16px" id="kpis"></div>
-    <div class="g2" style="margin-top:14px">
+    <div id="kpis"></div>
+    <h2>Prestadores <span class="mut" style="text-transform:none;letter-spacing:0;font-weight:500">· toque no card para ver as despesas e escolher o que pagar</span></h2>
+    <div class="pgrid" id="cards"></div>
+    <div id="pixPres"></div>
+    <h2 id="pagamentosT">Pagamentos</h2>
+    <div class="card" id="pagamentos"></div>
+    <h2>Gráficos</h2>
+    <div class="g2">
       <div class="card viz"><h3>Gasto em aberto por prestador <span class="small mut" style="font-weight:500">mesmo quem tem crédito de adiantamento</span></h3><div id="gPrest"></div></div>
       <div class="card viz"><h3>Adiantamento × gasto por prestador <span id="gAGLeg"></span></h3><div id="gAG"></div></div>
     </div>
     <div class="card viz" style="margin-top:14px"><h3>Despesas × pagamentos por semana <span id="gLeg"></span></h3><div id="gSem"></div></div>
-    <div id="pixPres"></div>
-    <h2>Contas a pagar por prestador <span class="mut" style="text-transform:none;letter-spacing:0">· toque no card para ver as despesas e escolher o que pagar</span></h2>
-    <div class="pgrid" id="cards"></div>
     <h2 id="dupTitulo">Duplicidades · aprovar ou reprovar</h2>
     <div class="card" id="duplicidades"></div>
-    <h2>Pagamentos</h2>
-    <div class="card" id="pagamentos"></div>
   </div>
 
   <!-- Detalhe de um prestador: todas as despesas em aberto com caixa de marcar -->
@@ -94,31 +95,52 @@ function renderMain() {
   const aguardando = PAGS.filter(p => p.status === 'aprovado');
   const gasto = soma(SALDOS, 'em_aberto'), credUsado = SALDOS.reduce((t, s) => t + Math.min(Number(s.adiantamento_disponivel), Number(s.em_aberto)), 0);
   const dupSom = DUPS.filter(x => x.caso.startsWith('somada'));
-  $('kpis').innerHTML = k('k-pagar', 'Total a pagar (todos os prestadores)', brl(soma(SALDOS, 'saldo_devedor')), `gasto em aberto ${brl(gasto)} − crédito usado ${brl(credUsado)}`, "irPara('cards')")
-    + k('', 'Gasto em aberto (todos)', brl(gasto), `${soma(SALDOS, 'itens_abertos')} despesa(s) · inclui quem tem crédito`, "irPara('cards')")
-    + k('k-ok', 'Crédito de adiantamento', brl(soma(SALDOS, 'adiantamento_disponivel')), `usado ${brl(credUsado)} · sobra ${brl(soma(SALDOS, 'adiantamento_disponivel') - credUsado)}`, "irPara('cards')")
-    + k('', 'Caixa com os prestadores', brl(SALDOS.reduce((t, s) => t + caixaPrestador(s), 0)), 'dinheiro da empresa que está com eles hoje (adiantado − gasto em aberto)', "irPara('cards')")
-    + k(dupSom.length ? 'k-bad' : '', 'Duplicidades para decidir', String(DUPS.length), dupSom.length ? `<b>${dupSom.length} SOMADA(S) no total · ${brl(dupSom.reduce((t, x) => t + Number(x.d.valor), 0))}</b>` : 'nenhuma somada no total', "irPara('dupTitulo')")
-    + (oa.length ? k('k-orc', 'Orçamentos recebidos', brl(soma(oa, 'valor')), `${oa.length} orçamento(s) · <b>toque para marcar como pago</b>`, 'abrirOrcamentos()') : '')
-    + (aguardando.length ? k('', 'Aprovados antes, aguardando pagamento', brl(soma(aguardando, 'valor_aprovado')), `${aguardando.length} pagamento(s) · registre “já paguei” ou cancele`, "irPara('pagamentos')") : '')
-    + k('k-ok', 'Pago neste mês', brl(soma(pagosMes, 'valor_pago')), `${pagosMes.length} pagamento(s)`, "irPara('pagamentos')")
-    + k(pend.length ? 'k-bad' : '', 'Pagamentos com pendência', String(pend.length), pend.length ? 'falta comprovante ou valor diferente' : 'nenhuma', "irPara('pagamentos')");
+  const credito = soma(SALDOS, 'adiantamento_disponivel'), caixa = SALDOS.reduce((t, s) => t + caixaPrestador(s), 0), aPagar = soma(SALDOS, 'saldo_devedor');
+  const comCaixa = SALDOS.filter(prestVisivel).filter(s => Number(s.adiantamento_disponivel) > 0 || Number(s.em_aberto) > 0);
+  const ultimo = PAGS.filter(p => ['pago', 'auditado', 'pendencia'].includes(p.status) && p.pago_em).sort((a, b) => String(b.pago_em).localeCompare(String(a.pago_em)))[0];
+  const pendLista = [aguardando.length && `<a class="aten" href="#" onclick="irPara('pagamentosT');return false">Aprovados aguardando pagamento <b>${aguardando.length}</b> · ${brl(soma(aguardando, 'valor_aprovado'))}</a>`,
+    pend.length && `<a class="ruim" href="#" onclick="irPara('pagamentosT');return false">Pagamentos com pendência <b>${pend.length}</b></a>`,
+    DUPS.length && `<a class="${dupSom.length ? 'ruim' : 'aten'}" href="#" onclick="irPara('dupTitulo');return false">Duplicidades <b>${DUPS.length}</b>${dupSom.length ? ` · ${dupSom.length} somada(s)` : ''}</a>`,
+    PIXP.length && `<a class="aten" href="#" onclick="irPara('pixPres');return false">PIX sem pagamento marcado <b>${PIXP.length}</b></a>`,
+    oa.length && `<a class="aten" href="#" onclick="abrirOrcamentos();return false">Orçamentos recebidos <b>${oa.length}</b> · ${brl(soma(oa, 'valor'))}</a>`].filter(Boolean);
+  $('kpis').innerHTML = `
+    <section class="banda"><div class="banda-cab"><b>Situação hoje</b><span>conta corrente com os prestadores</span></div>
+      <div class="conta">
+        ${k('k-azul', 'Crédito de adiantamento', brl(credito), 'adiantado e ainda não usado', "irPara('cards')")}<div class="op">−</div>
+        ${k('k-lar', 'Gasto em aberto', brl(gasto), `${soma(SALDOS, 'itens_abertos')} despesa(s) ainda não reembolsada(s)`, "irPara('cards')")}<div class="op">=</div>
+        ${k(caixa >= 0 ? 'k-ok' : 'k-bad', 'Caixa com os prestadores', brl(caixa), comCaixa.map(s => `${esc(s.prestador.split(' ')[0])} ${brl(caixaPrestador(s))}`).join(' · ') || 'nenhum adiantamento', "irPara('cards')")}
+        ${k((aPagar > 0.005 ? 'k-pagar' : 'k-ok') + ' destaque', 'Total a pagar', brl(aPagar), aPagar > 0.005 ? '<b>gasto maior que o crédito · toque no prestador para pagar</b>' : 'o crédito cobre todo o gasto', "irPara('cards')")}
+      </div>
+      <div class="pend">${pendLista.length ? '<span class="small mut" style="align-self:center">Para decidir:</span>' + pendLista.join('') : '<span class="ok">✔ Nada pendente para decidir</span>'}</div>
+    </section>
+    <section class="banda"><div class="banda-cab"><b>Pagamentos deste mês</b><span>${new Date().toLocaleDateString('pt-BR', {month: 'long', year: 'numeric'})}</span></div>
+      <div class="per">
+        ${k('k-ok', 'Pago neste mês', brl(soma(pagosMes, 'valor_pago')), `${pagosMes.length} pagamento(s)`, "irPara('pagamentosT')")}
+        ${k('', 'Último pagamento', ultimo ? brl(ultimo.valor_pago) : '—', ultimo ? `${esc(ultimo.prestador)} · ${dtBR(ultimo.pago_em)}` : 'nenhum ainda', "irPara('pagamentosT')")}
+        ${k(pend.length ? 'k-bad' : 'k-ok', 'Pagamentos com pendência', String(pend.length), pend.length ? 'falta comprovante ou valor diferente' : 'nenhuma', "irPara('pagamentosT')")}
+        ${k(dupSom.length ? 'k-bad' : '', 'Duplicidades para decidir', String(DUPS.length), dupSom.length ? `<b>${dupSom.length} somada(s) · ${brl(dupSom.reduce((t, x) => t + Number(x.d.valor), 0))}</b>` : 'nenhuma somada no total', "irPara('dupTitulo')")}
+      </div>
+    </section>`;
   const lista = SALDOS.filter(prestVisivel).sort((a, b) => b.saldo_devedor - a.saldo_devedor || b.com_financeiro - a.com_financeiro || a.prestador.localeCompare(b.prestador));
   $('cards').innerHTML = lista.map((s, i) => {
     const emDia = Number(s.em_aberto) === 0 && Number(s.com_financeiro) === 0, em = Number(s.em_aberto), cred = Number(s.adiantamento_disponivel), res = cred - em;
     const dupsP = DUPS.filter(x => x.d.prestador === s.prestador), dupSomP = dupsP.filter(x => x.caso.startsWith('somada'));
-    return `<div class="card clic" onclick="abrirPrestador(SALDOS_ORD[${i}])"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${emDia ? '<span class="chip r-normal">EM DIA</span>' : riscoChip(s.risco)}</div>
-      <div class="res-prest">
-        <div><span>Gastou (em aberto)</span><b style="color:#fdba74">${brl(em)}</b><span>${s.itens_abertos} despesa(s) · ${s.semanas_abertas} semana(s)</span></div>
-        <div><span>Crédito de adiantamento</span><b style="color:#93c5fd">${brl(cred)}</b><span>adiantado no total ${brl(s.total_adiantado)}</span></div>
-        <div class="tot"><span>${res < 0 ? 'TOTAL A PAGAR (gasto − crédito)' : em > 0 ? 'A pagar: nada · o crédito cobre o gasto · sobra' : 'Nada em aberto · crédito com o prestador'}</span>
-          <b style="color:${res < 0 ? '#fcd34d' : '#86efac'}">${brl(res < 0 ? s.saldo_devedor : res)}</b></div></div>
-      <div class="small" style="margin-top:4px">Caixa com ele hoje: <b style="color:${caixaPrestador(s) < 0 ? '#fca5a5' : '#86efac'}">${caixaPrestador(s) < 0 ? 'empresa deve ' : ''}${brl(Math.abs(caixaPrestador(s)))}</b></div>
-      <div class="small mut">${s.semana_mais_antiga && s.itens_abertos ? `em aberto desde ${dBR(s.semana_mais_antiga)} · ` : ''}já pago ${brl(s.total_pago)} de ${brl(s.total_despesas)} gastos no total</div>
-      ${dupsP.length ? `<div class="${dupSomP.length ? 'crit' : 'warn'}">⚠ ${dupsP.length} duplicidade(s) para decidir${dupSomP.length ? ` · ${dupSomP.length} SOMADA(S) no total` : ' · nenhuma somada'}</div>` : ''}
-      ${Number(s.com_financeiro) ? `<div class="small" style="margin-top:4px">Aprovado, aguardando pagamento: <b>${brl(s.com_financeiro)}</b></div>` : ''}
+    const pctR = Number(s.total_despesas) > 0 ? Math.min(100, Math.round(Number(s.total_pago) / Number(s.total_despesas) * 100)) : 100;
+    return `<div class="card clic pc" onclick="abrirPrestador(SALDOS_ORD[${i}])"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${emDia ? '<span class="chip r-normal">EM DIA</span>' : riscoChip(s.risco)}</div>
+      <div class="pc-caixa"><div class="l">${res < 0 ? 'A PAGAR ao prestador' : 'Caixa com ele hoje (dinheiro da empresa)'}</div>
+        <div class="v" style="color:${res < 0 ? '#fcd34d' : '#86efac'}">${brl(res < 0 ? s.saldo_devedor : res)}</div>
+        <div class="n">crédito ${brl(cred)} − gasto em aberto ${brl(em)}</div></div>
+      <div class="pc-3">
+        <div><span>Crédito</span><b style="color:#93c5fd">${brl(cred)}</b><span>adiantado ${brl(s.total_adiantado)}</span></div>
+        <div><span>Gasto em aberto</span><b style="color:#fdba74">${brl(em)}</b><span>${s.itens_abertos} despesa(s)</span></div>
+        <div><span>A pagar</span><b style="color:${res < 0 ? '#fcd34d' : '#86efac'}">${brl(res < 0 ? s.saldo_devedor : 0)}</b><span>${res < 0 ? 'gasto − crédito' : 'crédito cobre'}</span></div>
+      </div>
+      ${s.semana_mais_antiga && s.itens_abertos ? `<div class="pc-per">Em aberto desde <b>${dBR(s.semana_mais_antiga)}</b> · ${s.semanas_abertas} semana(s)</div>` : ''}
+      <div class="pc-per">Reembolsado até hoje <b>${brl(s.total_pago)}</b> de ${brl(s.total_despesas)} (${pctR}%)<div class="progresso" style="max-width:none;margin:6px 0 0"><i style="width:${pctR}%"></i></div></div>
+      ${Number(s.com_financeiro) ? `<div class="warn" style="margin-top:8px">Aprovado, aguardando pagamento: <b>${brl(s.com_financeiro)}</b></div>` : ''}
+      ${dupsP.length ? `<div class="${dupSomP.length ? 'crit' : 'warn'}" style="margin-top:6px">⚠ ${dupsP.length} duplicidade(s) para decidir${dupSomP.length ? ` · ${dupSomP.length} SOMADA(S) no total` : ' · nenhuma somada'}</div>` : ''}
       ${s.criticos ? `<div class="crit">⚠ ${s.criticos} ponto(s) crítico(s) do Auditor</div>` : ''}
-      <div class="row" style="margin-top:10px"><span class="btn ${emDia ? '' : 'b-pri'}">${emDia ? 'Ver histórico' : 'Ver despesas e pagar'} ›</span></div></div>`;
+      <div class="row" style="margin-top:12px"><span class="btn ${res < 0 ? 'b-pri' : ''}">${emDia ? 'Ver histórico' : res < 0 ? 'Ver despesas e pagar' : 'Ver despesas'} ›</span></div></div>`;
   }).join('') || '<div class="card vazio">Nenhum prestador com despesas.</div>';
   window.SALDOS_ORD = lista.map(s => s.prestador);
   renderPagamentos($('pagamentos'), PAGS.slice(0, 25));
