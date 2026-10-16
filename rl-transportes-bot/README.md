@@ -18,6 +18,8 @@ Fluxo: WhatsApp (grupo "RL TRANSPORTES") → leitura do comprovante → SQLite l
 | `obras_bot.js` | Módulo Obras (08/10/2026): grupo "Adm Obras Esposende" → `obras_comprovantes` + bucket `obras-comprovantes`. Carregado pelo `bot_v3.js`, mesma sessão |
 | `leitor_pdf.py` | Lê PIX e boleto do Cora direto do texto do PDF, sem IA e sem custo. Usado antes da IA |
 | `sync_supabase.js` | Espelho completo SQLite → Supabase (upsert + remove o que foi excluído localmente) |
+| `ia.js` | Leitura com IA da RL e de Obras: Claude primeiro, Gemini (vários modelos) de reserva, respeitando a cota diária |
+| `lider.js` | Uma instância só gravando: com a nuvem no ar, o D90 fica em reserva sozinho |
 
 ## Proteções adicionadas em 01/10/2026
 
@@ -57,3 +59,25 @@ python leitor_pdf.py arquivo.pdf  :: testa o leitor local
 
 `INICIAR_BOT_RL.bat` (Área de Trabalho) encerra **só** o processo do bot. Antes ele matava todos
 os `node.exe`, inclusive o Desktop Commander.
+
+## Correções de 16/10/2026
+
+Contexto: a nuvem (VPS) e o D90 ficaram ligados juntos, os dois gravando a RL (`duplicate key ... rl_despesas_pkey`,
+despesa #1342), e as leituras pararam porque o Claude estava sem crédito e o Gemini gratuito agora aceita só
+**20 leituras por dia por modelo**.
+
+- **IA (`ia.js`):** Claude → `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.0-flash`. Cota diária esgotada:
+  aquele modelo fica de fora até a hora indicada pelo Google e passa para o próximo na hora. Claude sem crédito: pausa
+  30 min e tenta de novo sozinho (antes ficava desligado até reiniciar). O que não for lido fica zerado/`pendente_leitura`
+  e é relido automaticamente quando a IA voltar.
+- **Uma instância só (`lider.js`):** com outra instância de prioridade maior no ar (a `nuvem` tem 10, o resto 1), esta
+  fica em **reserva**: não lança RL nem Obras. Se a nuvem cair, o D90 assume **só Obras** (a RL do D90 fica parada até
+  reiniciar, para não misturar dois bancos SQLite). O papel aparece em `capturador_status.detalhes.papel`.
+- **RL no Supabase:** `insert` → `upsert` (sem mais `duplicate key`).
+
+Variáveis novas (opcionais) no `.env`: `IA_MODELO_CLAUDE`, `GEMINI_MODELOS`, `CAPTURADOR_PRIORIDADE`.
+
+```bat
+node teste_obras_bot.js    :: cenários de Obras
+node teste_ia_lider.js     :: IA (cota/sem crédito) e trava de instância
+```

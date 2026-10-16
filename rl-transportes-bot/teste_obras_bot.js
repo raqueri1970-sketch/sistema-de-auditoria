@@ -86,7 +86,7 @@ const item = (o) => ({ tipo_documento: 'comprovante', itens: [{ tipo_doc: 'cupom
   process.env.ANTHROPIC_API_KEY = 'teste';
   delete process.env.GEMINI_API_KEY;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'obras-'));
-  fs.copyFileSync(path.join(__dirname, 'obras_bot.js'), path.join(dir, 'obras_bot.js'));
+  for (const f of ['obras_bot.js', 'ia.js']) fs.copyFileSync(path.join(__dirname, f), path.join(dir, f));
   const logs = [];
   const sb = criarSupabaseFalso();
   const realSetInterval = global.setInterval, realSetTimeout = global.setTimeout;
