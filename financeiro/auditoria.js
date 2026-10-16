@@ -46,6 +46,44 @@
   ];
   const RX_EMPRESA = /\b(LTDA|S\/?A|S\.A|ME|EPP|EIRELI|MEI|CIA|COMPANHIA|COMERCIO|COMERCIAL|INDUSTRIA|SERVICOS?|ASSOCIACAO|INSTITUTO|CONDOMINIO|ADMINISTRADORA|BANCO|SECRETARIA|PREFEITURA|MUNICIPIO|ESTADO|FUNDO|SINDICATO|SHOPPING|TECNOLOGIA|TEC|SOLUCOES|LOCACAO|LOCADORA|TRANSPORTES?|DISTRIBUIDORA|GRUPO|HOLDING|PARTICIPACOES|EMPREENDIMENTOS|CONSTRUTORA|CONSULTORIA|ENGENHARIA|ASSESSORIA|AGENCIA|OPERADORA|EDITORA|IMOBILIARIA|COOPERATIVA|CAIXA|RECEITA|FAZENDA|SEFAZ|DETRAN|CORREIOS|TELECOM|TELEFONICA|ENERGIA|SANEAMENTO|COMPESA|NEOENERGIA|COSERN|CELPE|CAGEPA|CAERN|ENERGISA|CLARO|VIVO|TIM|OI|NET|UNIMED|HAPVIDA|SESC|SENAC|SEBRAE|SPE|LOJA|LOJAS|CALCADOS|ESPORTIVOS|ARTIGOS|PRODUTOS|MATERIAIS|EQUIPAMENTOS|SISTEMAS|INFORMATICA|DIGITAL|MARKETING|PUBLICIDADE|GRAFICA|PAPELARIA|SUPERMERCADO|ATACADO|VAREJO|COMBUSTIVEIS|POSTO|AUTO|PECAS|SEGUROS?|SEGURADORA|CARTORIO|TABELIONATO|ODONTO|SAUDE|CLINICA|LABORATORIO|HOSPITAL|FARMACIA|ESCOLA|FACULDADE|UNIVERSIDADE|EDUCACAO|HOTEL|POUSADA|TURISMO|VIAGENS|ALIMENTOS|RESTAURANTE|PADARIA|CONSERVACAO|LIMPEZA|VIGILANCIA|SEGURANCA|MONITORAMENTO|LOGISTICA|EXPRESS|CARGAS|EMBALAGENS|PLASTICOS|METALURGICA|MOVEIS|DECORACOES|ILUMINACAO|ELETRICA|HIDRAULICA|REFRIGERACAO|CLIMATIZACAO|ARQUITETURA|PROJETOS|ADVOGADOS|ADVOCACIA|CONTABIL|CONTABILIDADE|AUDITORIA|PAGAMENTOS|PAGSEGURO|GETNET|CIELO|STONE|REDE|BRADESCO|ITAU|SANTANDER|SICREDI|SICOOB|NUBANK|INTER|BTG|SAFRA|MERCADO|AMAZON|GOOGLE|MICROSOFT|META|FACEBOOK|APPLE|TOTVS|LINX|SALLAMO|ALLAMO)\b/;
 
+  // Categorias de despesa (grupo → tipo = conta contábil). A ordem importa: a primeira que casar vence.
+  const CATEGORIAS = [
+    ['transporte', '🚕 Transporte e deslocamento', /taxi|uber|deslocamento|combust[ií]vel|estacionamento|ped[aá]gio|seguro de frota/i],
+    ['viagem', '🏨 Viagens e hospedagem', /hospedagem|viage[mn]|passage/i],
+    ['alimentacao', '🍽️ Alimentação', /^\(-\) alimenta|servi[cç]os de alimenta|confraterniza|refei/i],
+    ['treinamento', '🎓 Treinamentos', /curso|treinamento/i],
+    ['pessoal', '👥 Pessoal e benefícios', /sal[aá]ri|f[eé]rias|re[cs]+is|fgts|13o|13º|pr[oó].?labore|pens[aã]o|vale |benef[ií]cio|plano de sa[uú]de|seguro de vida|ajuda de custo|pr[eê]mio|bonifica|exames|sa[uú]de ocupacional|uniforme|adiantamento salarial|sindicato|custas trabalhistas|dep[oó]sito judicial trabalhista|inss \(|prestadores de servi[cç]os pf/i],
+    ['marketing', '📣 Marketing e publicidade', /marketing|publicidade|m[ií]dia|outdoor|ag[eê]ncias? public|eventos|campanha|ecad|fundo de promo/i],
+    ['ocupacao', '🏬 Ocupação (aluguel, condomínio, energia, água)', /aluguel|condom[ií]nio|energia|[aá]gua e esgoto|iptu|laudemio|seguro predial|seguro das lojas|alarme|vigil[aâ]ncia|monitoramento/i],
+    ['manutencao', '🔧 Manutenção, obras e instalações', /manuten[cç][aã]o|obras|consertos|reparos|materiais de seguran|aquisi[cç][aã]o de/i],
+    ['ti', '💻 TI e telecomunicações', /inform[aá]tica|sistemas|link de internet|telefonia|infraestrutura de ti/i],
+    ['impostos', '🧾 Impostos, taxas e multas', /icms|iss\b|irrf|ipva|alvar[aá]|tpei|cim\b|parcelamento|contribui[cç][aã]o social|multa|inss reparcel|taxa/i],
+    ['juridico', '⚖️ Jurídico e assessorias', /assessoria|jur[ií]dic|judicial/i],
+    ['mercadoria', '📦 Mercadorias e fretes', /compras a|adiantamentos? (a|à) fornecedores|frete/i],
+    ['financeiro', '🏦 Financeiro e bancário', /tarifa|banc[aá]ri|financeir|credsystem|estorno|cart[aã]o|aporte/i],
+    ['grupo', '🤝 Partes relacionadas e retiradas', /partes relacionadas|retirada|operacional dok|adiantamentos financeiros/i],
+    ['consumo', '📎 Material de consumo e expediente', /material|correios|xerox|impress/i],
+  ];
+  const CAT_NOME = Object.fromEntries(CATEGORIAS.map(([k, n]) => [k, n]).concat([['outros', '📁 Outras despesas'], ['receita', '➕ Receitas e entradas']]));
+  const categoriaDe = conta => { if (/^\(\+\)|receita|venda de mercadoria/i.test(conta)) return 'receita'; for (const [k, , rx] of CATEGORIAS) if (rx.test(conta)) return k; return 'outros'; };
+  // Pelo NOME do fornecedor dá para saber o que é a despesa — e conferir se está na conta certa (R21)
+  const TIPO_POR_FORNECEDOR = [
+    [/\b(UBER|99 ?TAXI|99APP|99 TECNOLOGIA|CABIFY|TAXI|INDRIVE)\b/, 'transporte', 'transporte por aplicativo/táxi', /taxi|uber|deslocamento/i],
+    [/\b(POSTO|COMBUSTIVE(L|IS)|AUTO POSTO|PETROBRAS|IPIRANGA|SHELL|BR DISTRIBUIDORA)\b/, 'transporte', 'posto de combustível', /combust|deslocamento|frota|ve[ií]culo/i],
+    [/\b(HOTEL|HOTEIS|POUSADA|POUSADAS|RESORT|FLAT|BOOKING|AIRBNB|HOSTEL|INN)\b/, 'viagem', 'hotel/hospedagem', /hospedagem|viage/i],
+    [/\b(LATAM|GOL LINHAS|AZUL LINHAS|AZUL VIAGENS|TAM LINHAS|DECOLAR|123 ?MILHAS|MAXMILHAS|AEREAS?)\b/, 'viagem', 'companhia aérea/passagem', /viage|passage|deslocamento|hospedagem/i],
+    [/\b(RESTAURANTE|CHURRASCARIA|LANCHONETE|LANCHES|PIZZARIA|PADARIA|IFOOD|BUFFET|SELF SERVICE)\b/, 'alimentacao', 'restaurante/alimentação', /aliment|refei|confraterniza|evento/i],
+  ];
+  const tipoPorFornecedor = nome => { for (const [rx, cat, rot, contaOk] of TIPO_POR_FORNECEDOR) if (rx.test(nome)) return {cat, rot, contaOk}; return null; };
+  // Campos extras que a API pode passar a enviar (observação, desconto, abatimento, juros, multa) — lidos automaticamente
+  const pegaTexto = (x, ks) => { for (const k of ks) if (x[k] != null && String(x[k]).trim()) return String(x[k]).trim(); return ''; };
+  const pegaValor = (x, ks) => { for (const k of ks) if (x[k] != null && x[k] !== '' && isFinite(Number(x[k]))) return r2(x[k]); return 0; };
+  const K_OBS = ['observacao', 'observacoes', 'observação', 'obs', 'historico', 'histórico', 'complemento', 'descricao', 'descrição', 'observacaoPagamento', 'obsPagamento', 'motivo'];
+  const K_DESC = ['valorDesconto', 'desconto', 'descontos', 'vlDesconto'];
+  const K_ABAT = ['valorAbatimento', 'abatimento', 'abatimentos', 'vlAbatimento'];
+  const K_JUROS = ['valorJuros', 'juros', 'vlJuros'];
+  const K_MULTA = ['valorMulta', 'multa', 'vlMulta'];
+
   // Feriados nacionais (fixos + móveis 2025–2027)
   const FERIADOS = new Set([
     '2025-01-01', '2025-03-03', '2025-03-04', '2025-04-18', '2025-04-21', '2025-05-01', '2025-06-19', '2025-09-07', '2025-10-12', '2025-11-02', '2025-11-15', '2025-11-20', '2025-12-25',
@@ -57,7 +95,7 @@
     R01: {nome: 'Pagamento em duplicidade', sev: 'alta', desc: 'Mesmo fornecedor, mesmo valor, mesmo vencimento e mesmo centro de custo em títulos (códigos) diferentes. Clássico de pagamento em dobro ou nota lançada duas vezes. Alta = mesma competência fora de mercadoria.'},
     R02: {nome: 'Lançamento repetido no mesmo título', sev: 'media', desc: 'Linhas idênticas (valor, vencimento, conta e centro de custo) dentro do mesmo código. Pode ser rateio legítimo ou lançamento repetido.'},
     R03: {nome: 'Pago a maior', sev: 'alta', desc: 'Valor pago maior que o valor da parcela. Se pago em atraso, a diferença é juros/multa (custo evitável); se em dia, é pagamento indevido.'},
-    R04: {nome: 'Status incoerente', sev: 'media', desc: 'Situação do título não bate com os valores: "Pago" com saldo, cancelado/renegociado com pagamento, "A vencer" já vencido, pago sem data.'},
+    R04: {nome: 'Status incoerente', sev: 'media', desc: 'Situação do título não bate com os valores: cancelado com pagamento, vencido/renegociado já pago por inteiro, "A vencer" já vencido, pago sem data. (Pago a menor fica na R20.)'},
     R05: {nome: 'Pagamento antecipado', sev: 'media', desc: 'Pago muito antes do vencimento ou antes da própria competência, fora de conta de adiantamento. Antecipar sem desconto é perda financeira e pode indicar favorecimento.'},
     R06: {nome: 'Pagamento em fim de semana/feriado', sev: 'media', desc: 'Baixa registrada em sábado, domingo ou feriado nacional — fora do expediente bancário normal.'},
     R08: {nome: 'Possível fracionamento', sev: 'alta', desc: 'Vários títulos do mesmo fornecedor pagos no mesmo dia, cada um abaixo da alçada de aprovação, mas que somados passam dela.'},
@@ -72,6 +110,9 @@
     R17: {nome: 'Datas incoerentes', sev: 'baixa', desc: 'Vencimento antes da competência ou competência muito distante do vencimento (lançamento retroativo).'},
     R18: {nome: 'Vencido em aberto', sev: 'media', desc: 'Título vencido há mais de 30 dias sem pagamento: risco de juros, multa, protesto e corte de fornecimento.'},
     R19: {nome: 'Classificação contábil inconsistente', sev: 'baixa', desc: 'O mesmo fornecedor lançado em muitas contas contábeis diferentes. Distorce o DRE e pode esconder despesa.'},
+    R20: {nome: 'Pago a menor (desconto/abatimento)', sev: 'media', desc: 'Duplicata paga por valor menor que a parcela. Se a baixa foi total ("Pago"), a diferença é desconto ou abatimento e precisa de documento (acordo, devolução, nota de crédito); se não, é pagamento parcial com saldo devedor.'},
+    R21: {nome: 'Despesa na conta errada', sev: 'media', desc: 'O nome do fornecedor indica um tipo de despesa (hotel, posto, Uber, restaurante, companhia aérea…) mas o lançamento está em outra conta contábil. Despesa "escondida" em conta que não é dela.'},
+    R22: {nome: 'Duplicata com observação/abatimento', sev: 'media', desc: 'Pagamento com observação, desconto, abatimento, juros ou multa informados no Sallamo. Ler a observação e conferir o documento que justifica a diferença. (Depende da API enviar esses campos.)'},
   };
   const PESO = {alta: 10, media: 4, baixa: 1};
 
@@ -121,8 +162,9 @@
         valorParcela: r2(x.valorParcela), valorPago: r2(x.valorPago), saldo: r2(x.saldo),
         vencimento: dia(x.vencimento), competencia: dia(x.competencia), pagamento: dia(x.dataPagamento),
         conta: String(x.contaContabil || '(sem conta)').trim(), cc: String(x.centroCusto || '(sem centro)').replace(/\s+/g, ' ').trim(),
+        obs: pegaTexto(x, K_OBS), desconto: pegaValor(x, K_DESC), abatimento: pegaValor(x, K_ABAT), juros: pegaValor(x, K_JUROS), multa: pegaValor(x, K_MULTA),
       };
-    });
+    }).map(t => Object.assign(t, {categoria: categoriaDe(t.conta)}));
   }
 
   // ---------- análise ----------
@@ -183,10 +225,10 @@
     // R04 — status incoerente
     for (const t of T) {
       let m = null;
-      if (t.status === 'Pago' && t.saldo > cfg.tolerancia) m = `"Pago" com saldo de ${brl(t.saldo)} em aberto (pago ${brl(t.valorPago)} de ${brl(t.valorParcela)})`;
-      else if (t.status === 'Pago' && !t.pagamento) m = '"Pago" sem data de pagamento';
+      // "Pago" com saldo (pago a menor) e pagamento parcial ficam na R20
+      if (t.status === 'Pago' && !t.pagamento) m = '"Pago" sem data de pagamento';
       else if (/cancel/i.test(t.status) && (t.valorPago > 0 || t.pagamento)) m = `Cancelado mas com pagamento de ${brl(t.valorPago)}`;
-      else if (/(vencido|renegociado|a vencer|previsto)/i.test(t.status) && t.valorPago > 0) m = `"${t.status}" mas já tem ${brl(t.valorPago)} pago em ${dBR(t.pagamento)}`;
+      else if (/(vencido|renegociado|a vencer|previsto)/i.test(t.status) && t.valorPago > 0 && t.valorPago >= t.valorParcela - cfg.tolerancia) m = `"${t.status}" mas já tem ${brl(t.valorPago)} pago em ${dBR(t.pagamento)}`;
       else if (/a vencer|previsto/i.test(t.status) && t.vencimento && t.vencimento < hoje && t.saldo > 0) m = `"${t.status}" com vencimento já passado (${dBR(t.vencimento)})`;
       if (m) add('R04', t.id, {sev: /Cancelado/.test(m) ? 'alta' : 'media', fornecedor: t.fornecedor, conta: t.conta, cc: t.cc, impacto: t.saldo > 0 ? t.saldo : t.valorPago, titulos: [t.i], detalhe: `Cód. ${t.codigo}: ${m}`});
     }
@@ -335,6 +377,37 @@
         detalhe: `${cs.length} contas contábeis diferentes para o mesmo fornecedor: ${cs.slice(0, 6).join(', ')}${cs.length > 6 ? '…' : ''}`});
     }
 
+    // R20 — pago a menor (desconto/abatimento ou pagamento parcial)
+    for (const t of T) {
+      if (!(t.valorPago > 0 && t.valorPago < t.valorParcela - cfg.tolerancia) || /cancel/i.test(t.status)) continue;
+      const dif = r2(t.valorParcela - t.valorPago), pct = dif / t.valorParcela;
+      const baixaTotal = t.status === 'Pago';
+      let m = baixaTotal ? `baixado como "Pago" por ${brl(t.valorPago)} de ${brl(t.valorParcela)} — diferença de ${brl(dif)} (${(pct * 100).toFixed(1)}%): desconto/abatimento ou baixa errada`
+        : `pagamento parcial de ${brl(t.valorPago)} de ${brl(t.valorParcela)}, saldo devedor ${brl(t.saldo)} · status "${t.status}"`;
+      if (t.desconto || t.abatimento) m += ` · Sallamo informa desconto ${brl(t.desconto)} / abatimento ${brl(t.abatimento)}`;
+      add('R20', t.id, {sev: baixaTotal && (dif >= 5000 || pct >= 0.2) ? 'alta' : baixaTotal ? 'media' : 'baixa', fornecedor: t.fornecedor, conta: t.conta, cc: t.cc, impacto: dif, titulos: [t.i],
+        tipo: baixaTotal ? 'baixa_com_diferenca' : 'parcial', detalhe: `Cód. ${t.codigo}: ${m}${t.obs ? ` · obs.: "${t.obs.slice(0, 160)}"` : ''}`});
+    }
+
+    // R21 — despesa na conta errada (pelo nome do fornecedor)
+    for (const [k, g] of agrupar(pagos, t => t.fornecedor + '|' + t.conta)) {
+      const tp = tipoPorFornecedor(g[0].fornecedor);
+      if (!tp || tp.contaOk.test(g[0].conta)) continue;
+      const tot = r2(g.reduce((s, t) => s + t.valorPago, 0));
+      add('R21', k, {sev: tot >= 10000 ? 'alta' : 'media', fornecedor: g[0].fornecedor, conta: g[0].conta, cc: unicos(g.map(t => t.cc)).join(' / '), impacto: tot, titulos: g.map(t => t.i),
+        detalhe: `Fornecedor parece ${tp.rot}, mas ${g.length} pagamento(s) somando ${brl(tot)} estão em "${g[0].conta}" (esperado: ${CAT_NOME[tp.cat]})`});
+    }
+
+    // R22 — observação / desconto / abatimento / juros / multa informados no pagamento
+    for (const t of T) {
+      const extra = t.desconto + t.abatimento + t.juros + t.multa;
+      if (!t.obs && !extra) continue;
+      const partes = [t.desconto && `desconto ${brl(t.desconto)}`, t.abatimento && `abatimento ${brl(t.abatimento)}`, t.juros && `juros ${brl(t.juros)}`, t.multa && `multa ${brl(t.multa)}`].filter(Boolean);
+      const forte = t.abatimento > 0 || t.desconto > 0 || /abat|devolu|cr[eé]dito|acordo|desconto|bonifica|estorno|compensa/i.test(t.obs);
+      add('R22', t.id, {sev: forte ? 'alta' : 'media', fornecedor: t.fornecedor, conta: t.conta, cc: t.cc, impacto: r2((t.desconto + t.abatimento) || Math.abs(t.valorParcela - t.valorPago) || t.valorPago), titulos: [t.i],
+        detalhe: `Cód. ${t.codigo}: ${partes.join(' · ') || 'observação no pagamento'}${t.obs ? ` · obs.: "${t.obs.slice(0, 200)}"` : ''}`});
+    }
+
     for (const o of ocorrencias) o.impacto = r2(o.impacto);
     ocorrencias.sort((a, b) => PESO[b.sev] - PESO[a.sev] || b.impacto - a.impacto);
 
@@ -413,6 +486,21 @@
   function dBR(d) { return d ? d.split('-').reverse().slice(0, 2).join('/') : '—'; }
   function dBRa(d) { return d ? d.split('-').reverse().join('/') : '—'; }
 
+  // ---------- despesas por categoria / tipo / centro de custo ----------
+  // base 'pago' = dinheiro que saiu (valor pago, mês do pagamento) · base 'lancado' = despesa lançada (parcela, mês da competência)
+  function despesas(T, opt) {
+    const o = Object.assign({base: 'pago', cc: '', categoria: '', conta: '', mes: '', fornecedor: ''}, opt || {});
+    const valor = t => o.base === 'pago' ? t.valorPago : t.valorParcela;
+    const mesDe = t => (o.base === 'pago' ? t.pagamento : t.competencia) || '';
+    const linhas = T.filter(t => t.categoria !== 'receita' && valor(t) > 0 && (o.base !== 'pago' || t.pagamento)
+      && (!o.cc || t.cc === o.cc) && (!o.categoria || t.categoria === o.categoria) && (!o.conta || t.conta === o.conta)
+      && (!o.mes || mesDe(t).startsWith(o.mes)) && (!o.fornecedor || t.fornecedor === o.fornecedor));
+    const total = r2(linhas.reduce((s, t) => s + valor(t), 0));
+    const por = chave => [...agrupar(linhas, chave)].map(([k, g]) => ({k, n: g.length, v: r2(g.reduce((s, t) => s + valor(t), 0)), idx: g.map(t => t.i)})).sort((a, b) => b.v - a.v);
+    return {opt: o, linhas, total, n: linhas.length, valor, mesDe, porCategoria: por(t => t.categoria), porConta: por(t => t.conta), porCC: por(t => t.cc),
+      porFornecedor: por(t => t.fornecedor), porMes: por(t => mesDe(t).slice(0, 7)).sort((a, b) => a.k.localeCompare(b.k))};
+  }
+
   // ---------- busca em vários formatos ----------
   // Cada termo separado por espaço precisa casar (E). Formatos aceitos:
   //   R01            regra                         16097        código do título (ou valor exato)
@@ -490,6 +578,6 @@
   }
 
   const api = {analisar, normalizar, benfordDe, REGRAS, PADRAO, PESO, brl, dBR, dBRa, chaveNome, parecePessoa,
-    interpretarBusca, filtrarOcorrencias, filtrarTitulos, casaTitulo, numBR};
+    interpretarBusca, filtrarOcorrencias, filtrarTitulos, casaTitulo, numBR, despesas, CATEGORIAS, CAT_NOME, categoriaDe, tipoPorFornecedor};
   if (typeof module === 'object' && module.exports) module.exports = api; else raiz.FinAudit = api;
 })(typeof self !== 'undefined' ? self : this);

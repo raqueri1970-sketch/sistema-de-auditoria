@@ -6,7 +6,7 @@
 <title>Auditoria Financeira</title>
 <meta name="theme-color" content="#070b16">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="auditoria.js?v=20261016-2"></script>
+<script src="auditoria.js?v=20261016-3"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -235,9 +235,9 @@ function analisar() {
 // ---------- abas ----------
 function render() {
   const pend = R.ocorrencias.filter(o => o.sit === 'pendente' || o.sit === 'em_analise').length;
-  const abas = [['painel', 'Painel'], ['ocorrencias', 'Ocorrências', pend], ['fornecedores', 'Risco por fornecedor', R.riscoFornecedor.length], ['centros', 'Centros de custo'], ['busca', '🔎 Busca de títulos'], ['regras', 'Regras e parâmetros']];
+  const abas = [['painel', 'Painel'], ['ocorrencias', 'Ocorrências', pend], ['fornecedores', 'Risco por fornecedor', R.riscoFornecedor.length], ['despesas', '💸 Despesas'], ['descontos', '🏷 Descontos e observações', R.ocorrencias.filter(o => o.regra === 'R20' || o.regra === 'R22').length], ['centros', 'Centros de custo'], ['busca', '🔎 Busca de títulos'], ['regras', 'Regras e parâmetros']];
   $('tabs').innerHTML = abas.map(([k, t, c]) => `<button class="${ABA === k ? 'on' : ''}" onclick="aba('${k}')">${t}${c != null ? `<span class="cnt">${n0(c)}</span>` : ''}</button>`).join('');
-  ({painel, ocorrencias, fornecedores, centros, busca, regras})[ABA]();
+  ({painel, ocorrencias, fornecedores, despesas: despesasAba, descontos: descontosAba, centros, busca, regras})[ABA]();
 }
 window.aba = k => { ABA = k; render(); window.scrollTo(0, 0); };
 
@@ -645,6 +645,146 @@ window.relatorioBusca = () => {
     <h2>Títulos</h2><table><tr><th>Código</th><th>Status</th><th>Fornecedor</th><th>Venc.</th><th>Compet.</th><th>Pagto.</th><th class="n">Parcela</th><th class="n">Pago</th><th class="n">Saldo</th><th>Conta</th><th>Centro de custo</th><th>Regras</th></tr>
     ${idx.map(i => { const t = R.titulos[i]; return `<tr><td><b>${t.codigo}</b></td><td>${esc(t.status)}</td><td>${esc(t.fornecedor)}</td><td>${dBRa(t.vencimento)}</td><td>${dBRa(t.competencia)}</td><td>${dBRa(t.pagamento)}</td><td class="n">${brl(t.valorParcela)}</td><td class="n">${brl(t.valorPago)}</td><td class="n">${brl(t.saldo)}</td><td>${esc(t.conta)}</td><td>${esc(t.cc)}</td><td>${[...new Set((OCT.get(i) || []).map(n => R.ocorrencias[n].regra))].join(' ')}</td></tr>`; }).join('')}
     <tr class="tot"><td colspan="6">TOTAL (${n0(idx.length)} títulos)</td><td class="n">${brl(tt.parcela)}</td><td class="n">${brl(tt.pago)}</td><td class="n">${brl(tt.saldo)}</td><td colspan="3"></td></tr></table>`);
+};
+
+// ---------- DESPESAS: quanto gastei por categoria, tipo, centro de custo, fornecedor e mês ----------
+let DS = {base: 'pago', cc: '', categoria: '', conta: '', mes: '', fornecedor: ''};
+const ATALHOS = [['🚕 Uber / Táxi', {conta: '(-) Taxi / Uber'}], ['🚗 Deslocamento', {conta: '(-) Deslocamento'}], ['⛽ Combustível', {conta: '(-) Combustível'}],
+  ['🏨 Hotel / hospedagem', {conta: '(-) Hospedagem'}], ['✈️ Viagens', {categoria: 'viagem'}], ['🍽️ Alimentação', {categoria: 'alimentacao'}],
+  ['🎓 Treinamentos', {categoria: 'treinamento'}], ['📣 Marketing', {categoria: 'marketing'}], ['🔧 Manutenção', {categoria: 'manutencao'}]];
+let _dsl = {};  // listas da tela atual (para os onclick por índice)
+window.dsSet = (k, v) => { DS[k] = v; if (k === 'categoria') DS.conta = ''; render(); };
+window.dsLista = (lista, i) => { const [k, v] = _dsl[lista][i]; dsSet(k, v); };
+window.dsAtalho = i => { DS = {...DS, categoria: '', conta: '', fornecedor: '', ...ATALHOS[i][1]}; render(); };
+const pctTxt = (v, t) => t ? (v / t * 100).toFixed(1) + '%' : '—';
+function tabelaGrupo(lista, nome, rot, chave, total, limite) {
+  _dsl[nome] = lista.map(x => [chave, x.k]);
+  const max = Math.max(...lista.map(x => x.v), 1), mostra = lista.slice(0, limite || 1e9), resto = lista.slice(mostra.length);
+  return `<div class="tw"><table><tr><th>${rot}</th><th style="width:28%"></th><th class="num">Valor</th><th class="num">%</th><th class="num">Qtde</th></tr>
+    ${mostra.map((x, i) => `<tr class="clic" onclick="dsLista('${nome}',${i})"><td class="small b">${esc(rot === 'Categoria' ? A.CAT_NOME[x.k] : rot === 'Mês' ? x.k.split('-').reverse().join('/') : x.k)}</td>
+      <td><div class="bar"><i style="width:${(x.v / max * 100).toFixed(1)}%;background:var(--pri)"></i></div></td><td class="num">${brl(x.v)}</td><td class="num small">${pctTxt(x.v, total)}</td><td class="num small">${n0(x.n)}</td></tr>`).join('')}
+    ${resto.length ? `<tr><td class="small mut" colspan="2">Demais ${n0(resto.length)}</td><td class="num">${brl(resto.reduce((s, x) => s + x.v, 0))}</td><td class="num small">${pctTxt(resto.reduce((s, x) => s + x.v, 0), total)}</td><td class="num small">${n0(resto.reduce((s, x) => s + x.n, 0))}</td></tr>` : ''}
+    <tr class="tot"><td colspan="2">TOTAL</td><td class="num">${brl(total)}</td><td class="num">100%</td><td class="num">${n0(lista.reduce((s, x) => s + x.n, 0))}</td></tr></table></div>`;
+}
+function filtrosDespesaTxt() {
+  return [DS.categoria && A.CAT_NOME[DS.categoria], DS.conta && DS.conta, DS.cc && 'Centro: ' + DS.cc, DS.fornecedor && 'Fornecedor: ' + DS.fornecedor, DS.mes && 'Mês: ' + DS.mes.split('-').reverse().join('/')].filter(Boolean);
+}
+function despesasAba() {
+  const D = A.despesas(R.titulos, DS);
+  const ccs = [...new Set(R.titulos.map(t => t.cc))].sort(), meses = [...new Set(R.titulos.map(t => ((DS.base === 'pago' ? t.pagamento : t.competencia) || '').slice(0, 7)).filter(Boolean))].sort();
+  const chips = [['categoria', DS.categoria && A.CAT_NOME[DS.categoria]], ['conta', DS.conta], ['cc', DS.cc && 'Centro: ' + DS.cc], ['fornecedor', DS.fornecedor && 'Fornecedor: ' + DS.fornecedor], ['mes', DS.mes && 'Mês: ' + DS.mes.split('-').reverse().join('/')]].filter(x => x[1]);
+  const forn = new Set(D.linhas.map(t => t.fornecedor)).size;
+  $('corpo').innerHTML = `
+  <div class="filtros">
+    <select onchange="DS.base=this.value;render()"><option value="pago" ${DS.base === 'pago' ? 'selected' : ''}>Valor pago (saída de caixa, mês do pagamento)</option><option value="lancado" ${DS.base === 'lancado' ? 'selected' : ''}>Valor lançado (despesa, mês da competência)</option></select>
+    <select onchange="dsSet('cc',this.value)" style="max-width:240px"><option value="">Todos os centros de custo</option>${ccs.map(c => `<option ${DS.cc === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+    <select onchange="dsSet('mes',this.value)"><option value="">Todos os meses</option>${meses.map(m => `<option value="${m}" ${DS.mes === m ? 'selected' : ''}>${m.split('-').reverse().join('/')}</option>`).join('')}</select>
+    <button class="btn" onclick="relatorioDespesas()">🖨 PDF / imprimir</button><button class="btn" onclick="excelDespesas()">⬇ Excel</button>
+  </div>
+  <div class="row" style="gap:6px">${ATALHOS.map(([t], i) => `<button class="btn" style="padding:6px 11px;font-size:12.5px" onclick="dsAtalho(${i})">${t}</button>`).join('')}</div>
+  ${chips.length ? `<div class="row" style="margin-top:10px;gap:6px"><span class="small mut">Filtrando:</span>${chips.map(([k, t]) => `<span class="bchip" style="cursor:pointer" onclick="dsSet('${k}','')">${esc(t)} ✕</span>`).join('')}<button class="btn" style="padding:4px 10px;font-size:12px" onclick="DS={base:DS.base,cc:'',categoria:'',conta:'',mes:'',fornecedor:''};render()">Limpar</button></div>` : ''}
+  <div class="grid" style="margin-top:12px">
+    ${kpi(DS.base === 'pago' ? 'Total gasto (pago)' : 'Total lançado', brl(D.total), filtrosDespesaTxt().join(' · ') || 'todas as despesas', 'k-warn')}
+    ${kpi('Lançamentos', n0(D.n), `média ${brl(D.n ? D.total / D.n : 0)} por lançamento`)}
+    ${kpi('Fornecedores', n0(forn), D.porFornecedor[0] ? `maior: ${esc(D.porFornecedor[0].k.slice(0, 28))}` : '—')}
+    ${kpi('Centros de custo', n0(D.porCC.length), D.porCC[0] ? `maior: ${esc(D.porCC[0].k)}` : '—')}
+  </div>
+  <div class="g2" style="margin-top:12px">
+    ${DS.conta ? '' : `<div class="card"><h2 style="margin-top:0">${DS.categoria ? 'Por tipo (conta contábil)' : 'Por categoria de despesa'} · clique para detalhar</h2>
+      ${DS.categoria ? tabelaGrupo(D.porConta, 'conta', 'Tipo de despesa', 'conta', D.total) : tabelaGrupo(D.porCategoria, 'cat', 'Categoria', 'categoria', D.total)}</div>`}
+    <div class="card"><h2 style="margin-top:0">Por centro de custo</h2>${tabelaGrupo(D.porCC, 'cc', 'Centro de custo', 'cc', D.total, 25)}</div>
+    <div class="card"><h2 style="margin-top:0">Por fornecedor</h2>${tabelaGrupo(D.porFornecedor, 'forn', 'Fornecedor', 'fornecedor', D.total, 25)}</div>
+    <div class="card"><h2 style="margin-top:0">Por mês</h2>${tabelaGrupo(D.porMes, 'mes', 'Mês', 'mes', D.total)}</div>
+  </div>
+  <h2>Lançamentos ${D.n > 500 ? '(500 maiores — filtre por tipo, centro ou fornecedor para ver todos)' : ''}</h2>
+  ${tabTitulos(D.linhas.slice().sort((a, b) => D.valor(b) - D.valor(a)).slice(0, 500).map(t => t.i))}`;
+}
+window.relatorioDespesas = () => {
+  const D = A.despesas(R.titulos, DS), f = filtrosDespesaTxt();
+  const tab = (lista, rot, nomear, lim) => { const m = lista.slice(0, lim || 1e9), r = lista.slice(m.length);
+    return `<table><tr><th>${rot}</th><th class="n">Valor</th><th class="n">%</th><th class="n">Qtde</th></tr>${m.map(x => `<tr><td>${esc(nomear(x.k))}</td><td class="n">${brl(x.v)}</td><td class="n">${pctTxt(x.v, D.total)}</td><td class="n">${n0(x.n)}</td></tr>`).join('')}
+    ${r.length ? `<tr class="sub"><td>Demais ${n0(r.length)}</td><td class="n">${brl(r.reduce((s, x) => s + x.v, 0))}</td><td class="n">${pctTxt(r.reduce((s, x) => s + x.v, 0), D.total)}</td><td class="n">${n0(r.reduce((s, x) => s + x.n, 0))}</td></tr>` : ''}
+    <tr class="tot"><td>TOTAL</td><td class="n">${brl(D.total)}</td><td class="n">100%</td><td class="n">${n0(D.n)}</td></tr></table>`; };
+  const id = k => k;
+  const idx = D.linhas.slice().sort((a, b) => D.valor(b) - D.valor(a)).slice(0, 300).map(t => t.i), tt = totTitulos(idx);
+  imprimirHTML('Despesas por categoria, tipo e centro de custo', `<div class="desc">${DS.base === 'pago' ? 'Valor pago (saída de caixa, mês do pagamento)' : 'Valor lançado (mês da competência)'}${f.length ? ' · Filtros: ' + esc(f.join(' · ')) : ''}</div>
+    <div class="k"><div><b>${brl(D.total)}</b><span>total</span></div><div><b>${n0(D.n)}</b><span>lançamentos</span></div><div><b>${brl(D.n ? D.total / D.n : 0)}</b><span>média por lançamento</span></div><div><b>${n0(D.porFornecedor.length)}</b><span>fornecedores</span></div><div><b>${n0(D.porCC.length)}</b><span>centros de custo</span></div></div>
+    <div class="g2"><div><h2>Por categoria</h2>${tab(D.porCategoria, 'Categoria', k => A.CAT_NOME[k])}</div><div><h2>Por mês</h2>${tab(D.porMes, 'Mês', k => k.split('-').reverse().join('/'))}</div></div>
+    <h2>Por tipo de despesa (conta contábil)</h2>${tab(D.porConta, 'Tipo', id, 40)}
+    <div class="g2"><div><h2>Por centro de custo</h2>${tab(D.porCC, 'Centro de custo', id, 40)}</div><div><h2>Por fornecedor</h2>${tab(D.porFornecedor, 'Fornecedor', id, 40)}</div></div>
+    <h2 class="quebra">Lançamentos ${D.n > 300 ? '(300 maiores)' : ''}</h2>
+    <table><tr><th>Código</th><th>Fornecedor</th><th>Tipo</th><th>Centro de custo</th><th>Venc.</th><th>Pagto.</th><th class="n">Parcela</th><th class="n">Pago</th></tr>
+    ${idx.map(i => { const t = R.titulos[i]; return `<tr><td><b>${t.codigo}</b></td><td>${esc(t.fornecedor)}</td><td>${esc(t.conta)}</td><td>${esc(t.cc)}</td><td>${dBRa(t.vencimento)}</td><td>${dBRa(t.pagamento)}</td><td class="n">${brl(t.valorParcela)}</td><td class="n">${brl(t.valorPago)}</td></tr>`; }).join('')}
+    ${D.n > 300 ? `<tr class="sub"><td colspan="6">Subtotal dos 300 listados</td><td class="n">${brl(tt.parcela)}</td><td class="n">${brl(tt.pago)}</td></tr>` : ''}
+    <tr class="tot"><td colspan="6">TOTAL (${n0(D.n)} lançamentos)</td><td class="n" colspan="2">${brl(D.total)}</td></tr></table>`);
+};
+window.excelDespesas = async () => {
+  await carregarXLSX();
+  const D = A.despesas(R.titulos, DS), wb = XLSX.utils.book_new();
+  const aba = (lista, rot, nomear) => [...lista.map(x => ({[rot]: nomear(x.k), Valor: x.v, '%': D.total ? r2(x.v / D.total * 100) : 0, Qtde: x.n})), {[rot]: 'TOTAL', Valor: D.total, '%': 100, Qtde: D.n}];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(aba(D.porCategoria, 'Categoria', k => A.CAT_NOME[k])), 'Por categoria');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(aba(D.porConta, 'Tipo (conta)', k => k)), 'Por tipo');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(aba(D.porCC, 'Centro de custo', k => k)), 'Por centro de custo');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(aba(D.porFornecedor, 'Fornecedor', k => k)), 'Por fornecedor');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(aba(D.porMes, 'Mês', k => k)), 'Por mês');
+  // matriz centro de custo × categoria
+  const cats = D.porCategoria.map(c => c.k), mat = D.porCC.map(c => { const l = {'Centro de custo': c.k}; for (const k of cats) l[A.CAT_NOME[k]] = 0; for (const i of c.idx) { const t = R.titulos[i]; l[A.CAT_NOME[t.categoria]] = r2(l[A.CAT_NOME[t.categoria]] + D.valor(t)); } l.TOTAL = c.v; return l; });
+  const tl = {'Centro de custo': 'TOTAL'}; for (const k of cats) tl[A.CAT_NOME[k]] = D.porCategoria.find(c => c.k === k).v; tl.TOTAL = D.total; mat.push(tl);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mat), 'Centro x categoria');
+  const idx = D.linhas.map(t => t.i);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([...idx.map(i => ({...linhaTitulo(R.titulos[i]), Categoria: A.CAT_NOME[R.titulos[i].categoria]})), totalTitulosXL(idx)]), 'Lançamentos');
+  XLSX.writeFile(wb, `despesas_${$('fDe').value}_a_${$('fAte').value}.xlsx`);
+};
+
+// ---------- DESCONTOS, PAGO A MENOR E OBSERVAÇÕES ----------
+let DM = {tipo: '', q: ''};
+function descontosAba() {
+  const temCampos = R.titulos.some(t => t.obs || t.desconto || t.abatimento || t.juros || t.multa);
+  let ocs = R.ocorrencias.filter(o => o.regra === 'R20' || o.regra === 'R22');
+  if (DM.tipo === 'baixa') ocs = ocs.filter(o => o.tipo === 'baixa_com_diferenca'); else if (DM.tipo === 'parcial') ocs = ocs.filter(o => o.tipo === 'parcial'); else if (DM.tipo === 'obs') ocs = ocs.filter(o => o.regra === 'R22');
+  ocs = A.filtrarOcorrencias(ocs, A.interpretarBusca(DM.q), R.titulos).sort((a, b) => b.impacto - a.impacto);
+  const idx = [...new Set(ocs.flatMap(o => o.titulos))], tt = totTitulos(idx), dif = tt.parcela - tt.pago;
+  const baixa = ocs.filter(o => o.tipo === 'baixa_com_diferenca'), parc = ocs.filter(o => o.tipo === 'parcial');
+  const porForn = [...ocs.reduce((m, o) => m.set(o.fornecedor, (m.get(o.fornecedor) || []).concat(o)), new Map())].map(([f, g]) => ({f, n: g.length, v: somaImp(g)})).sort((a, b) => b.v - a.v);
+  $('corpo').innerHTML = `
+  ${temCampos ? '' : `<div class="aviso"><b>A API do Sallamo ainda não envia a observação nem o desconto/abatimento do pagamento.</b> Hoje só dá para ver a diferença entre o valor da parcela e o valor pago.
+    Peça ao Sallamo (Alex) para incluir na rota <i>contas-a-pagar</i> os campos <b>observacao</b> (histórico da baixa), <b>valorDesconto</b>, <b>valorAbatimento</b>, <b>valorJuros</b>, <b>valorMulta</b> e, se possível, <b>numeroDocumento</b> (NF/duplicata), <b>formaPagamento</b> e <b>usuarioBaixa</b>.
+    Assim que vierem, esta tela e a regra R22 passam a mostrar cada duplicata com observação sozinhas — não precisa mexer em nada.</div>`}
+  <div class="grid" style="margin-top:12px">
+    ${kpi('Diferença total (parcela − pago)', brl(dif), `${n0(idx.length)} duplicata(s)`, 'k-bad')}
+    ${kpi('Baixadas como "Pago" com diferença', n0(baixa.length), brl(somaImp(baixa)) + ' · desconto/abatimento ou baixa errada', 'k-warn')}
+    ${kpi('Pagamento parcial (com saldo)', n0(parc.length), brl(somaImp(parc)))}
+    ${kpi('Com observação/abatimento (R22)', n0(ocs.filter(o => o.regra === 'R22').length), temCampos ? 'informado pelo Sallamo' : 'aguardando campo na API', 'k-pur')}
+  </div>
+  <div class="filtros">
+    <select onchange="DM.tipo=this.value;render()"><option value="">Todas</option><option value="baixa" ${DM.tipo === 'baixa' ? 'selected' : ''}>Baixadas como "Pago" com diferença</option><option value="parcial" ${DM.tipo === 'parcial' ? 'selected' : ''}>Pagamento parcial</option><option value="obs" ${DM.tipo === 'obs' ? 'selected' : ''}>Com observação/abatimento</option></select>
+    <button class="btn" onclick="relatorioDescontos()">🖨 PDF / imprimir</button><button class="btn" onclick="excelDescontos()">⬇ Excel</button>
+  </div>
+  ${campoBusca('DM', DM.q)}
+  <div class="g2" style="margin-top:12px;grid-template-columns:minmax(0,2fr) minmax(0,1fr)">
+    <div class="tw"><table><tr><th>Grav.</th><th>Fornecedor</th><th>O que foi encontrado</th><th class="num">Diferença</th><th>Análise</th></tr>
+      ${ocs.slice(0, 300).map(o => `<tr class="clic" onclick="abrir(${o.n})"><td>${sevChip(o.sev)}</td><td class="small b">${esc(o.fornecedor)}<br><span class="mut" style="font-weight:400">${esc(o.conta || '')} · ${esc(o.cc || '')}</span></td><td class="small">${esc(o.detalhe)}</td><td class="num b">${brl(o.impacto)}</td><td>${sitChip(o.sit)}</td></tr>`).join('') || '<tr><td colspan="5" class="mut" style="text-align:center;padding:30px">Nada encontrado.</td></tr>'}
+      ${ocs.length ? `${ocs.length > 300 ? `<tr class="tot"><td colspan="3">Subtotal das 300 maiores</td><td class="num">${brl(somaImp(ocs.slice(0, 300)))}</td><td></td></tr>` : ''}<tr class="tot"><td colspan="3">TOTAL (${n0(ocs.length)})</td><td class="num">${brl(somaImp(ocs))}</td><td></td></tr>` : ''}</table></div>
+    <div class="tw"><table><tr><th>Fornecedor</th><th class="num">Qtde</th><th class="num">Diferença</th></tr>
+      ${porForn.slice(0, 40).map(x => `<tr class="clic" onclick="dossie(${fx(x.f)})"><td class="small">${esc(x.f)}</td><td class="num small">${n0(x.n)}</td><td class="num">${brl(x.v)}</td></tr>`).join('')}
+      <tr class="tot"><td>TOTAL</td><td class="num">${n0(ocs.length)}</td><td class="num">${brl(somaImp(ocs))}</td></tr></table></div>
+  </div>`;
+  window._dmOcs = ocs; window._dmForn = porForn;
+}
+window.relatorioDescontos = () => {
+  const ocs = window._dmOcs || [], pf = window._dmForn || [];
+  imprimirHTML('Duplicatas pagas a menor, descontos e observações', `<div class="desc">${DM.tipo ? 'Filtro: ' + ({baixa: 'baixadas como Pago com diferença', parcial: 'pagamento parcial', obs: 'com observação/abatimento'})[DM.tipo] : 'Todas'}${DM.q ? ' · busca: ' + esc(DM.q) : ''}</div>
+    ${kpisRel(ocs)}<h2>Por fornecedor</h2><table><tr><th>Fornecedor</th><th class="n">Qtde</th><th class="n">Diferença</th></tr>${pf.map(x => `<tr><td>${esc(x.f)}</td><td class="n">${n0(x.n)}</td><td class="n">${brl(x.v)}</td></tr>`).join('')}
+    <tr class="tot"><td>TOTAL</td><td class="n">${n0(ocs.length)}</td><td class="n">${brl(somaImp(ocs))}</td></tr></table>
+    <h2 class="quebra">Duplicatas</h2>${tabelaOcsRel(ocs, {mostrarRegra: true})}`);
+};
+window.excelDescontos = async () => {
+  await carregarXLSX();
+  const ocs = window._dmOcs || [], wb = XLSX.utils.book_new();
+  const linhas = ocs.flatMap(o => [...new Set(o.titulos)].map(i => { const t = R.titulos[i]; return {...linhaTitulo(t), Diferença: r2(t.valorParcela - t.valorPago), Tipo: o.tipo === 'parcial' ? 'Pagamento parcial' : o.regra === 'R22' ? 'Observação/abatimento' : 'Baixa com diferença', Observação: t.obs, Desconto: t.desconto, Abatimento: t.abatimento, Juros: t.juros, Multa: t.multa, Análise: SIT[o.sit], Comentário: (ANAL[o.id] || {}).comentario || ''}; }));
+  linhas.push({Código: 'TOTAL', Status: `${linhas.length} duplicatas`, Parcela: r2(linhas.reduce((s, x) => s + x.Parcela, 0)), Pago: r2(linhas.reduce((s, x) => s + x.Pago, 0)), Saldo: r2(linhas.reduce((s, x) => s + x.Saldo, 0)), Diferença: r2(linhas.reduce((s, x) => s + x.Diferença, 0))});
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), 'Pago a menor');
+  XLSX.writeFile(wb, `pago_a_menor_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
 
 // ---------- EXCEL ----------

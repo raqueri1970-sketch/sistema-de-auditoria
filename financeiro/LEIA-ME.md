@@ -25,7 +25,7 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
 2. Os usuários precisam ter perfil `administrador`, `controladoria` ou `diretoria` ativo em `orc_perfis`.
 3. Publicado no Portal: `portal-esposende-login` (pasta `financeiro/` + `financeiro-patch.js`), menu Financeiro → Auditoria Financeira.
 
-## As 19 regras de cruzamento
+## As 22 regras de cruzamento
 
 | Regra | O que pega | Por que importa |
 |---|---|---|
@@ -47,6 +47,16 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
 | R17 Datas incoerentes | vencimento antes da competência / competência muito antiga | lançamento retroativo |
 | R18 Vencido em aberto | vencido há 30+ dias | juros, protesto, corte de fornecimento |
 | R19 Classificação | mesmo fornecedor em muitas contas contábeis | distorce DRE, esconde despesa |
+| R20 Pago a menor | duplicata paga abaixo da parcela (baixa "Pago" com diferença = desconto/abatimento ou baixa errada; ou pagamento parcial) | desconto sem documento, baixa indevida |
+| R21 Despesa na conta errada | nome do fornecedor indica hotel, posto, Uber, restaurante, aérea… e a conta é outra | despesa escondida em outra conta |
+| R22 Observação/abatimento | observação, desconto, abatimento, juros ou multa informados na baixa | **depende da API enviar `observacao`, `valorDesconto`, `valorAbatimento`, `valorJuros`, `valorMulta`** — lidos automaticamente quando vierem |
+
+## Abas de análise
+
+- **💸 Despesas**: quanto foi gasto por categoria (transporte, hospedagem, alimentação…), tipo (conta contábil), centro de custo, fornecedor e mês — em valor pago (caixa) ou lançado (competência). Atalhos: Uber/Táxi, Hotel, Alimentação, Combustível… PDF e Excel (com matriz centro de custo × categoria), sempre com total.
+- **🏷 Descontos e observações**: duplicatas pagas a menor, separando baixa com diferença × pagamento parcial, por fornecedor, com total.
+- **🔎 Busca de títulos**: busca em vários formatos (código, valor, faixa, data, mês, regra, texto).
+
 
 A **nota de risco por fornecedor** (0–100) soma indícios *diferentes* cruzados no mesmo fornecedor
 (cada regra conta uma vez, pelo peso da pior ocorrência: alta 10, média 4, baixa 1). Todos os limites
