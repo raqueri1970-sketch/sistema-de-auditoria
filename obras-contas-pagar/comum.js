@@ -527,17 +527,23 @@ async function gerarPDF(doc) {
   pdf.setTextColor(20); let y = 92;
   if (doc.resumo && doc.resumo.length) {
     // Caixas do mesmo tamanho, texto centralizado; o valor diminui ou quebra em 2 linhas para nunca sair da caixa
-    const col = Math.min(4, doc.resumo.length), cw = (W - 2 * M) / col, bw = cw - 8, BH = 44;
+    const col = Math.min(4, doc.resumo.length), gapR = 8, bw = (W - 2 * M - gapR * (col - 1)) / col, cw = bw + gapR, BH = 50, pad = 8;
+    // encaixa o texto na largura: diminui a fonte até o mínimo e, se ainda não couber, quebra em 2 linhas
+    const encaixa = (t, max, min, larg) => { let fs = max; pdf.setFontSize(fs); while (fs > min && pdf.getTextWidth(t) > larg) pdf.setFontSize(fs -= .25);
+      return pdf.getTextWidth(t) <= larg ? {fs, ls: [t]} : {fs, ls: pdf.splitTextToSize(t, larg).slice(0, 2)}; };
     doc.resumo.forEach(([l, v], i) => {
-      const x = M + (i % col) * cw, yy = y + Math.floor(i / col) * (BH + 8), cx = x + bw / 2;
-      pdf.setDrawColor(200); pdf.roundedRect(x, yy - 12, bw, BH, 4, 4);
-      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(90); pdf.text(pdfTxt(l), cx, yy, {align: 'center'});
+      const x = M + (i % col) * cw, top = y - 12 + Math.floor(i / col) * (BH + 8), cx = x + bw / 2;
+      pdf.setDrawColor(200); pdf.setLineWidth(.6); pdf.roundedRect(x, top, bw, BH, 4, 4);
+      pdf.setFont('helvetica', 'normal'); pdf.setTextColor(90);
+      const r = encaixa(pdfTxt(l), 8, 6.5, bw - 2 * pad);
+      pdf.setFontSize(r.fs); r.ls.forEach((t, k) => pdf.text(t, cx, top + (r.ls.length > 1 ? 10 : 14) + k * (r.fs + 1.5), {align: 'center'}));
       pdf.setFont('helvetica', 'bold'); pdf.setTextColor(20);
-      let fs = 11.5; const val = pdfTxt(v);
-      pdf.setFontSize(fs); while (fs > 8 && pdf.getTextWidth(val) > bw - 10) pdf.setFontSize(fs -= .5);
-      if (pdf.getTextWidth(val) > bw - 10) { const ls = pdf.splitTextToSize(val, bw - 10).slice(0, 2); pdf.text(ls, cx, yy + 13, {align: 'center'}); }
-      else pdf.text(val, cx, yy + 17, {align: 'center'});
+      const vv = encaixa(pdfTxt(v), 12, 8, bw - 2 * pad), base = top + (r.ls.length > 1 ? 31 : 32);
+      pdf.setFontSize(vv.fs);
+      if (vv.ls.length > 1) vv.ls.forEach((t, k) => pdf.text(t, cx, base - 3 + k * (vv.fs + 1), {align: 'center'}));
+      else pdf.text(vv.ls[0], cx, base + 4, {align: 'center'});
     });
+    pdf.setLineWidth(.5);
     pdf.setFont('helvetica', 'normal');
     y += Math.ceil(doc.resumo.length / col) * (BH + 8) + 6;
   }
@@ -629,11 +635,11 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   return {titulo: `Extrato do prestador - ${prestador}`, subtitulo: `Obras & Reformas - Esposende - ${per}`,
     graficos: [{titulo: 'Caixa com o prestador dia a dia', tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'},
       {titulo: 'Despesas do período por categoria', tipo: 'barras', itens: Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({rotulo: k, a: v}))}],
-    resumo: [['CAIXA COM O PRESTADOR (hoje)', (caixaPrestador(saldo) < 0 ? 'empresa deve ' : '') + brl(Math.abs(caixaPrestador(saldo)))],
+    resumo: [['Caixa com o prestador (hoje)', (caixaPrestador(saldo) < 0 ? 'empresa deve ' : '') + brl(Math.abs(caixaPrestador(saldo)))],
       ['Despesas no período', brl(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor'))], ['Pago no período', brl(soma(lanc, 'valor_pago'))],
       ['Em aberto (hoje)', brl(saldo.em_aberto)], ['Crédito de adiantamento', brl(saldo.adiantamento_disponivel)],
-      ['TOTAL A PAGAR (hoje)', brl(saldo.saldo_devedor)],
-      ...(diretos.length ? [['Pago direto pela empresa (fora da conta)', brl(soma(diretos, 'valor'))]] : []),
+      ['Total a pagar (hoje)', brl(saldo.saldo_devedor)],
+      ...(diretos.length ? [['Pago direto pela empresa', brl(soma(diretos, 'valor'))]] : []),
       ['PIX / conta', saldo.pix_chave ? `${saldo.pix_tipo || ''} ${saldo.pix_chave}` : (saldo.banco ? `${saldo.banco} ${saldo.agencia || ''} ${saldo.conta || ''}` : 'nao cadastrado')]],
     secoes: [
       secaoLivroCaixa(lc),
