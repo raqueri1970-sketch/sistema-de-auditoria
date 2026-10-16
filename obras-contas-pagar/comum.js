@@ -511,6 +511,23 @@ const quemCurto = q => String(q || '').split('@')[0];
 const celTxt = c => c && typeof c === 'object' ? c.t : c;
 const V = v => ({t: brl(v), n: Number(v || 0)});
 
+// Cor de cada quadro de resumo pelo significado (16/10/2026): azul = crédito/adiantamento, verde = pago/caixa positivo,
+// laranja = em aberto/a pagar, vermelho = negativo/duplicidade/crítico, roxo = totais de despesas, cinza = informação
+const TONS = {azul: {tela: '#93c5fd', bar: [57, 135, 229], fundo: [235, 243, 254], txt: [29, 78, 216]}, verde: {tela: '#86efac', bar: [22, 163, 74], fundo: [234, 249, 239], txt: [21, 128, 61]},
+  laranja: {tela: '#fdba74', bar: [234, 88, 12], fundo: [255, 243, 232], txt: [194, 65, 12]}, vermelho: {tela: '#fca5a5', bar: [220, 38, 38], fundo: [254, 236, 236], txt: [185, 28, 28]},
+  roxo: {tela: '#c4b5fd', bar: [124, 58, 237], fundo: [243, 238, 254], txt: [109, 40, 217]}, cinza: {tela: '#e2e8f0', bar: [148, 163, 184], fundo: [246, 247, 250], txt: [30, 41, 59]}};
+function tomResumo(rotulo, valor) {
+  const l = String(rotulo || '').toLowerCase(), v = String(valor ?? ''), zero = /^(r\$\s*)?0([,.]00)?$|^0 de /i.test(v.trim()), neg = /^[-−]|empresa deve/i.test(v.trim());
+  if (/pix|conta$|recibos|despesas$|semanas em|fornecedores$/.test(l) && !/semanas quitadas/.test(l)) return /recibos|despesas$|fornecedores$/.test(l) ? 'roxo' : 'cinza';
+  if (/pago direto/.test(l)) return 'cinza';  // fora da conta do prestador
+  if (/caixa/.test(l)) return neg ? 'vermelho' : 'verde';
+  if (/duplic|pago a mais|crític|pendênc|recusad/.test(l)) return zero ? 'verde' : 'vermelho';
+  if (/a pagar|em aberto|aberto|aguardando|atenção|com ponto/.test(l)) return zero ? 'verde' : 'laranja';
+  if (/crédito|adiantament/.test(l)) return 'azul';
+  if (/pago|quitad|reembols|pagamentos/.test(l)) return 'verde';
+  if (/despesa|gasto|total|valor/.test(l)) return 'roxo';
+  return 'cinza';
+}
 // doc = {titulo, subtitulo, resumo: [[rótulo, valor]], graficos: [ver svgGrafico], secoes: [{titulo, cab, linhas, rodape, direita: [índices de colunas numéricas], nota}], assinaturas: [..], arquivo, paisagem}
 async function gerarPDF(doc) {
   const JsPDF = await pdfLib();
@@ -533,17 +550,19 @@ async function gerarPDF(doc) {
       return pdf.getTextWidth(t) <= larg ? {fs, ls: [t]} : {fs, ls: pdf.splitTextToSize(t, larg).slice(0, 2)}; };
     doc.resumo.forEach(([l, v], i) => {
       const x = M + (i % col) * cw, top = y - 12 + Math.floor(i / col) * (BH + 8), cx = x + bw / 2;
-      pdf.setDrawColor(200); pdf.setLineWidth(.6); pdf.roundedRect(x, top, bw, BH, 4, 4);
-      pdf.setFont('helvetica', 'normal'); pdf.setTextColor(90);
+      const tom = TONS[tomResumo(l, v)];
+      pdf.setFillColor(...tom.fundo); pdf.setDrawColor(...tom.bar); pdf.setLineWidth(.6); pdf.roundedRect(x, top, bw, BH, 4, 4, 'FD');
+      pdf.setFillColor(...tom.bar); pdf.rect(x + .3, top + 6, 3, BH - 12, 'F');  // faixa colorida à esquerda
+      pdf.setFont('helvetica', 'normal'); pdf.setTextColor(70, 80, 100);
       const r = encaixa(pdfTxt(l), 8, 6.5, bw - 2 * pad);
       pdf.setFontSize(r.fs); r.ls.forEach((t, k) => pdf.text(t, cx, top + (r.ls.length > 1 ? 10 : 14) + k * (r.fs + 1.5), {align: 'center'}));
-      pdf.setFont('helvetica', 'bold'); pdf.setTextColor(20);
+      pdf.setFont('helvetica', 'bold'); pdf.setTextColor(...tom.txt);
       const vv = encaixa(pdfTxt(v), 12, 8, bw - 2 * pad), base = top + (r.ls.length > 1 ? 31 : 32);
       pdf.setFontSize(vv.fs);
       if (vv.ls.length > 1) vv.ls.forEach((t, k) => pdf.text(t, cx, base - 3 + k * (vv.fs + 1), {align: 'center'}));
       else pdf.text(vv.ls[0], cx, base + 4, {align: 'center'});
     });
-    pdf.setLineWidth(.5);
+    pdf.setLineWidth(.5); pdf.setTextColor(20); pdf.setDrawColor(200);
     pdf.setFont('helvetica', 'normal');
     y += Math.ceil(doc.resumo.length / col) * (BH + 8) + 6;
   }
@@ -671,7 +690,7 @@ function baixarCSVModelo(m) {
 // Mostra o mesmo modelo do PDF na tela
 function htmlModelo(m) {
   const cel = (c, i, s) => `<td class="${(s.direita || []).includes(i) ? 'r' : ''}">${esc(celTxt(c))}</td>`;
-  return `${m.resumo ? `<div class="grid" style="margin:10px 0">${m.resumo.map(([l, v]) => `<div class="card kpi"><div class="l">${esc(l)}</div><div class="v" style="font-size:19px">${esc(v)}</div></div>`).join('')}</div>` : ''}
+  return `${m.resumo ? `<div class="grid" style="margin:10px 0">${m.resumo.map(([l, v]) => `<div class="card kpi t-${tomResumo(l, v)}"><div class="l">${esc(l)}</div><div class="v" style="font-size:19px">${esc(v)}</div></div>`).join('')}</div>` : ''}
     ${m.graficos && m.graficos.length ? `<div class="g2 graf-rel">${m.graficos.map(g => `<div>${svgGrafico(g)}</div>`).join('')}</div>` : ''}
     ${m.secoes.map(s => `<div class="card" style="margin-top:12px"><b>${esc(s.titulo || '')}</b>${s.nota ? `<div class="small mut">${esc(s.nota)}</div>` : ''}
       ${s.linhas.length ? `<div class="tw"><table><thead><tr>${s.cab.map((h, i) => `<th class="${(s.direita || []).includes(i) ? 'r' : ''}">${esc(h)}</th>`).join('')}</tr></thead>

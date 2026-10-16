@@ -233,3 +233,15 @@ details.card>summary::before{content:"▸ ";color:var(--mut)}details.card[open]>
 
 .pgrid:has(.pc){grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr))}
 .graf-rel{margin:4px 0 6px}.graf-rel svg{width:100%;height:auto;display:block;border-radius:12px}
+/* Quadros de resumo coloridos pelo significado (tomResumo no comum.js) */
+.kpi.t-azul::before{background:#3987e5}.kpi.t-azul .v{color:#93c5fd}.kpi.t-azul{background:linear-gradient(180deg,rgba(57,135,229,.10),var(--card));border-color:rgba(57,135,229,.30)}
+.kpi.t-verde::before{background:var(--ok)}.kpi.t-verde .v{color:#86efac}.kpi.t-verde{background:linear-gradient(180deg,rgba(34,197,94,.09),var(--card));border-color:rgba(34,197,94,.28)}
+.kpi.t-laranja::before{background:#ea580c}.kpi.t-laranja .v{color:#fdba74}.kpi.t-laranja{background:linear-gradient(180deg,rgba(234,88,12,.10),var(--card));border-color:rgba(234,88,12,.32)}
+.kpi.t-vermelho::before{background:var(--bad)}.kpi.t-vermelho .v{color:#fca5a5}.kpi.t-vermelho{background:linear-gradient(180deg,rgba(239,68,68,.10),var(--card));border-color:rgba(239,68,68,.34)}
+.kpi.t-roxo::before{background:#7c3aed}.kpi.t-roxo .v{color:#c4b5fd}.kpi.t-roxo{background:linear-gradient(180deg,rgba(124,58,237,.10),var(--card));border-color:rgba(124,58,237,.30)}
+.kpi.t-cinza .v{color:var(--txt)}
+.kpi .l{text-transform:none}
+/* tons também nos blocos da Visão geral e do Presidente */
+.k-azul{background:linear-gradient(180deg,rgba(57,135,229,.10),var(--card));border-color:rgba(57,135,229,.30)}.k-azul::before{background:#3987e5}.k-azul .v{color:#93c5fd}
+.k-lar{background:linear-gradient(180deg,rgba(234,88,12,.10),var(--card));border-color:rgba(234,88,12,.32)}.k-lar::before{background:#ea580c}.k-lar .v{color:#fdba74}
+.k-ok{background:linear-gradient(180deg,rgba(34,197,94,.08),var(--card))}.k-pagar{background:linear-gradient(180deg,rgba(245,179,1,.09),var(--card))}.k-bad{background:linear-gradient(180deg,rgba(239,68,68,.09),var(--card))}
