@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261016-3">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261016-4">
 </head>
 <body>
 
@@ -57,7 +57,7 @@
 
 <input type="file" id="arquivo" accept="image/*,application/pdf" class="hidden">
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js?v=20261016-2"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261016-4"></script>
 <script>
 let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], FLUXO = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = true;
 let ORCS = [], ACEITOS = new Map(), VENDO_ORC = false, OBRAS = [], SEM_INICIAL = null, DUPS = [];
@@ -581,10 +581,14 @@ async function pdfResumoPresidente() {
        rodape: ['', '', '', '', 'TOTAL', brl(soma(pagosMes, 'valor_pago'))]}];
     for (const s of lista.filter(s => Number(s.total_adiantado) > 0 || Number(s.em_aberto) > 0)) {
       const desp = await carregarDespesas(q => q.eq('prestador', s.prestador));
-      const sec = secaoLivroCaixa(livroCaixa(s.prestador, desp, PAGS.filter(p => p.prestador === s.prestador), ADIS.filter(a => a.prestador === s.prestador), s));
-      secoes.push({...sec, titulo: 'Extrato de caixa · ' + s.prestador});
+      const lc = livroCaixa(s.prestador, desp, PAGS.filter(p => p.prestador === s.prestador), ADIS.filter(a => a.prestador === s.prestador), s);
+      secoes.push({...secaoLivroCaixa(lc), titulo: 'Extrato de caixa · ' + s.prestador, lc, prest: s.prestador});
     }
-    await gerarPDF({titulo: 'Pagamentos · Presidente — resumo final', subtitulo: 'Obras & Reformas · posição de ' + dBR(hojeISO()), paisagem: true,
+    const graficos = [{titulo: 'Crédito × gasto em aberto por prestador', tipo: 'barras', series: ['Crédito', 'Gasto em aberto'],
+        itens: lista.filter(s => Number(s.adiantamento_disponivel) || Number(s.em_aberto)).map(s => ({rotulo: `${s.prestador} (caixa ${brlCurto(caixaPrestador(s))})`, a: Number(s.adiantamento_disponivel), b: Number(s.em_aberto)}))},
+      {titulo: 'Pago neste mês por prestador', tipo: 'barras', itens: Object.entries(pagosMes.reduce((m, p) => (m[p.prestador] = (m[p.prestador] || 0) + Number(p.valor_pago || 0), m), {})).sort((a, b) => b[1] - a[1]).map(([rotulo, a]) => ({rotulo, a}))}];
+    for (const sec of secoes.filter(x => x.lc)) graficos.push({titulo: 'Caixa dia a dia · ' + sec.prest, tipo: 'linha', itens: serieCaixa(sec.lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'});
+    await gerarPDF({graficos, titulo: 'Pagamentos · Presidente — resumo final', subtitulo: 'Obras & Reformas · posição de ' + dBR(hojeISO()), paisagem: true,
       resumo: [['Total a pagar', brl(soma(SALDOS, 'saldo_devedor'))], ['Gasto em aberto', brl(gasto)], ['Crédito de adiantamento', brl(soma(SALDOS, 'adiantamento_disponivel'))],
         ['Crédito usado', brl(credUsado)], ['Caixa com os prestadores', brl(caixa)], ['Duplicidades p/ decidir', String(DUPS.length)],
         ['Pago neste mês', brl(soma(pagosMes, 'valor_pago')) + ' (' + pagosMes.length + ')'], ['Pendências', String(PAGS.filter(p => p.status === 'pendencia').length)]],

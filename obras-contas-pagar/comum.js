@@ -511,7 +511,7 @@ const quemCurto = q => String(q || '').split('@')[0];
 const celTxt = c => c && typeof c === 'object' ? c.t : c;
 const V = v => ({t: brl(v), n: Number(v || 0)});
 
-// doc = {titulo, subtitulo, resumo: [[rótulo, valor]], secoes: [{titulo, cab, linhas, rodape, direita: [índices de colunas numéricas], nota}], assinaturas: [..], arquivo, paisagem}
+// doc = {titulo, subtitulo, resumo: [[rótulo, valor]], graficos: [ver svgGrafico], secoes: [{titulo, cab, linhas, rodape, direita: [índices de colunas numéricas], nota}], assinaturas: [..], arquivo, paisagem}
 async function gerarPDF(doc) {
   const JsPDF = await pdfLib();
   const pdf = new JsPDF({orientation: doc.paisagem ? 'landscape' : 'portrait', unit: 'pt', format: 'a4'});
@@ -541,8 +541,21 @@ async function gerarPDF(doc) {
     pdf.setFont('helvetica', 'normal');
     y += Math.ceil(doc.resumo.length / col) * (BH + 8) + 6;
   }
+  if (doc.graficos && doc.graficos.length) {
+    // 2 por linha na folha deitada; 1 por linha (mais estreito) na folha em pé
+    const porLinha = doc.paisagem ? 2 : 1, gap = 12, gw = porLinha === 2 ? (W - 2 * M - gap) / 2 : W - 2 * M;
+    for (let k = 0; k < doc.graficos.length; k += porLinha) {
+      const linha = doc.graficos.slice(k, k + porLinha), alt = linha.map(g => gw * alturaGrafico(g) / 560), gh = Math.max(...alt);
+      if (y + gh > H - 40) { pdf.addPage(); y = 50; }
+      for (let c = 0; c < linha.length; c++) {
+        try { pdf.addImage(await svgPNG(svgGrafico(linha[c]), 560, alturaGrafico(linha[c])), 'PNG', M + c * (gw + gap), y, gw, alt[c]); } catch (e) { console.warn('[PDF] gráfico:', e); }
+      }
+      y += gh + 14;
+    }
+    y += 6;
+  }
   for (const s of doc.secoes || []) {
-    if (y > H - 90) { pdf.addPage(); y = 50; }
+    if (y > H - 130) { pdf.addPage(); y = 50; }  // título não fica sozinho no pé da página
     if (s.titulo) { pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.text(pdfTxt(s.titulo), M, y); pdf.setFont('helvetica', 'normal'); y += 6; }
     if (s.nota) { pdf.setFontSize(8.5); pdf.setTextColor(90); const ls = pdf.splitTextToSize(pdfTxt(s.nota), W - 2 * M); pdf.text(ls, M, y + 9); y += 9 + ls.length * 10; pdf.setTextColor(20); }
     const colStyles = {}; (s.direita || []).forEach(i => colStyles[i] = {halign: 'right'});
@@ -611,15 +624,19 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   const pg = pags.filter(p => p.status !== 'cancelado' && noPer((p.pago_em || p.created_at || '').slice(0, 10)));
   const ad = adis.filter(a => !a.cancelado && noPer(a.data));
   const per = periodo.de || periodo.ate ? `Período ${periodo.de ? dBRano(periodo.de) : 'início'} a ${periodo.ate ? dBRano(periodo.ate) : 'hoje'}` : 'Todo o período';
+  const lc = livroCaixa(prestador, desp, pags, adis, saldo, periodo), porCat = {};
+  for (const d of lanc) if (d.situacao !== 'recusado') porCat[CATS[d.categoria] || d.categoria || 'Outros'] = (porCat[CATS[d.categoria] || d.categoria || 'Outros'] || 0) + Number(d.valor);
   return {titulo: `Extrato do prestador - ${prestador}`, subtitulo: `Obras & Reformas - Esposende - ${per}`,
+    graficos: [{titulo: 'Caixa com o prestador dia a dia', tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'},
+      {titulo: 'Despesas do período por categoria', tipo: 'barras', itens: Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({rotulo: k, a: v}))}],
     resumo: [['CAIXA COM O PRESTADOR (hoje)', (caixaPrestador(saldo) < 0 ? 'empresa deve ' : '') + brl(Math.abs(caixaPrestador(saldo)))],
       ['Despesas no período', brl(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor'))], ['Pago no período', brl(soma(lanc, 'valor_pago'))],
-      ['Em aberto (hoje)', brl(saldo.em_aberto)], ['Adiantamento a descontar', brl(saldo.adiantamento_disponivel)],
+      ['Em aberto (hoje)', brl(saldo.em_aberto)], ['Crédito de adiantamento', brl(saldo.adiantamento_disponivel)],
       ['TOTAL A PAGAR (hoje)', brl(saldo.saldo_devedor)],
       ...(diretos.length ? [['Pago direto pela empresa (fora da conta)', brl(soma(diretos, 'valor'))]] : []),
       ['PIX / conta', saldo.pix_chave ? `${saldo.pix_tipo || ''} ${saldo.pix_chave}` : (saldo.banco ? `${saldo.banco} ${saldo.agencia || ''} ${saldo.conta || ''}` : 'nao cadastrado')]],
     secoes: [
-      secaoLivroCaixa(livroCaixa(prestador, desp, pags, adis, saldo, periodo)),
+      secaoLivroCaixa(lc),
       {titulo: `Contas a pagar em aberto (${abertos.length})`, nota: 'Saldo acumulado de todas as semanas ainda não pagas.', cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Situação'],
         linhas: abertos.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total', V(soma(abertos, 'valor')), V(soma(abertos, 'valor_pago')), V(soma(abertos, 'saldo')), '']},
       {titulo: `Pagamentos (${pg.length})`, cab: ['Nº', 'Data', 'Despesas', 'Adiant. desc.', 'Valor pago', 'Situação', 'Aprovado / pago por'],
@@ -649,12 +666,66 @@ function baixarCSVModelo(m) {
 function htmlModelo(m) {
   const cel = (c, i, s) => `<td class="${(s.direita || []).includes(i) ? 'r' : ''}">${esc(celTxt(c))}</td>`;
   return `${m.resumo ? `<div class="grid" style="margin:10px 0">${m.resumo.map(([l, v]) => `<div class="card kpi"><div class="l">${esc(l)}</div><div class="v" style="font-size:19px">${esc(v)}</div></div>`).join('')}</div>` : ''}
+    ${m.graficos && m.graficos.length ? `<div class="g2 graf-rel">${m.graficos.map(g => `<div>${svgGrafico(g)}</div>`).join('')}</div>` : ''}
     ${m.secoes.map(s => `<div class="card" style="margin-top:12px"><b>${esc(s.titulo || '')}</b>${s.nota ? `<div class="small mut">${esc(s.nota)}</div>` : ''}
       ${s.linhas.length ? `<div class="tw"><table><thead><tr>${s.cab.map((h, i) => `<th class="${(s.direita || []).includes(i) ? 'r' : ''}">${esc(h)}</th>`).join('')}</tr></thead>
       <tbody>${s.linhas.slice(0, 400).map(l => `<tr>${l.map((c, i) => cel(c, i, s)).join('')}</tr>`).join('')}</tbody>
       ${s.rodape ? `<tfoot><tr>${s.rodape.map((c, i) => cel(c, i, s)).join('')}</tr></tfoot>` : ''}</table></div>
       ${s.linhas.length > 400 ? `<div class="small mut">Mostrando 400 de ${s.linhas.length} linhas na tela — o PDF e a planilha trazem todas.</div>` : ''}` : '<div class="small mut">Nada no filtro.</div>'}</div>`).join('')}`;
 }
+
+// ---------- Gráficos dos relatórios (16/10/2026): o mesmo desenho na tela (SVG) e no PDF (SVG → imagem) ----------
+// g = {titulo, tipo: 'barras' (horizontal) | 'colunas' (vertical) | 'linha' (saldo no tempo), itens: [{rotulo, a, b?}], series: ['nome a', 'nome b'], nota}
+// altura do gráfico: barras crescem com o número de itens (sem espaço vazio); colunas e linha têm altura fixa
+const alturaGrafico = g => g.tipo === 'barras' ? Math.max(110, 44 + Math.min(10, (g.itens || []).filter(i => Number(i.a) || Number(i.b)).length) * ((g.series || []).length > 1 ? 30 : 24) + (g.nota ? 16 : 4)) : 270;
+function svgGrafico(g, W = 560, H = alturaGrafico(g)) {
+  const X = t => String(t == null ? '' : t).replace(/[&<>"]/g, m => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[m]));
+  const corta = (t, n) => { t = String(t || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+  const C = ['#3987e5', '#d95926'], F = 'font-family="Helvetica,Arial,sans-serif"', txt = '#1f2937', mut = '#6b7280', grade = '#e5e7eb';
+  const it = (g.itens || []).filter(i => Number(i.a) || Number(i.b)), duas = it.some(i => i.b != null) && (g.series || []).length > 1;
+  let o = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><rect width="${W}" height="${H}" rx="10" fill="#fff" stroke="#e2e8f0"/>`;
+  o += `<text x="14" y="22" ${F} font-size="13" font-weight="700" fill="${txt}">${X(g.titulo)}</text>`;
+  if (duas) g.series.forEach((n, k) => { const lx = W - 14 - (g.series.length - k) * 110; o += `<rect x="${lx}" y="12" width="10" height="10" rx="2" fill="${C[k]}"/><text x="${lx + 14}" y="21" ${F} font-size="10.5" fill="${mut}">${X(corta(n, 16))}</text>`; });
+  if (!it.length) return o + `<text x="${W / 2}" y="${H / 2}" ${F} font-size="12" fill="${mut}" text-anchor="middle">Sem dados no filtro</text></svg>`;
+  const top = 36, base = H - (g.nota ? 18 : 8);
+  if (g.nota) o += `<text x="14" y="${H - 6}" ${F} font-size="9.5" fill="${mut}">${X(corta(g.nota, 110))}</text>`;
+  if (g.tipo === 'barras') {
+    const l = it.slice(0, 10), max = Math.max(1, ...l.map(i => Math.max(Number(i.a) || 0, Number(i.b) || 0)));
+    const lab = 172, x0 = 14 + lab, larg = W - x0 - 70, h = Math.min(duas ? 30 : 24, (base - top) / l.length);
+    l.forEach((i, k) => { const y = top + k * h, bh = duas ? (h - 6) / 2 : h - 7;
+      o += `<text x="${x0 - 8}" y="${y + h / 2 + 4}" ${F} font-size="10.5" fill="${txt}" text-anchor="end">${X(corta(i.rotulo, 30))}</text>`;
+      [i.a, duas ? i.b : null].forEach((v, s2) => { if (v == null) return; const w = Math.max(1.5, (Number(v) || 0) / max * larg), yy = y + 2 + s2 * (bh + 1);
+        o += `<rect x="${x0}" y="${yy}" width="${w}" height="${bh}" rx="3" fill="${C[s2]}"/><text x="${x0 + w + 5}" y="${yy + bh / 2 + 3.5}" ${F} font-size="9.5" fill="${mut}">${X(brlCurto(v))}</text>`; }); });
+  } else if (g.tipo === 'colunas') {
+    const l = it.slice(-14), max = Math.max(1, ...l.map(i => Math.max(Number(i.a) || 0, Number(i.b) || 0)));
+    const x0 = 62, x1 = W - 12, y1 = base - 22, alt = y1 - top - 6, gw = (x1 - x0) / l.length, bw = Math.min(28, (gw - 8) / (duas ? 2 : 1));
+    for (let k = 0; k <= 4; k++) { const y = y1 - alt * k / 4; o += `<line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" stroke="${grade}"/><text x="${x0 - 6}" y="${y + 3.5}" ${F} font-size="9" fill="${mut}" text-anchor="end">${X(brlCurto(max * k / 4))}</text>`; }
+    l.forEach((i, k) => { const cx = x0 + gw * k + gw / 2, vs = duas ? [i.a, i.b] : [i.a];
+      vs.forEach((v, s2) => { const h = Math.max(0, (Number(v) || 0) / max * alt), x = cx - (vs.length * bw) / 2 + s2 * bw; o += `<rect x="${x + 1}" y="${y1 - h}" width="${bw - 2}" height="${h}" rx="2" fill="${C[s2]}"/>`; });
+      if (l.length <= 8) o += `<text x="${cx}" y="${y1 - Math.max(0, (Number(i.a) || 0) / max * alt) - 4}" ${F} font-size="8.5" fill="${mut}" text-anchor="middle">${X(brlCurto(i.a))}</text>`;
+      o += `<text x="${cx}" y="${y1 + 14}" ${F} font-size="9.5" fill="${txt}" text-anchor="middle">${X(corta(i.rotulo, l.length > 10 ? 6 : 11))}</text>`; });
+  } else {  // linha: saldo ao longo do tempo (pode ficar negativo)
+    const l = it.length > 60 ? it.filter((_, k) => k % Math.ceil(it.length / 60) === 0 || k === it.length - 1) : it, vs = l.map(i => Number(i.a) || 0);
+    const mn = Math.min(0, ...vs), mx = Math.max(0, ...vs), amp = (mx - mn) || 1, x0 = 62, x1 = W - 70, y1 = base - 22, alt = y1 - top - 6;
+    const px = k => l.length === 1 ? (x0 + x1) / 2 : x0 + (x1 - x0) * k / (l.length - 1), py = v => y1 - (v - mn) / amp * alt;
+    for (let k = 0; k <= 4; k++) { const v = mn + amp * k / 4, y = py(v); o += `<line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" stroke="${grade}"/><text x="${x0 - 6}" y="${y + 3.5}" ${F} font-size="9" fill="${mut}" text-anchor="end">${X(brlCurto(v))}</text>`; }
+    o += `<line x1="${x0}" x2="${x1}" y1="${py(0)}" y2="${py(0)}" stroke="#94a3b8" stroke-dasharray="4 3"/>`;
+    const pts = l.map((i, k) => `${px(k).toFixed(1)},${py(vs[k]).toFixed(1)}`).join(' ');
+    o += `<polygon points="${px(0)},${py(0)} ${pts} ${px(l.length - 1)},${py(0)}" fill="${C[0]}" fill-opacity=".12"/><polyline points="${pts}" fill="none" stroke="${C[0]}" stroke-width="2.2" stroke-linejoin="round"/>`;
+    l.forEach((i, k) => { if (vs[k] < 0) o += `<circle cx="${px(k)}" cy="${py(vs[k])}" r="2.6" fill="#dc2626"/>`; });
+    const ult = vs[vs.length - 1]; o += `<text x="${px(l.length - 1) + 6}" y="${py(ult) + 4}" ${F} font-size="10.5" font-weight="700" fill="${ult < 0 ? '#dc2626' : '#15803d'}">${X(brlCurto(ult))}</text>`;
+    [0, Math.floor((l.length - 1) / 2), l.length - 1].filter((k, j, a) => a.indexOf(k) === j).forEach(k => o += `<text x="${px(k)}" y="${y1 + 14}" ${F} font-size="9.5" fill="${txt}" text-anchor="middle">${X(l[k].rotulo)}</text>`);
+  }
+  return o + '</svg>';
+}
+// SVG → PNG (para o jsPDF): desenha num canvas 2x para ficar nítido na impressão
+function svgPNG(svg, W, H) {
+  return new Promise((ok, erro) => { const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); c.width = W * 2; c.height = H * 2;
+    const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height); ok(c.toDataURL('image/png')); };
+    img.onerror = () => erro(new Error('gráfico não desenhou')); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
+}
+// Saldo do caixa do prestador dia a dia (último saldo de cada data), a partir do livro-caixa
+const serieCaixa = lc => { const m = new Map(); for (const l of lc.linhas) if (l.data) m.set(l.data, l.saldo); return [...m].map(([d, v]) => ({rotulo: dBR(d), a: v})); };
 
 // ---------- Gráficos (SVG próprio, com dica ao passar o mouse/tocar) ----------
 const COR = {s1: '#3987e5', s2: '#d95926'};

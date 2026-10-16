@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261016-3">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261016-4">
 </head>
 <body>
 
@@ -51,7 +51,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js?v=20261016-2"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261016-4"></script>
 <script>
 let D = null, REL = 'aberto', MODELO = null;
 const RELS = {aberto: 'Contas a pagar em aberto', caixa: 'Caixa dos prestadores', semanas: 'Fechamento por semana', duplicadas: 'Duplicidades já pagas', extrato: 'Extrato do prestador', fluxo: 'Fluxo de caixa semanal', pagamentos: 'Pagamentos realizados',
@@ -101,6 +101,12 @@ function filtros() {
   const per = de || ate ? `${de ? dBRano(de) : 'início'} a ${ate ? dBRano(ate) : 'hoje'}` : 'todo o período';
   return {prest, de, ate, noPer, per, doPrest: x => !prest || x.prestador === prest};
 }
+// agrupa e soma: [{rotulo, a}] do maior para o menor
+const somaPor = (l, chave, val = 'valor') => { const m = {}; for (const x of l) { const k = chave(x) || '(sem)'; m[k] = (m[k] || 0) + Number((typeof val === 'function' ? val(x) : x[val]) || 0); }
+  return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([rotulo, a]) => ({rotulo, a})); };
+// semanas em ordem: [{rotulo, a: despesas, b: pago}]
+const porSemana = (l, sem = d => d.semana) => { const m = {}; for (const d of l) { const k = sem(d); if (!k) continue; const x = m[k] = m[k] || {a: 0, b: 0}; x.a += Number(d.valor || 0); x.b += Number(d.valor_pago || 0); }
+  return Object.keys(m).sort().map(k => ({rotulo: dBR(k), a: m[k].a, b: m[k].b})); };
 const soma = (a, f) => a.reduce((t, x) => t + Number((typeof f === 'function' ? f(x) : x[f]) || 0), 0);
 
 const MODELOS = {
@@ -109,6 +115,9 @@ const MODELOS = {
     return {titulo: 'Contas a pagar em aberto', subtitulo: `Obras & Reformas - Esposende - situação em ${dBRano(hojeISO())}${f.prest ? ' - ' + f.prest : ''}`,
       resumo: [['Total a pagar', brl(soma(sal, 'saldo_devedor'))], ['Gasto em aberto', brl(soma(sal, 'em_aberto'))], ['Crédito de adiantamento', brl(soma(sal, 'adiantamento_disponivel'))],
         ['Caixa com os prestadores', brl(soma(sal, s => caixaPrestador(s)))]],
+      graficos: [{titulo: 'Gasto em aberto × crédito por prestador', tipo: 'barras', series: ['Gasto em aberto', 'Crédito'],
+          itens: sal.filter(x => Number(x.em_aberto) || Number(x.adiantamento_disponivel)).map(x => ({rotulo: x.prestador, a: Number(x.em_aberto), b: Number(x.adiantamento_disponivel)}))},
+        {titulo: 'Em aberto por semana', tipo: 'colunas', itens: porSemana(abertos).map(x => ({rotulo: x.rotulo, a: x.a - x.b})), nota: 'valor ainda não reembolsado de cada semana'}],
       secoes: [{titulo: 'Por prestador', nota: 'Caixa = crédito de adiantamento − gasto em aberto (dinheiro da empresa com o prestador). A pagar = o gasto que passa do crédito.',
           cab: ['Prestador', 'Despesas', 'Gasto em aberto', 'Crédito adiant.', 'Caixa com ele', 'A pagar', 'Desde', 'Risco'], direita: [1, 2, 3, 4, 5],
           linhas: sal.map(s => [s.prestador, s.itens_abertos, V(s.em_aberto), V(s.adiantamento_disponivel), V(caixaPrestador(s)), V(s.saldo_devedor), dBRano(s.semana_mais_antiga), (RISCO[s.risco] || [''])[0]]),
@@ -143,6 +152,8 @@ const MODELOS = {
       .sort((a, b) => a[0].localeCompare(b[0]));
     return {titulo: 'Duplicidades já pagas nas prestações de contas', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''} - mesma despesa apresentada 2 vezes e paga pelo total declarado`,
       resumo: [['Total pago a mais', brl(soma(ds, 'valor'))], ['Duplicidades', String(ds.length)], ...prests.slice(0, 3).map(p => [p, brl(soma(ds.filter(d => d.prestador === p), 'valor'))])],
+      graficos: [{titulo: 'Pago a mais por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador)},
+        {titulo: 'Pago a mais por fornecedor (10 maiores)', tipo: 'barras', itens: somaPor(ds, d => d.fornecedor || 'não lido')}],
       secoes: [...porPrest,
         {titulo: 'Conferência por prestação', nota: 'Declarado = total que o prestador pôs na capa (foi o valor pago). Fotos válidas = soma das despesas sem as duplicadas. A diferença mostra o que foi pago a mais.',
           cab: ['Prestador', 'Prestação', 'Declarado (pago)', 'Fotos válidas', 'Duplicado', 'Declarado − válidas'], direita: [2, 3, 4, 5], linhas: conf,
@@ -162,6 +173,8 @@ const MODELOS = {
     return {titulo: 'Fechamento por semana', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
       resumo: [['Despesas', brl(soma(l, 'v'))], ['Pago', brl(soma(l, 'p'))], ['Em aberto', brl(soma(l, 'a'))], ['Semanas quitadas', `${l.filter(x => x.a < 0.005).length} de ${l.length}`],
         ...(diretos.length ? [['Pago direto pela empresa (fora)', brl(soma(diretos, 'valor'))]] : [])],
+      graficos: [{titulo: 'Despesas × pago por semana', tipo: 'colunas', series: ['Despesas', 'Pago'], itens: porSemana(ds)},
+        {titulo: 'Em aberto por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador, 'saldo')}],
       secoes: [{titulo: `Semanas (${l.length})`, nota: 'Semana quitada = todas as despesas da semana pagas. A prestação de contas da semana fica quitada junto.',
         cab: ['Semana', 'Prestador', 'Obras', 'Prestação', 'Despesas', 'Pago', 'Em aberto', 'Situação'], direita: [4, 5, 6],
         linhas: l.map(x => { const p = pr(x); return [`${dBR(x.sem)} a ${dBR(somaDias(x.sem, 6))}`, x.prest, [...x.obras].join(', '), p ? p.numero : '', V(x.v), V(x.p), V(x.a),
@@ -176,6 +189,9 @@ const MODELOS = {
     return {titulo: 'Caixa dos prestadores (extrato)', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
       resumo: [['Caixa com os prestadores hoje', brl(soma(sal, s => caixaPrestador(s)))], ['Crédito de adiantamento', brl(soma(sal, 'adiantamento_disponivel'))],
         ['Gasto em aberto', brl(soma(sal, 'em_aberto'))], ['A pagar hoje', brl(soma(sal, 'saldo_devedor'))]],
+      graficos: [{titulo: 'Caixa hoje por prestador', tipo: 'barras', series: ['Crédito', 'Gasto em aberto'],
+          itens: sal.map(x => ({rotulo: `${x.prestador} (${brlCurto(caixaPrestador(x))})`, a: Number(x.adiantamento_disponivel), b: Number(x.em_aberto)}))},
+        ...livros.slice(0, 5).map(([x, lc]) => ({titulo: 'Caixa dia a dia · ' + x.prestador, tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'}))],
       secoes: [{titulo: 'Resumo por prestador', nota: 'Saldo do período = caixa no fim do período escolhido. Caixa hoje = crédito − gasto em aberto.',
           cab: ['Prestador', 'Saldo anterior', 'Entradas', 'Saídas', 'Saldo do período', 'Caixa hoje'], direita: [1, 2, 3, 4, 5],
           linhas: livros.map(([s, lc]) => [s.prestador, V(lc.linhas[0].saldo), V(lc.entradas), V(lc.saidas), V(lc.saldoFinal), V(lc.hoje)]),
@@ -194,6 +210,10 @@ const MODELOS = {
     return {titulo: 'Fluxo de caixa semanal por prestador', subtitulo: `Obras & Reformas - Esposende - ${f.per}`,
       resumo: [['Despesas (entradas)', brl(soma(lin, 'despesas'))], ['Pagamentos (saídas)', brl(soma(lin, x => Number(x.pago_legado) + Number(x.pagamentos)))],
         ['Adiantamentos', brl(soma(lin, 'adiantamentos'))], ['Recusado (não pago)', brl(soma(lin, 'recusado'))]],
+      graficos: [{titulo: 'Despesas × pagamentos por semana', tipo: 'colunas', series: ['Despesas', 'Pago'],
+          itens: Object.entries(lin.reduce((m, x) => { const y = m[x.semana] = m[x.semana] || {a: 0, b: 0}; y.a += Number(x.despesas); y.b += Number(x.pago_legado) + Number(x.pagamentos); return m; }, {}))
+            .sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => ({rotulo: dBR(k), ...v}))},
+        ...prests.slice(0, 3).map(p => ({titulo: 'Saldo a pagar semana a semana · ' + p, tipo: 'linha', itens: lin.filter(x => x.prestador === p).map(x => ({rotulo: dBR(x.semana), a: Number(x.saldo_acumulado)}))}))],
       secoes: prests.map(p => { const l = lin.filter(x => x.prestador === p);
         return {titulo: p, nota: 'Despesas = o que o prestador gastou na semana. Pago = pagamentos feitos na semana (inclui o histórico já pago). Saldo = quanto a empresa deve ao prestador ao fim da semana.',
           cab: ['Semana', 'Despesas', 'Pago', 'Adiantamento', 'Recusado', 'Saldo a pagar'], direita: [1, 2, 3, 4, 5],
@@ -207,6 +227,8 @@ const MODELOS = {
     return {titulo: 'Pagamentos realizados', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
       resumo: [['Pago', brl(soma(ef, 'valor_pago'))], ['Pagamentos', String(ef.length)], ['Aprovados sem pagamento', brl(soma(ps.filter(p => p.status === 'aprovado'), 'valor_aprovado'))],
         ['Com pendência', String(ps.filter(p => p.status === 'pendencia').length)]],
+      graficos: [{titulo: 'Pago por prestador', tipo: 'barras', itens: somaPor(ef, p => p.prestador, 'valor_pago')},
+        {titulo: 'Pago por semana', tipo: 'colunas', itens: somaPor(ef, p => segundaDe(String(p.pago_em || p.created_at).slice(0, 10)), 'valor_pago').sort((a, b) => a.rotulo.localeCompare(b.rotulo)).map(x => ({rotulo: dBR(x.rotulo), a: x.a}))}],
       secoes: [{titulo: `Pagamentos (${ps.length})`, cab: ['Nº', 'Prestador', 'Aprovado', 'Pago em', 'Despesas', 'Adiant. desc.', 'Valor pago', 'Forma', 'Situação', 'Aprovado / pago por'],
         direita: [4, 5, 6], linhas: ps.map(p => [p.numero, p.prestador, dtBR(p.aprovado_em), p.pago_em ? dtBR(p.pago_em) : '', V(p.valor_itens), V(p.valor_abatido),
           p.valor_pago != null ? V(p.valor_pago) : '', FORMAS[p.forma_pagamento] || p.forma_pagamento || '', (PAG[p.status] || [p.status])[0], `${p.aprovado_por || ''}${p.pago_por ? ' / ' + p.pago_por : ''}`]),
@@ -227,6 +249,10 @@ const MODELOS = {
       resumo: [['Total de despesas', brl(tot)], ['Recibos', String(ds.length)], ['Pago', brl(soma(ds, 'valor_pago'))], ['Em aberto no período', brl(soma(ds, 'saldo'))],
         ['Crédito de adiantamento (hoje)', brl(soma(sal, 'adiantamento_disponivel'))], ['A pagar hoje', brl(soma(sal, 'saldo_devedor'))],
         ...(diretos.length ? [['Pago direto pela empresa (fora)', brl(soma(diretos, 'valor'))]] : [])],
+      graficos: [{titulo: 'Despesas por categoria', tipo: 'barras', itens: somaPor(ds, d => CATS[d.categoria] || d.categoria)},
+        {titulo: 'Despesas por obra (10 maiores)', tipo: 'barras', itens: somaPor(ds, d => nomeObra(d.obra))},
+        {titulo: 'Despesas × pago por semana', tipo: 'colunas', series: ['Despesas', 'Pago'], itens: porSemana(ds)},
+        ...(!f.prest ? [{titulo: 'Despesas por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador)}] : [])],
       secoes: [sec('Por categoria', 'Categoria', agrupa(d => CATS[d.categoria] || d.categoria)), sec('Por obra', 'Obra', agrupa(d => nomeObra(d.obra))),
         ...(!f.prest ? [sec('Por prestador', 'Prestador', agrupa(d => d.prestador))] : []), {...sec('Maiores fornecedores (20)', 'Fornecedor', agrupa(d => d.fornecedor).slice(0, 20)), rodape: null},
         ...(diretos.length ? [secaoPagoDireto(diretos)] : [])],
@@ -248,6 +274,8 @@ const MODELOS = {
     return {titulo: 'Fornecedores de cada prestador', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''} - gasto, crédito de adiantamento e fornecedores`,
       resumo: [['Gasto no período', brl(soma(ds, 'valor'))], ['Despesas', String(ds.length)], ['Fornecedores', String(porFornecedor(ds).length)],
         ['A pagar (hoje)', brl(soma(D.saldos.filter(f.doPrest), 'saldo_devedor'))]],
+      graficos: [{titulo: 'Maiores fornecedores (10)', tipo: 'barras', itens: porFornecedor(ds).sort((a, b) => b.valor - a.valor).map(x => ({rotulo: x.nome, a: x.valor}))},
+        {titulo: 'Gasto no período por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador)}],
       secoes: [{titulo: 'Resumo por prestador', nota: 'Gasto em aberto = despesas das fotos ainda não acertadas (hoje). Crédito = adiantamento que ainda está com o prestador. A pagar = gasto em aberto − crédito; Sobra = crédito − gasto em aberto.',
           cab: ['Prestador', 'Despesas', 'Gasto no período', 'Gasto em aberto', 'Crédito adiant.', 'A pagar', 'Sobra crédito'], direita: [1, 2, 3, 4, 5, 6],
           linhas: prests.map(linhaRes), rodape: ['Total', ds.length, V(soma(ds, 'valor')), V(prests.reduce((t, p) => t + Number(sal(p).em_aberto || 0), 0)),
@@ -262,6 +290,9 @@ const MODELOS = {
     const crit = lin.filter(l => l[0] === 'CRÍTICO').length;
     return {titulo: 'Pontos do Agente Auditor', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''} - o Auditor só aponta, nunca altera`,
       resumo: [['Valor das despesas com ponto', brl(soma(ds, 'valor'))], ['Pontos em aberto', String(lin.length)], ['Críticos', String(crit)], ['Atenção', String(lin.length - crit)], ['Em despesas ainda não pagas', String(ds.filter(d => Number(d.saldo) > 0).reduce((t, d) => t + d.achados.length, 0))]],
+      graficos: [{titulo: 'Valor das despesas com ponto, por tipo', tipo: 'barras',
+          itens: somaPor(ds.flatMap(d => d.achados.map(x => ({k: REGRAS[x.regra] || String(x.mensagem || x.nivel || '').slice(0, 34), valor: d.valor}))), x => x.k)},
+        {titulo: 'Valor das despesas com ponto, por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador)}],
       secoes: [{titulo: `Pontos (${lin.length})`, cab: ['Nível', 'Prestador', 'Data', 'Fornecedor', 'Valor', 'Situação', 'O que o Auditor viu'], direita: [4], linhas: lin,
         rodape: [`Total (${ds.length} despesa(s))`, '', '', '', V(soma(ds, 'valor')), '', 'cada despesa somada uma vez, mesmo com vários pontos']}],
       paisagem: true, arquivo: `auditor_${f.prest || 'todos'}_${hojeISO()}`};

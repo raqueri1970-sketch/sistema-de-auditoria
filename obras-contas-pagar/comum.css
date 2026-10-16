@@ -232,3 +232,4 @@ details.card>summary::before{content:"▸ ";color:var(--mut)}details.card[open]>
 @media (max-width:420px){.banda{padding:12px}.pc-3 b{font-size:13px}}
 
 .pgrid:has(.pc){grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr))}
+.graf-rel{margin:4px 0 6px}.graf-rel svg{width:100%;height:auto;display:block;border-radius:12px}

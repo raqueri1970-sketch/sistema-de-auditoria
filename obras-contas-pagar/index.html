@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="comum.css?v=20261016-3">
+<link rel="stylesheet" href="comum.css?v=20261016-4">
 </head>
 <body>
 
@@ -63,7 +63,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="comum.js?v=20261016-2"></script>
+<script src="comum.js?v=20261016-4"></script>
 <script>
 let D = null, TIMER = null, VER_HISTORICO = false, PAP = {};
 let F = {p: '30', obra: '', prest: '', ...lerFiltro('obras-visao-filtro')};
@@ -228,13 +228,18 @@ async function pdfVisaoGeral() {
     const obrasL = Object.values(porObra).sort((a, b) => b.valor - a.valor);
     if (obrasL.length) secoes.push({titulo: 'Despesas por obra', cab: ['Obra', 'Despesas', 'Valor', 'Em aberto'], direita: [1, 2, 3],
       linhas: obrasL.map(o => [o.nome, String(o.n), brl(o.valor), brl(o.aberto)]), rodape: ['TOTAL', String(ds.length), brl(soma(obrasL, 'valor')), brl(soma(obrasL, 'aberto'))]});
+    const graficos = [{titulo: 'Despesas × pago por semana', tipo: 'colunas', series: ['Despesas', 'Pago'], itens: semanas.slice().reverse().map(x => ({rotulo: dBR(x.sem), a: x.desp, b: x.pago}))},
+      {titulo: 'Despesas por obra', tipo: 'barras', itens: obrasL.map(o => ({rotulo: o.nome, a: o.valor}))},
+      {titulo: 'Crédito × gasto em aberto por prestador', tipo: 'barras', series: ['Crédito', 'Gasto em aberto'],
+        itens: lista.filter(s => Number(s.adiantamento_disponivel) || Number(s.em_aberto)).map(s => ({rotulo: s.prestador, a: Number(s.adiantamento_disponivel), b: Number(s.em_aberto)}))}];
     for (const s of lista.filter(s => Number(s.total_adiantado) > 0 || Number(s.em_aberto) > 0)) {
-      const sec = secaoLivroCaixa(livroCaixa(s.prestador, D.desp.filter(d => d.prestador === s.prestador), D.pags.filter(p => p.prestador === s.prestador), D.adis.filter(a => a.prestador === s.prestador), s));
-      secoes.push({...sec, titulo: 'Extrato de caixa · ' + s.prestador});
+      const lc = livroCaixa(s.prestador, D.desp.filter(d => d.prestador === s.prestador), D.pags.filter(p => p.prestador === s.prestador), D.adis.filter(a => a.prestador === s.prestador), s);
+      secoes.push({...secaoLivroCaixa(lc), titulo: 'Extrato de caixa · ' + s.prestador});
+      graficos.push({titulo: 'Caixa dia a dia · ' + s.prestador, tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'});
     }
     await gerarPDF({titulo: 'Obras · Despesas e pagamentos — visão geral', paisagem: true,
       subtitulo: `${int.rotulo} · ${obra} · ${F.prest || 'Todos os prestadores'}`,
-      resumo: KPIS_PDF.slice(0, 8).map(([l, v]) => [txt(l), txt(v)]), secoes,
+      resumo: KPIS_PDF.slice(0, 8).map(([l, v]) => [txt(l), txt(v)]), graficos, secoes,
       arquivo: 'visao-geral-obras-' + hojeISO() + '.pdf'});
   } catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); }
 }
