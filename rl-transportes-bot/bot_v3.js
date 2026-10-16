@@ -586,23 +586,64 @@ async function baixarMidiaPelaPagina(msg, esperaMs = 30000) {
   }, msg.id._serialized, esperaMs);
 }
 
-async function processarMidiaInterno(msg, nomeRemetente) {
-  let media, erroLib = null;
-  const dataMsg = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleString('pt-BR') : '?';
-  for (let t = 1; t <= 3 && !media; t++) {
-    try { media = await msg.downloadMedia(); if (!media) break; }
-    catch (e) {
+// ─── DOWNLOAD COM LIMITE DE TEMPO + VIGIA DE TRAVAMENTO (16/10/2026) ───────────────────────────────
+// BUG REAL (16/10/2026 ~10:52): o navegador do WhatsApp na nuvem travou. As mensagens continuavam chegando, mas cada
+// download ficava preso ate o limite do puppeteer ("Runtime.callFunctionOn timed out", ~3 min por tentativa, 3 tentativas +
+// caminho alternativo = ~12 min por foto). Como a fila e uma por vez, uma foto presa segurava todas: dezenas de comprovantes
+// de Obras e da RL ficaram sem lancamento. Agora: cada tentativa tem limite de 60 s; se for travamento nao repete pelo mesmo
+// caminho; e 3 travamentos em 15 min sem nenhum download bom = navegador travado -> o processo encerra (codigo 3), o
+// Docker/o .bat do D90 sobe de novo em segundos e a varredura lanca tudo o que ficou para tras.
+const LIMITE_DOWNLOAD_MS = Number(process.env.DOWNLOAD_LIMITE_MS) || 60 * 1000;
+const comLimite = (p, ms, rotulo) => Promise.race([Promise.resolve(p), new Promise((_, rej) =>
+  setTimeout(() => rej(new Error(`${rotulo}: sem resposta em ${Math.round(ms / 1000)}s (navegador travado?)`)), ms))]);
+const ehTravamento = e => /timed out|sem resposta|Target closed|detached|Session closed|Execution context was destroyed/i.test(String(e && e.message || e || ''));
+let travamentos = [];
+function registrarTravamento(origem, erro) {
+  const agora = Date.now();
+  travamentos = travamentos.filter(t => agora - t < 15 * 60 * 1000);
+  travamentos.push(agora);
+  log(`Download sem resposta (${origem}) — ${travamentos.length}/3 em 15 min: ${String(erro && erro.message || erro).substring(0, 160)}`, 'warn');
+  if (travamentos.length >= 3) {
+    log('Navegador do WhatsApp TRAVADO (3 downloads sem resposta em 15 min) — reiniciando o capturador; a varredura lanca o que ficou para tras', 'error');
+    setTimeout(() => process.exit(3), 1500);
+  }
+}
+// Usado pela RL e por Obras. Devolve { media } ou { erro, info }.
+async function baixarMidia(msg, origem = 'RL') {
+  let erroLib = null;
+  for (let t = 1; t <= 3; t++) {
+    try {
+      const media = await comLimite(msg.downloadMedia(), LIMITE_DOWNLOAD_MS, 'downloadMedia');
+      if (media) { travamentos = []; return { media }; }
+      break;
+    } catch (e) {
       erroLib = e;
+      if (ehTravamento(e)) break;              // travou: repetir pelo mesmo caminho so perde mais 1 minuto
       if (t < 3) await new Promise(r => setTimeout(r, 3000 * t));
     }
   }
-  if (!media) {
-    let alt = null;
-    try { alt = await baixarMidiaPelaPagina(msg); }
-    catch (e) { alt = { info: { erro: `download alternativo falhou: ${e.message}` } }; }
+  let alt = null;
+  try { alt = await comLimite(baixarMidiaPelaPagina(msg), LIMITE_DOWNLOAD_MS, 'download alternativo'); }
+  catch (e) { alt = { info: { erro: `download alternativo falhou: ${e.message}` } }; if (ehTravamento(e)) erroLib = erroLib || e; }
+  if (alt && alt.data) {
+    travamentos = [];
+    return { media: { data: alt.data, mimetype: alt.mimetype || 'application/octet-stream', filename: alt.filename }, via: alt.info && alt.info.via, erroLib };
+  }
+  const travou = ehTravamento(erroLib) || /sem resposta/.test(String(alt && alt.info && alt.info.erro || ''));
+  if (travou) registrarTravamento(origem, erroLib || alt.info.erro);
+  return { erro: erroLib ? erroLib.message : 'midia vazia', info: alt && alt.info || null };
+}
+
+async function processarMidiaInterno(msg, nomeRemetente) {
+  let media, erroLib = null;
+  const dataMsg = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleString('pt-BR') : '?';
+  const bx = await baixarMidia(msg, 'RL');
+  media = bx.media; erroLib = bx.erroLib ? bx.erroLib : (bx.erro ? new Error(bx.erro) : null);
+  if (!media || bx.via) {
+    const alt = bx.media ? { data: bx.media.data, mimetype: bx.media.mimetype, filename: bx.media.filename, info: { via: bx.via } } : { info: bx.info };
     if (alt?.data) {
       media = { data: alt.data, mimetype: alt.mimetype || 'application/octet-stream', filename: alt.filename };
-      log(`Midia de ${nomeRemetente} (${dataMsg}) baixada pelo caminho alternativo (${alt.info?.via}) — lib falhou: ${erroLib ? erroLib.message : 'midia vazia'}`, 'warn');
+      if (bx.via) log(`Midia de ${nomeRemetente} (${dataMsg}) baixada pelo caminho alternativo (${alt.info?.via}) — lib falhou: ${erroLib ? erroLib.message : 'midia vazia'}`, 'warn');
     } else {
       log(`Erro baixar midia (msg de ${nomeRemetente} em ${dataMsg}, id ${msg.id?.id||'?'}): ${erroLib ? erroLib.message : 'midia vazia'} — caminho alternativo tambem falhou`, 'error', alt?.info || null);
       return 'erro_download';
@@ -728,7 +769,7 @@ const WA_WEB_VERSION = process.env.WA_WEB_VERSION || '2.3000.1049732041';
 const client = new Client({
   authStrategy: new LocalAuth(),
   ...(WA_WEB_VERSION !== 'auto' ? { webVersion: WA_WEB_VERSION, webVersionCache: { type: 'local', path: path.join(__dirname, '.wwebjs_cache') + path.sep } } : {}),
-  puppeteer: { headless: true, args: ['--no-sandbox','--disable-setuid-sandbox'], ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}) }
+  puppeteer: { headless: true, protocolTimeout: 90 * 1000, args: ['--no-sandbox','--disable-setuid-sandbox'], ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}) }
 });
 
 // ─── MÓDULO OBRAS (08/10/2026): grupo "Adm Obras Esposende" → obras_comprovantes (Supabase) ──
@@ -737,7 +778,7 @@ const client = new Client({
 lider = require('./lider')({ sb: sbBase, log, sombra: MODO_SOMBRA });
 setTimeout(() => lider.verificar(), 5000);
 let obras = null;
-try { obras = require('./obras_bot')({ client, log, sb: sbBase, baixarMidiaPelaPagina, sombra: MODO_SOMBRA, ia, lider }); }
+try { obras = require('./obras_bot')({ client, log, sb: sbBase, baixarMidiaPelaPagina, baixarMidia, sombra: MODO_SOMBRA, ia, lider }); }
 catch (e) { log(`Modulo Obras nao carregou: ${e.message}`, 'warn'); }
 // Health check (09/10/2026): publica o estado em capturador_status a cada 1 min. So le; nunca derruba o bot.
 try { require('./capturador_status')({ client, sb: sbBase, db, obras, log, ia, lider, versao: MODO_SOMBRA ? 'bot_v3 (sombra)' : 'bot_v3' }); }

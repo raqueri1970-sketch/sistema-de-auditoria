@@ -75,7 +75,7 @@ Lancado no sistema: {LANCADO}
 Seja justo: comprovante comum, legivel e coerente = risco "baixo" e motivos vazio. So use "alto" com sinal concreto.
 Responda SOMENTE JSON: {"risco":"baixo|medio|alto","motivos":["frase curta em portugues"],"valor_na_foto":null,"data_na_foto":null}`;
 
-module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPagina, sombra = false, ia = null, lider = null }) {
+module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPagina, baixarMidia = null, sombra = false, ia = null, lider = null }) {
   // Modo sombra: tudo vai para obras_comprovantes_sombra e para a pasta sombra/ do bucket (nada oficial é tocado).
   // OBRAS_OFICIAL=1 (13/10/2026): a VPS em MODO=sombra para a RL passa a gravar Obras na tabela OFICIAL
   // (o D90 caiu do WhatsApp em 12/10 e as Obras pararam de entrar). Dedup por wa_msg_id evita duplicar se o D90 voltar.
@@ -109,6 +109,12 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   }
 
   async function baixar(msg, nome) {
+    // 16/10/2026: no bot usa o download do bot_v3 (limite de 60 s por tentativa + reinício se o navegador travar).
+    if (baixarMidia) {
+      const r = await baixarMidia(msg, 'Obras');
+      if (!r.media) L(`Erro baixar midia de ${nome} (id ${msg.id?.id}): ${r.erro}`, 'error', r.info || null);
+      return r.media || null;
+    }
     let media = null, erroLib = null;
     for (let t = 1; t <= 3 && !media; t++) {
       try { media = await msg.downloadMedia(); if (!media) break; }
