@@ -413,6 +413,83 @@
   function dBR(d) { return d ? d.split('-').reverse().slice(0, 2).join('/') : '—'; }
   function dBRa(d) { return d ? d.split('-').reverse().join('/') : '—'; }
 
-  const api = {analisar, normalizar, benfordDe, REGRAS, PADRAO, PESO, brl, dBR, dBRa, chaveNome, parecePessoa};
+  // ---------- busca em vários formatos ----------
+  // Cada termo separado por espaço precisa casar (E). Formatos aceitos:
+  //   R01            regra                         16097        código do título (ou valor exato)
+  //   R$ 16.381,30 · 16381,30 · 16.381,30 · 16381.30          valor (parcela, pago, saldo ou impacto, ±1 centavo)
+  //   >10000 · <500 · >=1.000,00 · 1000-5000 · 1.000,00..5.000,00   faixa de valor
+  //   15/06/2026 · 15/06/26 · 15/06 · 2026-06-15                data (vencimento, competência ou pagamento)
+  //   06/2026 · 2026-06                                          mês
+  //   "texto com espaço" · liber · aluguel                       texto (fornecedor, conta, centro de custo, detalhe)
+  const numBR = s => {
+    let t = String(s).replace(/R\$|\s/gi, '');
+    if (/,/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
+    else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+    const n = Number(t); return isFinite(n) && t !== '' ? r2(n) : NaN;
+  };
+  const RX_NUM = '(?:R\\$\\s*)?\\d[\\d.,]*';
+  function interpretarBusca(q) {
+    const termos = [];
+    const pedacos = String(q || '').match(/"[^"]+"|R\$\s*[\d.,]+|\S+/gi) || [];
+    for (let p of pedacos) {
+      let m;
+      if (/^"/.test(p)) { const t = semAcento(p.slice(1, -1)).toUpperCase().trim(); if (t) termos.push({tipo: 'texto', v: t, rotulo: `texto "${t}"`}); continue; }
+      if ((m = p.match(/^R(\d{2})$/i)) && REGRAS['R' + m[1]]) { termos.push({tipo: 'regra', v: 'R' + m[1], rotulo: `regra R${m[1]}`}); continue; }
+      if ((m = p.match(new RegExp(`^(>=|<=|>|<)(${RX_NUM})$`, 'i'))) && isFinite(numBR(m[2]))) { termos.push({tipo: 'faixa', op: m[1], v: numBR(m[2]), rotulo: `valor ${m[1]} ${brl(numBR(m[2]))}`}); continue; }
+      if ((m = p.match(/^(\d{4})-(\d{2})-(\d{2})$/))) { termos.push({tipo: 'data', v: p, rotulo: `data ${dBRa(p)}`}); continue; }
+      if ((m = p.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/))) {
+        const ano = m[3].length === 2 ? '20' + m[3] : m[3], iso = `${ano}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+        termos.push({tipo: 'data', v: iso, rotulo: `data ${dBRa(iso)}`}); continue;
+      }
+      if ((m = p.match(/^(\d{1,2})\/(\d{4})$/)) || (m = p.match(/^(\d{4})-(\d{1,2})$/))) {
+        const [ano, mes] = m[1].length === 4 ? [m[1], m[2]] : [m[2], m[1]];
+        if (+mes >= 1 && +mes <= 12) { const v = `${ano}-${mes.padStart(2, '0')}`; termos.push({tipo: 'mes', v, rotulo: `mês ${mes.padStart(2, '0')}/${ano}`}); continue; }
+      }
+      if ((m = p.match(new RegExp(`^(${RX_NUM})(?:\\.\\.|-|a)(${RX_NUM})$`, 'i'))) && !/\//.test(p) && isFinite(numBR(m[1])) && isFinite(numBR(m[2]))) {
+        const a = numBR(m[1]), b = numBR(m[2]); termos.push({tipo: 'faixa', op: 'entre', v: Math.min(a, b), v2: Math.max(a, b), rotulo: `valor entre ${brl(Math.min(a, b))} e ${brl(Math.max(a, b))}`}); continue;
+      }
+      if ((m = p.match(/^(\d{1,2})\/(\d{1,2})$/)) && +m[2] <= 12 && +m[1] <= 31) { const v = `-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; termos.push({tipo: 'diames', v, rotulo: `dia ${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')} (qualquer ano)`}); continue; }
+      if (/^\d+$/.test(p)) { termos.push({tipo: 'codigo', v: p, n: Number(p), rotulo: `código ${p} ou valor ${brl(Number(p))}`}); continue; }
+      if (new RegExp(`^${RX_NUM}$`, 'i').test(p) && /[,.$]/.test(p) && isFinite(numBR(p))) { termos.push({tipo: 'valor', v: numBR(p), rotulo: `valor ${brl(numBR(p))}`}); continue; }
+      const t = semAcento(p).toUpperCase(); termos.push({tipo: 'texto', v: t, rotulo: `texto "${t}"`});
+    }
+    return termos;
+  }
+  const igual = (a, b) => Math.abs(a - b) < 0.011;
+  const naFaixa = (x, t) => t.op === '>' ? x > t.v : t.op === '>=' ? x >= t.v : t.op === '<' ? x < t.v : t.op === '<=' ? x <= t.v : x >= t.v && x <= t.v2;
+  const datasDe = t => [t.vencimento, t.competencia, t.pagamento].filter(Boolean);
+  const valoresDe = t => [t.valorParcela, t.valorPago, t.saldo];
+  const textoTitulo = t => semAcento([t.fornecedor, t.fornecedorBruto, t.conta, t.cc, t.status, t.codigo].join(' ')).toUpperCase();
+  // Um título casa com um termo?
+  function casaTitulo(t, x) {
+    switch (x.tipo) {
+      case 'texto': return textoTitulo(t).includes(x.v);
+      case 'codigo': return String(t.codigo) === x.v || valoresDe(t).some(v => igual(v, x.n));
+      case 'valor': return valoresDe(t).some(v => igual(v, x.v));
+      case 'faixa': return valoresDe(t).some(v => v > 0 && naFaixa(v, x));
+      case 'data': return datasDe(t).includes(x.v);
+      case 'mes': return datasDe(t).some(d => d.startsWith(x.v));
+      case 'diames': return datasDe(t).some(d => d.endsWith(x.v));
+      case 'regra': return x.regras ? x.regras.has(t.i) : true;
+    }
+    return false;
+  }
+  // Uma ocorrência casa com um termo? (regra, impacto, texto da ocorrência ou algum título dela)
+  function casaOcorrencia(o, x, T) {
+    if (x.tipo === 'regra') return o.regra === x.v;
+    if (x.tipo === 'texto' && semAcento([o.fornecedor, o.detalhe, o.conta, o.cc, o.nome].join(' ')).toUpperCase().includes(x.v)) return true;
+    if ((x.tipo === 'valor' && igual(o.impacto, x.v)) || (x.tipo === 'codigo' && igual(o.impacto, x.n)) || (x.tipo === 'faixa' && naFaixa(o.impacto, x))) return true;
+    return o.titulos.some(i => casaTitulo(T[i], x));
+  }
+  const filtrarOcorrencias = (ocs, termos, T) => termos.length ? ocs.filter(o => termos.every(x => casaOcorrencia(o, x, T))) : ocs;
+  // Na busca de títulos, um termo de regra (R01…) pega os títulos que estão em alguma ocorrência daquela regra
+  function filtrarTitulos(T, termos, ocorrencias) {
+    if (!termos.length) return T;
+    for (const x of termos) if (x.tipo === 'regra' && ocorrencias) { x.regras = new Set(); for (const o of ocorrencias) if (o.regra === x.v) o.titulos.forEach(i => x.regras.add(i)); }
+    return T.filter(t => termos.every(x => casaTitulo(t, x)));
+  }
+
+  const api = {analisar, normalizar, benfordDe, REGRAS, PADRAO, PESO, brl, dBR, dBRa, chaveNome, parecePessoa,
+    interpretarBusca, filtrarOcorrencias, filtrarTitulos, casaTitulo, numBR};
   if (typeof module === 'object' && module.exports) module.exports = api; else raiz.FinAudit = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -6,7 +6,7 @@
 <title>Auditoria Financeira</title>
 <meta name="theme-color" content="#070b16">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="auditoria.js?v=20261016-1"></script>
+<script src="auditoria.js?v=20261016-2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -60,6 +60,9 @@ th{position:sticky;top:0;background:#111a30;text-align:left;font-size:11.5px;col
 th.ord{cursor:pointer}th.ord:hover{color:#fff}
 td{padding:8px 10px;border-top:1px solid var(--line);vertical-align:top}
 tr.clic{cursor:pointer}tr.clic:hover td{background:rgba(59,130,246,.06)}
+tr.tot td{background:#111a30;font-weight:800;border-top:2px solid var(--line2);font-variant-numeric:tabular-nums}
+.bchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.bchip{font-size:11.5px;padding:2px 9px;border-radius:99px;background:rgba(59,130,246,.14);color:#bfdbfe;border:1px solid rgba(59,130,246,.3)}
+.ajuda{font-size:12px;color:var(--mut);margin-top:6px}.ajuda code{background:var(--card3);padding:1px 6px;border-radius:5px;color:var(--txt2);font-size:11.5px}
 .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .mut{color:var(--mut)}.small{font-size:12px}.b{font-weight:700}
 .regras{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr))}
@@ -87,7 +90,7 @@ tr.clic{cursor:pointer}tr.clic:hover td{background:rgba(59,130,246,.06)}
 .leg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:6px}
 .leg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 svg text{fill:var(--mut);font:11px 'Inter',sans-serif}
-@media print{body{background:#fff;color:#000}.btn,.tabs,.filtros,.pag{display:none!important}.card,.tw{border-color:#ccc;background:#fff}th{background:#eee;color:#000}}
+
 </style>
 </head>
 <body>
@@ -108,7 +111,7 @@ svg text{fill:var(--mut);font:11px 'Inter',sans-serif}
       <div class="sub">Cruzamento automático do Sallamo · <span id="info">escolha o período e clique em Analisar</span></div></div>
     <div class="row">
       <button class="btn" onclick="exportar()" id="bExp" disabled>⬇ Excel</button>
-      <button class="btn" onclick="window.print()">🖨 Imprimir</button>
+      <button class="btn" onclick="abrirRelatorio()" id="bRel" disabled>🖨 Relatórios PDF</button>
       <button class="btn" onclick="sair()">Sair</button>
     </div>
   </div>
@@ -155,6 +158,8 @@ function toast(m, ms = 3500) { const t = $('toast'); t.textContent = m; t.style.
 let R = null, DADOS = null, ANAL = {}, CFG = {}, ABA = 'painel', NOMES = [], NIDX = new Map();
 const fx = nome => NIDX.get(nome);  // índice do fornecedor para os onclick (nomes podem ter aspas)
 let F = {regra: '', sev: '', sit: '', q: '', cc: '', ord: 'sev', pag: 0};
+let B = {q: '', pag: 0, ord: 'pagamento'};  // aba Busca de títulos
+let USUARIO = '';
 
 // ---------- login ----------
 function mostrarLogin(m) { $('vApp').classList.add('hidden'); $('vLogin').classList.remove('hidden'); $('lErr').textContent = m || ''; }
@@ -162,6 +167,7 @@ async function entrou() {
   const ok = await sb.rpc('fin_pode_auditar').then(r => r.data === true, () => false);
   if (!ok) return mostrarLogin('Este usuário não tem acesso à Auditoria Financeira (perfis: administrador, controladoria ou diretoria).');
   $('vLogin').classList.add('hidden'); $('vApp').classList.remove('hidden');
+  try { USUARIO = (await sb.auth.getUser()).data.user.email || ''; } catch (e) {}
 }
 window.entrar = async () => {
   $('lErr').textContent = '';
@@ -203,7 +209,7 @@ async function carregar() {
     await new Promise(r => setTimeout(r, 30));
     analisar();
     $('info').textContent = `vencimentos de ${dBRa(de)} a ${dBRa(ate)} · ${n0(DADOS.length)} títulos · atualizado às ${new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}`;
-    $('bExp').disabled = false;
+    $('bExp').disabled = false; $('bRel').disabled = false;
   } catch (e) {
     $('corpo').innerHTML = `<div class="aviso"><b>Não foi possível carregar.</b> ${esc(e.message || e)}</div>`;
   } finally { $('bAnalisar').disabled = false; }
@@ -221,6 +227,7 @@ function analisar() {
   R = A.analisar(DADOS, CFG);
   R.ocorrencias.forEach((o, n) => { o.n = n; o.sit = ANAL[o.id] ? ANAL[o.id].situacao : 'pendente'; });
   NOMES = [...new Set(R.titulos.map(t => t.fornecedor))]; NIDX = new Map(NOMES.map((f, i) => [f, i]));
+  mapaOcorrenciasPorTitulo();
   F.pag = 0;
   render();
 }
@@ -228,9 +235,9 @@ function analisar() {
 // ---------- abas ----------
 function render() {
   const pend = R.ocorrencias.filter(o => o.sit === 'pendente' || o.sit === 'em_analise').length;
-  const abas = [['painel', 'Painel'], ['ocorrencias', 'Ocorrências', pend], ['fornecedores', 'Risco por fornecedor', R.riscoFornecedor.length], ['centros', 'Centros de custo'], ['regras', 'Regras e parâmetros']];
+  const abas = [['painel', 'Painel'], ['ocorrencias', 'Ocorrências', pend], ['fornecedores', 'Risco por fornecedor', R.riscoFornecedor.length], ['centros', 'Centros de custo'], ['busca', '🔎 Busca de títulos'], ['regras', 'Regras e parâmetros']];
   $('tabs').innerHTML = abas.map(([k, t, c]) => `<button class="${ABA === k ? 'on' : ''}" onclick="aba('${k}')">${t}${c != null ? `<span class="cnt">${n0(c)}</span>` : ''}</button>`).join('');
-  ({painel, ocorrencias, fornecedores, centros, regras})[ABA]();
+  ({painel, ocorrencias, fornecedores, centros, busca, regras})[ABA]();
 }
 window.aba = k => { ABA = k; render(); window.scrollTo(0, 0); };
 
@@ -291,10 +298,9 @@ window.filtrarRegra = k => { F = {...F, regra: k, sev: '', sit: '', q: '', pag: 
 
 // ---------- OCORRÊNCIAS ----------
 function filtradas() {
-  const q = F.q.trim().toUpperCase();
   let a = R.ocorrencias.filter(o => (!F.regra || o.regra === F.regra) && (!F.sev || o.sev === F.sev) && (!F.sit || o.sit === F.sit)
-    && (!F.cc || o.titulos.some(i => R.titulos[i].cc === F.cc))
-    && (!q || (o.fornecedor + ' ' + o.detalhe + ' ' + (o.conta || '') + ' ' + (o.cc || '')).toUpperCase().includes(q)));
+    && (!F.cc || o.titulos.some(i => R.titulos[i].cc === F.cc)));
+  a = A.filtrarOcorrencias(a, A.interpretarBusca(F.q), R.titulos);
   const P = A.PESO;
   if (F.ord === 'impacto') a = [...a].sort((x, y) => y.impacto - x.impacto);
   else if (F.ord === 'fornecedor') a = [...a].sort((x, y) => x.fornecedor.localeCompare(y.fornecedor));
@@ -313,31 +319,36 @@ function ocorrencias() {
     <select onchange="F.sit=this.value;F.pag=0;render()"><option value="">Toda situação</option>${Object.entries(SIT).map(([k, t]) => `<option value="${k}" ${F.sit === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
     <select onchange="F.cc=this.value;F.pag=0;render()" style="max-width:220px"><option value="">Todos os centros de custo</option>${ccs.map(c => `<option ${F.cc === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
     <select onchange="F.ord=this.value;render()"><option value="sev" ${F.ord === 'sev' ? 'selected' : ''}>Ordenar: gravidade</option><option value="impacto" ${F.ord === 'impacto' ? 'selected' : ''}>Ordenar: impacto</option><option value="fornecedor" ${F.ord === 'fornecedor' ? 'selected' : ''}>Ordenar: fornecedor</option></select>
-    <input type="search" placeholder="Buscar fornecedor, código, conta…" value="${esc(F.q)}" oninput="F.q=this.value;F.pag=0;clearTimeout(window._b);window._b=setTimeout(()=>{render();const i=document.querySelector('.filtros input[type=search]');i.focus();i.setSelectionRange(i.value.length,i.value.length)},250)">
   </div>
+  ${campoBusca('F', F.q)}
   ${F.regra ? `<div class="aviso" style="border-color:var(--pri);background:rgba(59,130,246,.07)"><b>${F.regra} · ${esc(A.REGRAS[F.regra].nome)}.</b> ${esc(A.REGRAS[F.regra].desc)}</div>` : ''}
-  <div class="small mut" style="margin:10px 0">${n0(a.length)} ocorrência(s) · impacto somado ${brl(a.reduce((s, o) => s + o.impacto, 0))}</div>
+  <div class="row" style="justify-content:space-between;margin:10px 0"><div class="small mut">${n0(a.length)} ocorrência(s) · impacto somado <b>${brl(a.reduce((s, o) => s + o.impacto, 0))}</b></div>
+    <button class="btn" onclick="relatorioLista()" ${a.length ? '' : 'disabled'}>🖨 PDF / imprimir esta lista</button></div>
   <div class="tw"><table>
     <tr><th>Gravidade</th><th>Regra</th><th>Fornecedor</th><th>O que foi encontrado</th><th class="num">Impacto</th><th>Análise</th></tr>
     ${pg.map(o => `<tr class="clic" onclick="abrir(${o.n})"><td>${sevChip(o.sev)}</td><td class="small"><b>${o.regra}</b><br><span class="mut">${esc(o.nome)}</span></td>
       <td class="small" style="max-width:240px">${esc(o.fornecedor)}${o.conta ? `<br><span class="mut">${esc(o.conta.slice(0, 60))}</span>` : ''}</td>
       <td class="small">${esc(o.detalhe)}</td><td class="num b">${brl(o.impacto)}</td><td>${sitChip(o.sit)}</td></tr>`).join('') || '<tr><td colspan="6" class="mut" style="text-align:center;padding:30px">Nenhuma ocorrência com esses filtros.</td></tr>'}
+    ${a.length ? `<tr class="tot"><td colspan="4">${pags > 1 ? `Subtotal da página (${n0(pg.length)})` : `TOTAL (${n0(a.length)} ocorrências)`}</td><td class="num">${brl(pg.reduce((s, o) => s + o.impacto, 0))}</td><td></td></tr>
+    ${pags > 1 ? `<tr class="tot"><td colspan="4">TOTAL GERAL (${n0(a.length)} ocorrências)</td><td class="num">${brl(a.reduce((s, o) => s + o.impacto, 0))}</td><td></td></tr>` : ''}` : ''}
   </table></div>
   ${pags > 1 ? `<div class="pag"><button class="btn" ${F.pag ? '' : 'disabled'} onclick="F.pag--;render()">‹ Anterior</button><span class="small mut">página ${F.pag + 1} de ${pags}</span><button class="btn" ${F.pag < pags - 1 ? '' : 'disabled'} onclick="F.pag++;render()">Próxima ›</button></div>` : ''}`;
 }
 
 // ---------- detalhe da ocorrência + análise ----------
+const totTitulos = idx => idx.reduce((s, i) => { const t = R.titulos[i]; s.parcela += t.valorParcela; s.pago += t.valorPago; s.saldo += t.saldo; return s; }, {parcela: 0, pago: 0, saldo: 0});
 const tabTitulos = idx => `<div class="tw" style="max-height:420px;overflow:auto"><table>
   <tr><th>Código</th><th>Status</th><th>Fornecedor</th><th>Venc.</th><th>Compet.</th><th>Pagto.</th><th class="num">Parcela</th><th class="num">Pago</th><th class="num">Saldo</th><th>Conta</th><th>Centro de custo</th></tr>
   ${idx.slice(0, 500).map(i => { const t = R.titulos[i]; return `<tr><td class="b">${t.codigo}</td><td class="small">${esc(t.status)}</td><td class="small">${esc(t.fornecedor)}</td><td class="small">${dBRa(t.vencimento)}</td><td class="small">${dBRa(t.competencia)}</td><td class="small">${dBRa(t.pagamento)}</td>
   <td class="num">${brl(t.valorParcela)}</td><td class="num">${brl(t.valorPago)}</td><td class="num">${brl(t.saldo)}</td><td class="small">${esc(t.conta)}</td><td class="small">${esc(t.cc)}</td></tr>`; }).join('')}
+  ${idx.length ? (() => { const tt = totTitulos(idx); return `<tr class="tot"><td colspan="6">TOTAL (${n0(idx.length)} títulos)</td><td class="num">${brl(tt.parcela)}</td><td class="num">${brl(tt.pago)}</td><td class="num">${brl(tt.saldo)}</td><td colspan="2"></td></tr>`; })() : ''}
   </table></div>${idx.length > 500 ? `<div class="small mut">Mostrando 500 de ${n0(idx.length)} títulos — exporte para Excel para ver todos.</div>` : ''}`;
 
 window.abrir = async n => {
   const o = R.ocorrencias[n]; if (!o) return; const id = o.id;
   const a = ANAL[id] || {};
-  $('mBody').innerHTML = `<button class="btn x" onclick="fechar()">✕</button>
-    <div class="row">${sevChip(o.sev)}<b>${o.regra} · ${esc(o.nome)}</b>${sitChip(o.sit)}</div>
+  $('mBody').innerHTML = `<div class="x row"><button class="btn" onclick="relatorioOcorrencia(${n})">🖨 Imprimir</button><button class="btn" onclick="fechar()">✕</button></div>
+    <div class="row" style="padding-right:150px">${sevChip(o.sev)}<b>${o.regra} · ${esc(o.nome)}</b>${sitChip(o.sit)}</div>
     <h1 style="font-size:19px;margin-top:10px">${esc(o.fornecedor)}</h1>
     <div style="margin-top:6px">${esc(o.detalhe)}</div>
     <div class="small mut" style="margin-top:6px">${esc(A.REGRAS[o.regra].desc)}</div>
@@ -387,7 +398,7 @@ window.dossie = k => {
   const ts = T.map(i => R.titulos[i]);
   const pago = ts.reduce((s, t) => s + t.valorPago, 0), aberto = ts.reduce((s, t) => s + (t.status !== 'Pago' ? t.saldo : 0), 0);
   const contas = [...new Set(ts.map(t => t.conta))], ccs = [...new Set(ts.map(t => t.cc))];
-  $('mBody').innerHTML = `<button class="btn x" onclick="fechar()">✕</button>
+  $('mBody').innerHTML = `<div class="x row"><button class="btn" onclick="relatorioDossie(${k})">🖨 Imprimir dossiê</button><button class="btn" onclick="fechar()">✕</button></div>
     <div class="small mut b">DOSSIÊ DO FORNECEDOR</div><h1 style="font-size:20px;margin-top:4px">${esc(nome)}</h1>
     <div class="grid" style="margin-top:12px">${kpi('Nota de risco', f ? f.score : 0, f ? f.regras.join(' · ') : 'sem indícios', f && f.score >= 70 ? 'k-bad' : 'k-warn')}${kpi('Total pago', brl(pago), `${n0(ts.filter(t => t.valorPago > 0).length)} pagamentos`, 'k-ok')}${kpi('Em aberto', brl(aberto), `${n0(T.length)} títulos`)}${kpi('Classificação', `${contas.length} contas`, `${ccs.length} centros de custo`)}</div>
     <h2>Ocorrências (${n0(oc.length)})</h2>
@@ -433,20 +444,248 @@ function regras() {
 }
 window.aplicarParams = () => { document.querySelectorAll('[data-p]').forEach(i => { const v = Number(i.value); if (isFinite(v)) CFG[i.dataset.p] = v; }); analisar(); toast('Reanalisado.'); };
 
+// ---------- BUSCA (vários formatos) ----------
+const AJUDA_BUSCA = 'Formatos: <code>liber</code> <code>"texto exato"</code> <code>16097</code> (código) <code>R$ 16.381,30</code> <code>16381,30</code> (valor) <code>&gt;10000</code> <code>&lt;=500</code> <code>1000-5000</code> (faixa) <code>15/06/2026</code> <code>15/06</code> (data) <code>06/2026</code> (mês) <code>R03</code> (regra). Vários termos = todos precisam casar.';
+function campoBusca(alvo, valor) {
+  const termos = A.interpretarBusca(valor);
+  return `<div class="filtros" style="margin-top:0;flex-direction:column;align-items:stretch">
+    <input type="search" id="busca-${alvo}" placeholder="Buscar: fornecedor, código, valor (R$ 1.234,56), data (15/06/2026), mês (06/2026), faixa (>10000 ou 1000-5000), regra (R03)…" value="${esc(valor)}" oninput="${alvo}.q=this.value;${alvo}.pag=0;buscaDigitada('${alvo}')" style="width:100%">
+    ${termos.length ? `<div class="bchips">${termos.map(t => `<span class="bchip">${esc(t.rotulo)}</span>`).join('')}</div>` : `<div class="ajuda">${AJUDA_BUSCA}</div>`}
+  </div>`;
+}
+window.buscaDigitada = alvo => { clearTimeout(window._b); window._b = setTimeout(() => { render(); const i = $('busca-' + alvo); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 300); };
+
+// títulos de cada ocorrência (para mostrar em que regras um título caiu)
+let OCT = new Map();
+function mapaOcorrenciasPorTitulo() { OCT = new Map(); R.ocorrencias.forEach(o => o.titulos.forEach(i => { if (!OCT.has(i)) OCT.set(i, []); OCT.get(i).push(o.n); })); }
+function titulosBuscados() {
+  if (!B.q.trim()) return [];
+  const idx = A.filtrarTitulos(R.titulos, A.interpretarBusca(B.q), R.ocorrencias).map(t => t.i);
+  const T = R.titulos, k = {pagamento: i => T[i].pagamento || T[i].vencimento || '', valor: i => T[i].valorParcela, codigo: i => Number(T[i].codigo) || 0, fornecedor: i => T[i].fornecedor}[B.ord];
+  return idx.sort((a, b) => B.ord === 'fornecedor' ? k(a).localeCompare(k(b)) : B.ord === 'codigo' ? k(a) - k(b) : k(b) > k(a) ? 1 : k(b) < k(a) ? -1 : 0);
+}
+function busca() {
+  const idx = titulosBuscados(), POR = 100, pags = Math.max(1, Math.ceil(idx.length / POR));
+  B.pag = Math.min(B.pag, pags - 1);
+  const pg = idx.slice(B.pag * POR, B.pag * POR + POR), tt = totTitulos(idx), tp = totTitulos(pg);
+  $('corpo').innerHTML = `<div style="margin-top:14px">${campoBusca('B', B.q)}</div>
+  ${!B.q.trim() ? `<div class="carregando">Busque em <b>todos os ${n0(R.titulos.length)} títulos</b> do período — com ou sem ocorrência.<br>Ex.: <code>16097</code> · <code>R$ 125.797,04</code> · <code>moura 06/2026</code> · <code>retirada &gt;50000</code> · <code>R01</code></div>` : `
+  <div class="row" style="justify-content:space-between;margin:10px 0">
+    <div class="small mut">${n0(idx.length)} título(s) · parcela <b>${brl(tt.parcela)}</b> · pago <b>${brl(tt.pago)}</b> · saldo <b>${brl(tt.saldo)}</b></div>
+    <div class="row"><select onchange="B.ord=this.value;render()">${[['pagamento', 'Ordenar: data'], ['valor', 'Ordenar: valor'], ['codigo', 'Ordenar: código'], ['fornecedor', 'Ordenar: fornecedor']].map(([v, t]) => `<option value="${v}" ${B.ord === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      <button class="btn" onclick="relatorioBusca()" ${idx.length ? '' : 'disabled'}>🖨 PDF / imprimir</button><button class="btn" onclick="excelBusca()" ${idx.length ? '' : 'disabled'}>⬇ Excel</button></div></div>
+  <div class="tw"><table>
+    <tr><th>Código</th><th>Status</th><th>Fornecedor</th><th>Venc.</th><th>Compet.</th><th>Pagto.</th><th class="num">Parcela</th><th class="num">Pago</th><th class="num">Saldo</th><th>Conta</th><th>Centro de custo</th><th>Ocorrências</th></tr>
+    ${pg.map(i => { const t = R.titulos[i], os = OCT.get(i) || []; return `<tr><td class="b">${t.codigo}</td><td class="small">${esc(t.status)}</td><td class="small">${esc(t.fornecedor)}</td><td class="small">${dBRa(t.vencimento)}</td><td class="small">${dBRa(t.competencia)}</td><td class="small">${dBRa(t.pagamento)}</td>
+      <td class="num">${brl(t.valorParcela)}</td><td class="num">${brl(t.valorPago)}</td><td class="num">${brl(t.saldo)}</td><td class="small">${esc(t.conta)}</td><td class="small">${esc(t.cc)}</td>
+      <td>${os.slice(0, 6).map(n => { const o = R.ocorrencias[n]; return `<span class="chip sv-${o.sev}" style="cursor:pointer" title="${esc(o.nome)}" onclick="abrir(${n})">${o.regra}</span>`; }).join(' ') || '<span class="mut small">—</span>'}</td></tr>`; }).join('') || '<tr><td colspan="12" class="mut" style="text-align:center;padding:30px">Nenhum título encontrado.</td></tr>'}
+    ${idx.length ? `${pags > 1 ? `<tr class="tot"><td colspan="6">Subtotal da página (${n0(pg.length)})</td><td class="num">${brl(tp.parcela)}</td><td class="num">${brl(tp.pago)}</td><td class="num">${brl(tp.saldo)}</td><td colspan="3"></td></tr>` : ''}
+    <tr class="tot"><td colspan="6">TOTAL GERAL (${n0(idx.length)} títulos)</td><td class="num">${brl(tt.parcela)}</td><td class="num">${brl(tt.pago)}</td><td class="num">${brl(tt.saldo)}</td><td colspan="3"></td></tr>` : ''}
+  </table></div>
+  ${pags > 1 ? `<div class="pag"><button class="btn" ${B.pag ? '' : 'disabled'} onclick="B.pag--;render()">‹ Anterior</button><span class="small mut">página ${B.pag + 1} de ${pags}</span><button class="btn" ${B.pag < pags - 1 ? '' : 'disabled'} onclick="B.pag++;render()">Próxima ›</button></div>` : ''}`}`;
+}
+
+// ---------- RELATÓRIOS (PDF / impressão) — sempre com totalização ----------
+const somaImp = a => a.reduce((s, o) => s + o.impacto, 0);
+const periodoTxt = () => `Vencimentos de ${dBRa($('fDe').value)} a ${dBRa($('fAte').value)}`;
+const CSS_REL = `@page{size:A4 landscape;margin:11mm 10mm 13mm}
+*{box-sizing:border-box}body{font:10.5px/1.35 Arial,Helvetica,sans-serif;color:#111;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.cab{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #1e3a8a;padding-bottom:6px;margin-bottom:10px}
+.cab h1{font-size:17px;margin:0;color:#1e3a8a}.cab .s{color:#444;font-size:10.5px;margin-top:2px}.cab .d{text-align:right;font-size:9.5px;color:#555}
+h2{font-size:13px;margin:14px 0 4px;color:#1e3a8a;border-bottom:1px solid #c7d2fe;padding-bottom:2px}
+h3{font-size:11.5px;margin:10px 0 3px}.desc{color:#444;font-size:10px;margin-bottom:5px}
+table{width:100%;border-collapse:collapse;margin:4px 0 8px;page-break-inside:auto}tr{page-break-inside:avoid}
+th{background:#e0e7ff;color:#1e293b;text-align:left;font-size:9.5px;padding:4px 5px;border:1px solid #c7d2fe}
+td{padding:3px 5px;border:1px solid #e2e8f0;vertical-align:top}
+td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+tr.tot td{background:#1e3a8a;color:#fff;font-weight:700}tr.sub td{background:#eef2ff;font-weight:700}
+tr.tit td{background:#fafafa;font-size:9px;color:#333}
+.g{display:inline-block;padding:0 6px;border-radius:8px;font-size:9px;font-weight:700}
+.g-alta{background:#fee2e2;color:#991b1b}.g-media{background:#fef3c7;color:#92400e}.g-baixa{background:#dbeafe;color:#1e40af}
+.k{display:flex;gap:8px;margin:6px 0}.k div{flex:1;border:1px solid #c7d2fe;border-radius:6px;padding:5px 8px}.k b{display:block;font-size:13px;color:#1e3a8a}.k span{font-size:9px;color:#555}
+.quebra{page-break-before:always}.ass{display:flex;gap:40px;margin-top:40px}.ass div{flex:1;border-top:1px solid #333;text-align:center;padding-top:4px;font-size:10px}
+.rod{margin-top:12px;font-size:9px;color:#666}.g2{display:flex;gap:12px}.g2>div{flex:1}`;
+function imprimirHTML(titulo, corpo) {
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(titulo)}</title><style>${CSS_REL}</style></head><body>
+    <div class="cab"><div><h1>${esc(titulo)}</h1><div class="s">Esposende · Auditoria Financeira · Contas a Pagar (Sallamo) · ${periodoTxt()}</div></div>
+    <div class="d">Emitido em ${new Date().toLocaleString('pt-BR')}${USUARIO ? '<br>por ' + esc(USUARIO) : ''}</div></div>${corpo}
+    <div class="ass"><div>Auditor responsável</div><div>Controladoria</div><div>Diretoria</div></div>
+    <div class="rod">Ocorrências são indícios gerados por cruzamento automático e precisam de verificação documental antes de qualquer conclusão.</div></body></html>`;
+  let f = $('frmImp'); if (f) f.remove();
+  f = document.createElement('iframe'); f.id = 'frmImp'; f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(f);
+  f.onload = () => setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Não foi possível abrir a impressão.'); } }, 200);
+  f.srcdoc = html;
+}
+const gChip = s => `<span class="g g-${s}">${SEV[s]}</span>`;
+function kpisRel(ocs) {
+  const alta = ocs.filter(o => o.sev === 'alta');
+  const irr = ocs.filter(o => o.sit === 'irregular'), pend = ocs.filter(o => o.sit === 'pendente' || o.sit === 'em_analise');
+  return `<div class="k"><div><b>${n0(ocs.length)}</b><span>ocorrências</span></div><div><b>${brl(somaImp(ocs))}</b><span>impacto total</span></div>
+    <div><b>${n0(alta.length)} · ${brl(somaImp(alta))}</b><span>alta gravidade</span></div><div><b>${n0(pend.length)} · ${brl(somaImp(pend))}</b><span>pendentes / em análise</span></div>
+    <div><b>${n0(irr.length)} · ${brl(somaImp(irr))}</b><span>confirmadas irregulares</span></div></div>`;
+}
+// Totais por regra (linha por regra + TOTAL)
+function resumoPorRegra(ocs) {
+  const linhas = Object.keys(A.REGRAS).map(k => { const g = ocs.filter(o => o.regra === k); return {k, g}; }).filter(x => x.g.length);
+  const c = (g, f) => g.filter(f).length;
+  const cel = g => `<td class="n">${n0(g.length)}</td><td class="n">${n0(c(g, o => o.sev === 'alta'))}</td><td class="n">${n0(c(g, o => o.sev === 'media'))}</td><td class="n">${n0(c(g, o => o.sev === 'baixa'))}</td>
+    <td class="n">${n0(c(g, o => o.sit === 'pendente' || o.sit === 'em_analise'))}</td><td class="n">${n0(c(g, o => o.sit === 'justificada'))}</td><td class="n">${n0(c(g, o => o.sit === 'irregular'))}</td><td class="n">${n0(c(g, o => o.sit === 'corrigida'))}</td><td class="n">${brl(somaImp(g))}</td>`;
+  return `<table><tr><th>Regra</th><th class="n">Qtde</th><th class="n">Alta</th><th class="n">Média</th><th class="n">Baixa</th><th class="n">Pendente</th><th class="n">Justificada</th><th class="n">Irregular</th><th class="n">Corrigida</th><th class="n">Impacto</th></tr>
+    ${linhas.map(x => `<tr><td><b>${x.k}</b> · ${esc(A.REGRAS[x.k].nome)}</td>${cel(x.g)}</tr>`).join('')}
+    <tr class="tot"><td>TOTAL GERAL</td>${cel(ocs)}</tr></table>`;
+}
+function resumoPor(ocs, campo, rotulos, titulo) {
+  const ks = Object.keys(rotulos).filter(k => ocs.some(o => o[campo] === k));
+  return `<table><tr><th>${titulo}</th><th class="n">Qtde</th><th class="n">%</th><th class="n">Impacto</th></tr>
+    ${ks.map(k => { const g = ocs.filter(o => o[campo] === k); return `<tr><td>${rotulos[k]}</td><td class="n">${n0(g.length)}</td><td class="n">${(g.length / ocs.length * 100).toFixed(1)}%</td><td class="n">${brl(somaImp(g))}</td></tr>`; }).join('')}
+    <tr class="tot"><td>TOTAL</td><td class="n">${n0(ocs.length)}</td><td class="n">100%</td><td class="n">${brl(somaImp(ocs))}</td></tr></table>`;
+}
+function linhasTitulosRel(o) {
+  const idx = [...new Set(o.titulos)], tt = totTitulos(idx);
+  return idx.slice(0, 40).map(i => { const t = R.titulos[i]; return `<tr class="tit"><td></td><td colspan="2">Cód. <b>${t.codigo}</b> · ${esc(t.status)} · ${esc(t.cc)}</td><td colspan="2">venc. ${dBRa(t.vencimento)} · comp. ${dBRa(t.competencia)} · pagto. ${dBRa(t.pagamento)} — parcela ${brl(t.valorParcela)} · pago ${brl(t.valorPago)} · saldo ${brl(t.saldo)}</td><td colspan="2"></td></tr>`; }).join('')
+    + (idx.length > 40 ? `<tr class="tit"><td></td><td colspan="6">… e mais ${n0(idx.length - 40)} título(s)</td></tr>` : '')
+    + `<tr class="tit"><td></td><td colspan="4"><b>Total dos ${n0(idx.length)} título(s): parcela ${brl(tt.parcela)} · pago ${brl(tt.pago)} · saldo ${brl(tt.saldo)}</b></td><td colspan="2"></td></tr>`;
+}
+// Tabela de ocorrências com subtotal e "demais" quando há limite
+function tabelaOcsRel(ocs, opt) {
+  const mostra = opt.limite ? ocs.slice(0, opt.limite) : ocs, resto = ocs.slice(mostra.length);
+  return `<table><tr><th style="width:28px">#</th><th style="width:52px">Grav.</th><th style="width:22%">Fornecedor / conta</th><th>O que foi encontrado</th><th class="n" style="width:88px">Impacto</th><th style="width:62px">Análise</th><th style="width:18%">Comentário do auditor</th></tr>
+    ${mostra.map((o, i) => `<tr><td class="n">${i + 1}</td><td>${gChip(o.sev)}${opt.mostrarRegra ? `<br><b>${o.regra}</b>` : ''}</td><td><b>${esc(o.fornecedor)}</b>${o.conta ? `<br><span style="color:#555">${esc(o.conta)}</span>` : ''}</td>
+      <td>${esc(o.detalhe)}</td><td class="n"><b>${brl(o.impacto)}</b></td><td>${SIT[o.sit]}</td><td>${esc((ANAL[o.id] || {}).comentario || '')}</td></tr>${opt.titulos ? linhasTitulosRel(o) : ''}`).join('')}
+    ${resto.length ? `<tr class="sub"><td colspan="4">Subtotal das ${n0(mostra.length)} listadas</td><td class="n">${brl(somaImp(mostra))}</td><td colspan="2"></td></tr>
+      <tr class="sub"><td colspan="4">Demais ${n0(resto.length)} ocorrência(s) não listadas (ver Excel)</td><td class="n">${brl(somaImp(resto))}</td><td colspan="2"></td></tr>` : ''}
+    <tr class="tot"><td colspan="4">TOTAL (${n0(ocs.length)} ocorrências)</td><td class="n">${brl(somaImp(ocs))}</td><td colspan="2"></td></tr></table>`;
+}
+const ordenar = (ocs, ord) => [...ocs].sort(ord === 'impacto' ? (a, b) => b.impacto - a.impacto : (a, b) => A.PESO[b.sev] - A.PESO[a.sev] || b.impacto - a.impacto);
+function relatorioPorRegras(ocs, opt) {
+  const regras = Object.keys(A.REGRAS).filter(k => ocs.some(o => o.regra === k));
+  let corpo = `<h2>Resumo executivo</h2>${kpisRel(ocs)}${resumoPorRegra(ocs)}${notaDistintos(ocs)}
+    <div class="g2"><div>${resumoPor(ocs, 'sev', SEV, 'Gravidade')}</div><div>${resumoPor(ocs, 'sit', SIT, 'Situação da análise')}</div></div>`;
+  if (!opt.soResumo) regras.forEach((k, i) => {
+    const g = ordenar(ocs.filter(o => o.regra === k), opt.ord);
+    corpo += `<div class="${i || regras.length > 1 ? 'quebra' : ''}"><h2>${k} · ${esc(A.REGRAS[k].nome)}</h2><div class="desc">${esc(A.REGRAS[k].desc)}</div>${kpisRel(g)}${tabelaOcsRel(g, opt)}</div>`;
+  });
+  if (!opt.soResumo && regras.length > 1) corpo += `<h2>Total geral do relatório</h2>${resumoPorRegra(ocs)}`;
+  return corpo;
+}
+// O mesmo título pode cair em várias regras: o total de impacto entre regras soma o mesmo dinheiro mais de uma vez.
+// Esta linha mostra o valor sem repetição (cada título contado uma vez).
+function notaDistintos(ocs) {
+  const idx = [...new Set(ocs.flatMap(o => o.titulos))], tt = totTitulos(idx);
+  return `<table><tr class="sub"><td>Títulos distintos envolvidos (cada título contado uma vez, sem repetir entre regras)</td><td class="n">${n0(idx.length)} títulos</td><td class="n">parcela ${brl(tt.parcela)}</td><td class="n">pago ${brl(tt.pago)}</td><td class="n">saldo ${brl(tt.saldo)}</td></tr></table>
+    <div class="desc">Atenção: o "Impacto" soma as regras e pode contar o mesmo título mais de uma vez. Nas regras de padrão (R10 Benford, R13 conta sensível, R19 classificação, R15 fornecedor novo) o impacto é o volume pago sob suspeita, não perda confirmada.</div>`;
+}
+window.abrirRelatorio = () => {
+  const reg = F.regra || 'R01';
+  $('mBody').innerHTML = `<button class="btn x" onclick="fechar()">✕</button><h1 style="font-size:19px">🖨 Relatórios PDF / impressão</h1>
+    <div class="small mut" style="margin-top:4px">Abre a impressão do navegador — escolha <b>Salvar como PDF</b> no destino para gerar o arquivo. Todos os relatórios trazem totais por regra, gravidade, situação e total geral.</div>
+    <label class="small">Tipo de relatório</label>
+    <select id="rTipo" style="width:100%" onchange="$('rRegraBox').style.display=this.value==='regra'?'':'none'">
+      <option value="regra">Por regra (uma regra)</option><option value="todas">Todas as regras — resumo + detalhe de cada regra</option>
+      <option value="resumo">Resumo executivo (só totais)</option><option value="lista">Lista filtrada da aba Ocorrências (com os filtros e a busca atuais)</option></select>
+    <div id="rRegraBox"><label class="small">Regra</label><select id="rRegra" style="width:100%">${Object.entries(A.REGRAS).map(([k, r]) => `<option value="${k}" ${k === reg ? 'selected' : ''}>${k} · ${esc(r.nome)} (${n0(R.ocorrencias.filter(o => o.regra === k).length)})</option>`).join('')}</select></div>
+    <div class="g2" style="gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+      <div><label class="small">Gravidade</label><select id="rSev" style="width:100%"><option value="">Todas</option><option value="alta">Só alta</option><option value="am">Alta + média</option></select></div>
+      <div><label class="small">Situação da análise</label><select id="rSit" style="width:100%"><option value="">Todas</option><option value="pend">Pendentes / em análise</option><option value="irregular">Irregulares</option><option value="justificada">Justificadas</option><option value="corrigida">Corrigidas</option></select></div>
+      <div><label class="small">Ocorrências listadas por regra</label><select id="rLim" style="width:100%"><option value="0">Todas</option><option value="20">20 maiores</option><option value="50" selected>50 maiores</option><option value="100">100 maiores</option></select></div>
+      <div><label class="small">Ordenar</label><select id="rOrd" style="width:100%"><option value="sev">Gravidade e impacto</option><option value="impacto">Impacto</option></select></div>
+    </div>
+    <label class="small" style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" id="rTit"> Incluir os títulos (códigos, datas e valores) de cada ocorrência, com total</label>
+    <div class="small mut" style="margin-top:6px">Com limite, as ocorrências não listadas entram no total na linha "Demais ocorrências" — o total nunca é cortado.</div>
+    <div class="row" style="margin-top:14px"><button class="btn b-pri" onclick="gerarRelatorio()">🖨 Gerar relatório</button></div>`;
+  $('modal').classList.remove('hidden');
+};
+window.gerarRelatorio = () => {
+  const tipo = $('rTipo').value, sev = $('rSev').value, sit = $('rSit').value;
+  const opt = {limite: Number($('rLim').value) || 0, ord: $('rOrd').value, titulos: $('rTit').checked, soResumo: tipo === 'resumo', mostrarRegra: false};
+  let ocs = tipo === 'lista' ? filtradas() : R.ocorrencias;
+  if (tipo === 'regra') ocs = ocs.filter(o => o.regra === $('rRegra').value);
+  if (sev === 'alta') ocs = ocs.filter(o => o.sev === 'alta'); else if (sev === 'am') ocs = ocs.filter(o => o.sev !== 'baixa');
+  if (sit === 'pend') ocs = ocs.filter(o => o.sit === 'pendente' || o.sit === 'em_analise'); else if (sit) ocs = ocs.filter(o => o.sit === sit);
+  if (!ocs.length) return toast('Nenhuma ocorrência com essas opções.');
+  const filtros = [sev && ('gravidade: ' + (sev === 'am' ? 'alta + média' : 'alta')), sit && ('situação: ' + (sit === 'pend' ? 'pendentes/em análise' : SIT[sit])), tipo === 'lista' && F.q && ('busca: ' + F.q)].filter(Boolean).join(' · ');
+  const titulo = tipo === 'regra' ? `Relatório ${$('rRegra').value} · ${A.REGRAS[$('rRegra').value].nome}` : tipo === 'resumo' ? 'Resumo executivo por regras' : tipo === 'lista' ? 'Ocorrências filtradas' : 'Relatório completo por regras';
+  imprimirHTML(titulo, (filtros ? `<div class="desc">Filtros: ${esc(filtros)}</div>` : '') + relatorioPorRegras(ocs, opt));
+  fechar();
+};
+window.relatorioLista = () => {
+  const ocs = filtradas();
+  const filtros = [F.regra && 'regra ' + F.regra, F.sev && 'gravidade ' + SEV[F.sev], F.sit && 'situação ' + SIT[F.sit], F.cc && 'centro de custo ' + F.cc, F.q && 'busca: ' + F.q].filter(Boolean).join(' · ');
+  imprimirHTML(F.regra ? `Relatório ${F.regra} · ${A.REGRAS[F.regra].nome}` : 'Ocorrências filtradas',
+    (filtros ? `<div class="desc">Filtros: ${esc(filtros)}</div>` : '') + relatorioPorRegras(ocs, {limite: 0, ord: F.ord === 'impacto' ? 'impacto' : 'sev', titulos: false}));
+};
+window.relatorioOcorrencia = n => {
+  const o = R.ocorrencias[n], a = ANAL[o.id] || {}, idx = [...new Set(o.titulos)], tt = totTitulos(idx);
+  imprimirHTML(`Ocorrência ${o.regra} · ${o.nome}`, `<h2>${esc(o.fornecedor)}</h2><div class="desc">${esc(A.REGRAS[o.regra].desc)}</div>
+    <div class="k"><div><b>${gChip(o.sev)}</b><span>gravidade</span></div><div><b>${brl(o.impacto)}</b><span>impacto</span></div><div><b>${SIT[o.sit]}</b><span>situação</span></div><div><b>${n0(idx.length)}</b><span>títulos</span></div></div>
+    <p><b>Achado:</b> ${esc(o.detalhe)}</p>
+    <h3>Títulos envolvidos</h3><table><tr><th>Código</th><th>Status</th><th>Venc.</th><th>Compet.</th><th>Pagto.</th><th class="n">Parcela</th><th class="n">Pago</th><th class="n">Saldo</th><th>Conta</th><th>Centro de custo</th></tr>
+    ${idx.map(i => { const t = R.titulos[i]; return `<tr><td><b>${t.codigo}</b></td><td>${esc(t.status)}</td><td>${dBRa(t.vencimento)}</td><td>${dBRa(t.competencia)}</td><td>${dBRa(t.pagamento)}</td><td class="n">${brl(t.valorParcela)}</td><td class="n">${brl(t.valorPago)}</td><td class="n">${brl(t.saldo)}</td><td>${esc(t.conta)}</td><td>${esc(t.cc)}</td></tr>`; }).join('')}
+    <tr class="tot"><td colspan="5">TOTAL (${n0(idx.length)} títulos)</td><td class="n">${brl(tt.parcela)}</td><td class="n">${brl(tt.pago)}</td><td class="n">${brl(tt.saldo)}</td><td colspan="2"></td></tr></table>
+    <h3>Análise do auditor</h3><p>${a.comentario ? esc(a.comentario) : '<i>Sem comentário registrado.</i>'}${a.atualizado_por ? `<br><span style="color:#555">${esc(a.atualizado_por)} em ${new Date(a.atualizado_em).toLocaleString('pt-BR')}</span>` : ''}</p>`);
+};
+window.relatorioDossie = k => {
+  const nome = NOMES[k], idx = R.titulos.filter(t => t.fornecedor === nome).map(t => t.i), tt = totTitulos(idx);
+  const ocs = ordenar(R.ocorrencias.filter(o => o.titulos.some(i => R.titulos[i].fornecedor === nome)), 'sev'), f = R.riscoFornecedor.find(x => x.nome === nome);
+  const porConta = [...new Set(idx.map(i => R.titulos[i].conta))].map(c => { const g = idx.filter(i => R.titulos[i].conta === c); return {c, n: g.length, ...totTitulos(g)}; }).sort((a, b) => b.pago - a.pago);
+  imprimirHTML(`Dossiê do fornecedor · ${nome}`, `<div class="k"><div><b>${f ? f.score : 0}/100</b><span>nota de risco ${f ? '· ' + f.regras.join(' ') : ''}</span></div><div><b>${brl(tt.pago)}</b><span>total pago</span></div><div><b>${brl(tt.saldo)}</b><span>saldo</span></div><div><b>${n0(idx.length)}</b><span>títulos</span></div><div><b>${n0(ocs.length)} · ${brl(somaImp(ocs))}</b><span>ocorrências · impacto</span></div></div>
+    <h2>Valores por conta contábil</h2><table><tr><th>Conta</th><th class="n">Títulos</th><th class="n">Parcela</th><th class="n">Pago</th><th class="n">Saldo</th></tr>
+    ${porConta.map(x => `<tr><td>${esc(x.c)}</td><td class="n">${n0(x.n)}</td><td class="n">${brl(x.parcela)}</td><td class="n">${brl(x.pago)}</td><td class="n">${brl(x.saldo)}</td></tr>`).join('')}
+    <tr class="tot"><td>TOTAL</td><td class="n">${n0(idx.length)}</td><td class="n">${brl(tt.parcela)}</td><td class="n">${brl(tt.pago)}</td><td class="n">${brl(tt.saldo)}</td></tr></table>
+    ${ocs.length ? `<h2>Ocorrências por regra</h2>${resumoPorRegra(ocs)}<h2>Ocorrências</h2>${tabelaOcsRel(ocs, {mostrarRegra: true})}` : '<p>Nenhuma ocorrência para este fornecedor.</p>'}`);
+};
+window.relatorioBusca = () => {
+  const idx = titulosBuscados(), tt = totTitulos(idx);
+  const porStatus = [...new Set(idx.map(i => R.titulos[i].status))].map(s => { const g = idx.filter(i => R.titulos[i].status === s); return {s, n: g.length, ...totTitulos(g)}; });
+  imprimirHTML('Busca de títulos', `<div class="desc">Busca: <b>${esc(B.q)}</b> → ${A.interpretarBusca(B.q).map(t => esc(t.rotulo)).join(' + ')}</div>
+    <h2>Totais por status</h2><table><tr><th>Status</th><th class="n">Títulos</th><th class="n">Parcela</th><th class="n">Pago</th><th class="n">Saldo</th></tr>
+    ${porStatus.map(x => `<tr><td>${esc(x.s)}</td><td class="n">${n0(x.n)}</td><td class="n">${brl(x.parcela)}</td><td class="n">${brl(x.pago)}</td><td class="n">${brl(x.saldo)}</td></tr>`).join('')}
+    <tr class="tot"><td>TOTAL</td><td class="n">${n0(idx.length)}</td><td class="n">${brl(tt.parcela)}</td><td class="n">${brl(tt.pago)}</td><td class="n">${brl(tt.saldo)}</td></tr></table>
+    <h2>Títulos</h2><table><tr><th>Código</th><th>Status</th><th>Fornecedor</th><th>Venc.</th><th>Compet.</th><th>Pagto.</th><th class="n">Parcela</th><th class="n">Pago</th><th class="n">Saldo</th><th>Conta</th><th>Centro de custo</th><th>Regras</th></tr>
+    ${idx.map(i => { const t = R.titulos[i]; return `<tr><td><b>${t.codigo}</b></td><td>${esc(t.status)}</td><td>${esc(t.fornecedor)}</td><td>${dBRa(t.vencimento)}</td><td>${dBRa(t.competencia)}</td><td>${dBRa(t.pagamento)}</td><td class="n">${brl(t.valorParcela)}</td><td class="n">${brl(t.valorPago)}</td><td class="n">${brl(t.saldo)}</td><td>${esc(t.conta)}</td><td>${esc(t.cc)}</td><td>${[...new Set((OCT.get(i) || []).map(n => R.ocorrencias[n].regra))].join(' ')}</td></tr>`; }).join('')}
+    <tr class="tot"><td colspan="6">TOTAL (${n0(idx.length)} títulos)</td><td class="n">${brl(tt.parcela)}</td><td class="n">${brl(tt.pago)}</td><td class="n">${brl(tt.saldo)}</td><td colspan="3"></td></tr></table>`);
+};
+
 // ---------- EXCEL ----------
+// Excel: toda aba termina com a linha TOTAL; aba "Resumo por regra" com os totais de cada regra
+async function carregarXLSX() {
+  if (!window.XLSX) await new Promise((ok, erro) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = ok; s.onerror = erro; document.head.appendChild(s); });
+}
+const linhaTitulo = t => ({Código: t.codigo, Status: t.status, Fornecedor: t.fornecedor, Vencimento: t.vencimento, Competência: t.competencia, Pagamento: t.pagamento, Parcela: t.valorParcela, Pago: t.valorPago, Saldo: t.saldo, Conta: t.conta, 'Centro de custo': t.cc});
+const totalTitulosXL = idx => { const tt = totTitulos(idx); return {Código: 'TOTAL', Status: `${idx.length} títulos`, Parcela: r2(tt.parcela), Pago: r2(tt.pago), Saldo: r2(tt.saldo)}; };
+const r2 = n => Math.round(n * 100) / 100;
 async function exportar() {
   if (!R) return;
-  if (!window.XLSX) await new Promise((ok, erro) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = ok; s.onerror = erro; document.head.appendChild(s); });
-  const wb = XLSX.utils.book_new();
-  const oc = R.ocorrencias.map(o => ({Gravidade: SEV[o.sev], Regra: o.regra, 'Nome da regra': o.nome, Fornecedor: o.fornecedor, 'Conta contábil': o.conta || '', 'Centro de custo': o.cc || '', Detalhe: o.detalhe,
+  await carregarXLSX();
+  const wb = XLSX.utils.book_new(), oc = R.ocorrencias;
+  const resumo = Object.keys(A.REGRAS).map(k => { const g = oc.filter(o => o.regra === k), c = f => g.filter(f).length;
+    return {Regra: k, Nome: A.REGRAS[k].nome, Ocorrências: g.length, Alta: c(o => o.sev === 'alta'), Média: c(o => o.sev === 'media'), Baixa: c(o => o.sev === 'baixa'),
+      Pendente: c(o => o.sit === 'pendente' || o.sit === 'em_analise'), Justificada: c(o => o.sit === 'justificada'), Irregular: c(o => o.sit === 'irregular'), Corrigida: c(o => o.sit === 'corrigida'), Impacto: r2(somaImp(g))}; });
+  const soma = (a, k) => a.reduce((s, x) => s + (Number(x[k]) || 0), 0);
+  resumo.push({Regra: 'TOTAL', Nome: '', ...Object.fromEntries(['Ocorrências', 'Alta', 'Média', 'Baixa', 'Pendente', 'Justificada', 'Irregular', 'Corrigida'].map(k => [k, soma(resumo, k)])), Impacto: r2(soma(resumo, 'Impacto'))});
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), 'Resumo por regra');
+  const linhas = ordenar(oc, 'sev').sort((a, b) => a.regra.localeCompare(b.regra)).map(o => ({Gravidade: SEV[o.sev], Regra: o.regra, 'Nome da regra': o.nome, Fornecedor: o.fornecedor, 'Conta contábil': o.conta || '', 'Centro de custo': o.cc || '', Detalhe: o.detalhe,
     Impacto: o.impacto, 'Códigos': [...new Set(o.titulos.map(i => R.titulos[i].codigo))].slice(0, 50).join(', '), Análise: SIT[o.sit], Comentário: (ANAL[o.id] || {}).comentario || '', 'Analisado por': (ANAL[o.id] || {}).atualizado_por || ''}));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(oc), 'Ocorrências');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(R.riscoFornecedor.map(f => ({Fornecedor: f.nome, 'Nota de risco': f.score, Regras: f.regras.join(' '), Alta: f.alta, Média: f.media, Baixa: f.baixa, 'Total pago': f.pago, Impacto: f.impacto}))), 'Risco fornecedor');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(R.riscoCC.map(c => ({'Centro de custo': c.nome, Ocorrências: c.n, Alta: c.alta, Média: c.media, Baixa: c.baixa, Regras: c.regras.join(' ')}))), 'Centros de custo');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.entries(A.REGRAS).map(([k, r]) => ({Regra: k, Nome: r.nome, Gravidade: SEV[r.sev], Descrição: r.desc, Ocorrências: R.ocorrencias.filter(o => o.regra === k).length}))), 'Regras');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(R.titulos.map(t => ({Código: t.codigo, Status: t.status, Fornecedor: t.fornecedor, Vencimento: t.vencimento, Competência: t.competencia, Pagamento: t.pagamento, Parcela: t.valorParcela, Pago: t.valorPago, Saldo: t.saldo, Conta: t.conta, 'Centro de custo': t.cc}))), 'Títulos');
+  linhas.push({Gravidade: 'TOTAL', Regra: `${oc.length} ocorrências`, Impacto: r2(somaImp(oc))});
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), 'Ocorrências');
+  const rf = R.riscoFornecedor.map(f => ({Fornecedor: f.nome, 'Nota de risco': f.score, Regras: f.regras.join(' '), Alta: f.alta, Média: f.media, Baixa: f.baixa, 'Total pago': f.pago, Impacto: f.impacto}));
+  rf.push({Fornecedor: 'TOTAL', Alta: soma(rf, 'Alta'), Média: soma(rf, 'Média'), Baixa: soma(rf, 'Baixa'), 'Total pago': r2(soma(rf, 'Total pago')), Impacto: r2(soma(rf, 'Impacto'))});
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rf), 'Risco fornecedor');
+  const cc = R.riscoCC.map(c => ({'Centro de custo': c.nome, Ocorrências: c.n, Alta: c.alta, Média: c.media, Baixa: c.baixa, Regras: c.regras.join(' ')}));
+  cc.push({'Centro de custo': 'TOTAL', Ocorrências: soma(cc, 'Ocorrências'), Alta: soma(cc, 'Alta'), Média: soma(cc, 'Média'), Baixa: soma(cc, 'Baixa')});
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cc), 'Centros de custo');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.entries(A.REGRAS).map(([k, r]) => ({Regra: k, Nome: r.nome, Gravidade: SEV[r.sev], Descrição: r.desc}))), 'Regras');
+  const todos = R.titulos.map(t => t.i);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([...R.titulos.map(linhaTitulo), totalTitulosXL(todos)]), 'Títulos');
   XLSX.writeFile(wb, `auditoria_financeira_${$('fDe').value}_a_${$('fAte').value}.xlsx`);
 }
+window.excelBusca = async () => {
+  await carregarXLSX();
+  const idx = titulosBuscados(), wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([...idx.map(i => ({...linhaTitulo(R.titulos[i]), Regras: [...new Set((OCT.get(i) || []).map(n => R.ocorrencias[n].regra))].join(' ')})), totalTitulosXL(idx)]), 'Busca');
+  XLSX.writeFile(wb, `busca_titulos_${new Date().toISOString().slice(0, 10)}.xlsx`);
+};
 
 // ---------- início ----------
 (async () => {

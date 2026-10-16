@@ -940,7 +940,7 @@ function go(pid,el){
   // 'message' abaixo) — se não achar nada, fica tudo como sempre foi.
   if((pid==='nf'||pid==='rem'||pid==='cmpaud'||pid==='desc'||pid==='mei'||pid==='gren')&&!LOADED[pid])setTimeout(function(){execMod(pid,false,true);},80);
   if(pid==='rl')setTimeout(rlLoad,100);
-  if(pid==='fin'){var fi=document.getElementById('ifr-fin');if(fi&&!fi.getAttribute('src'))fi.setAttribute('src','financeiro/?v=20261016-1');}
+  if(pid==='fin'){var fi=document.getElementById('ifr-fin');if(fi&&!fi.getAttribute('src'))fi.setAttribute('src','financeiro/?v=20261016-2');}
 
 }
 // Módulos carregados em modo silencioso (ver execMod) avisam por aqui quando acham dado
