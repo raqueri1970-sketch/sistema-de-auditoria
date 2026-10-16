@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Auditoria Financeira</title>
+<meta name="theme-color" content="#070b16">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="auditoria.js?v=20261016-1"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#070b16;--card:#0f172a;--card2:#152039;--card3:#1b2742;--line:rgba(148,163,184,.14);--line2:rgba(148,163,184,.26);
+  --txt:#eef2fb;--txt2:#d3daea;--mut:#9fb0cf;--ok:#22c55e;--warn:#f5b301;--bad:#ef4444;--pri:#3b82f6;--pri2:#2563eb;--pur:#a78bfa;
+  --alta:#f87171;--media:#fbbf24;--baixa:#93c5fd;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);font:14.5px/1.45 'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+body{background:radial-gradient(1200px 600px at 15% -10%,rgba(59,130,246,.12),transparent 60%),radial-gradient(900px 500px at 100% 0,rgba(167,139,250,.07),transparent 60%),var(--bg);
+  min-height:100vh;padding:calc(env(safe-area-inset-top) + 18px) 16px 40px;max-width:1280px;margin:0 auto}
+h1{font-size:23px;margin:0;font-weight:800;letter-spacing:-.02em}
+h2{font-size:12px;margin:26px 0 12px;color:var(--mut);text-transform:uppercase;letter-spacing:.09em;font-weight:700;display:flex;align-items:center;gap:10px}
+h2::after{content:"";flex:1;height:1px;background:var(--line)}
+.sub{color:var(--mut);font-size:13px;margin-top:3px}
+.hidden{display:none!important}
+.top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.card{background:linear-gradient(180deg,var(--card),#0d1527);border:1px solid var(--line);border-radius:14px;padding:16px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(min(200px,100%),1fr))}
+.g2{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));align-items:start}
+.kpi{text-align:center;padding:16px 12px}
+.kpi .l{font-size:12px;color:var(--txt2);font-weight:600}
+.kpi .v{font-size:clamp(19px,2vw,25px);font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kpi .n{font-size:12px;color:var(--mut);margin-top:3px}
+.k-bad .v{color:#fca5a5}.k-warn .v{color:#fcd34d}.k-ok .v{color:#86efac}.k-pur .v{color:#c4b5fd}
+.btn{appearance:none;border-radius:10px;padding:8px 13px;font:600 13.5px 'Inter',sans-serif;color:var(--txt);background:var(--card2);border:1px solid var(--line2);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--card3)}.btn:disabled{opacity:.45;cursor:default}
+.b-pri{background:var(--pri2);border-color:var(--pri);color:#fff}.b-pri:hover{background:#1d4ed8}
+.b-ok{background:#15803d;border-color:#16a34a;color:#fff}.b-bad{background:#991b1b;border-color:#dc2626;color:#fff}.b-warn{background:#a16207;border-color:#ca8a04;color:#fff}
+input,select,textarea{font:500 14px 'Inter',sans-serif;color:var(--txt);background:#0a1222;border:1px solid var(--line2);border-radius:9px;padding:8px 10px;max-width:100%}
+textarea{width:100%;min-height:70px;resize:vertical}
+label.small{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
+.tabs{display:flex;gap:4px;margin:18px 0 0;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.tabs button{appearance:none;background:none;border:0;color:var(--mut);font:700 13.5px 'Inter',sans-serif;padding:10px 14px;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+.tabs button.on{color:#fff;border-bottom-color:var(--pri)}
+.tabs .cnt{font-size:11px;background:var(--card3);border-radius:99px;padding:1px 7px;margin-left:5px;color:var(--txt2)}
+.chip{font-size:11px;padding:2px 9px;border-radius:999px;font-weight:700;white-space:nowrap;display:inline-block;border:1px solid transparent}
+.sv-alta{background:rgba(239,68,68,.15);color:#fca5a5;border-color:rgba(239,68,68,.35)}
+.sv-media{background:rgba(245,179,1,.13);color:#fcd34d;border-color:rgba(245,179,1,.3)}
+.sv-baixa{background:rgba(59,130,246,.14);color:#93c5fd;border-color:rgba(59,130,246,.3)}
+.st-pendente{background:rgba(148,163,184,.12);color:#cbd5e1;border-color:var(--line2)}
+.st-em_analise{background:rgba(167,139,250,.15);color:#c4b5fd;border-color:rgba(167,139,250,.35)}
+.st-justificada{background:rgba(34,197,94,.13);color:#86efac;border-color:rgba(34,197,94,.3)}
+.st-irregular{background:rgba(239,68,68,.18);color:#fecaca;border-color:rgba(239,68,68,.45)}
+.st-corrigida{background:rgba(45,212,191,.12);color:#99f6e4;border-color:rgba(45,212,191,.3)}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{position:sticky;top:0;background:#111a30;text-align:left;font-size:11.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;padding:9px 10px;white-space:nowrap;cursor:default}
+th.ord{cursor:pointer}th.ord:hover{color:#fff}
+td{padding:8px 10px;border-top:1px solid var(--line);vertical-align:top}
+tr.clic{cursor:pointer}tr.clic:hover td{background:rgba(59,130,246,.06)}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mut{color:var(--mut)}.small{font-size:12px}.b{font-weight:700}
+.regras{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr))}
+.rg{cursor:pointer;padding:13px 14px;transition:border-color .15s}
+.rg:hover{border-color:var(--line2)}
+.rg .t{display:flex;justify-content:space-between;gap:8px;align-items:center;font-weight:700;font-size:13.5px}
+.rg .q{font-size:20px;font-weight:800;margin-top:6px;font-variant-numeric:tabular-nums}
+.rg .i{font-size:12px;color:var(--mut)}
+.rg.zero{opacity:.5}
+.bar{height:8px;border-radius:5px;background:var(--card3);overflow:hidden}.bar>i{display:block;height:100%;border-radius:5px}
+.filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
+.filtros input[type=search]{flex:1;min-width:200px}
+.pag{display:flex;gap:8px;align-items:center;justify-content:center;margin:12px 0}
+#modal{position:fixed;inset:0;background:rgba(2,6,13,.78);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto}
+#modal .card{width:min(1100px,100%);position:relative}
+#modal .x{position:absolute;right:12px;top:10px}
+.sit{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.sit .btn.on{outline:2px solid #fff;outline-offset:1px}
+.hist{font-size:12px;color:var(--mut);margin-top:10px;max-height:140px;overflow:auto}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1e293b;border:1px solid var(--line2);padding:10px 16px;border-radius:10px;z-index:99;display:none;font-weight:600}
+.carregando{text-align:center;padding:50px 10px;color:var(--mut)}
+.spin{width:34px;height:34px;border:3px solid var(--line2);border-top-color:var(--pri);border-radius:50%;animation:g 1s linear infinite;margin:0 auto 12px}
+@keyframes g{to{transform:rotate(360deg)}}
+.aviso{border-left:3px solid var(--warn);padding:10px 14px;background:rgba(245,179,1,.07);border-radius:8px;font-size:13px;margin-top:12px}
+.leg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:6px}
+.leg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+svg text{fill:var(--mut);font:11px 'Inter',sans-serif}
+@media print{body{background:#fff;color:#000}.btn,.tabs,.filtros,.pag{display:none!important}.card,.tw{border-color:#ccc;background:#fff}th{background:#eee;color:#000}}
+</style>
+</head>
+<body>
+
+<div id="vLogin" class="hidden" style="max-width:420px;margin:40px auto">
+  <h1>💰 Auditoria Financeira</h1><div class="sub">Entre com o mesmo usuário do Portal Esposende</div>
+  <div class="card" style="margin-top:16px">
+    <label class="small">Email do Portal</label><input id="lEmail" type="email" autocomplete="username" style="width:100%">
+    <label class="small">Senha</label><input id="lSenha" type="password" autocomplete="current-password" style="width:100%">
+    <div id="lErr" style="color:#fca5a5;font-size:13px;margin:8px 0"></div>
+    <button class="btn b-pri" style="width:100%;justify-content:center;padding:12px" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div><h1>💰 Auditoria Financeira · Contas a Pagar</h1>
+      <div class="sub">Cruzamento automático do Sallamo · <span id="info">escolha o período e clique em Analisar</span></div></div>
+    <div class="row">
+      <button class="btn" onclick="exportar()" id="bExp" disabled>⬇ Excel</button>
+      <button class="btn" onclick="window.print()">🖨 Imprimir</button>
+      <button class="btn" onclick="sair()">Sair</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="row">
+      <span class="small mut b">Vencimento de</span><input type="date" id="fDe">
+      <span class="small mut b">até</span><input type="date" id="fAte">
+      <select id="fPreset" onchange="preset(this.value)">
+        <option value="">Período rápido…</option><option value="12">Últimos 12 meses + próximos 3</option>
+        <option value="ano">Ano atual</option><option value="tudo">Tudo (2024 → 2027)</option>
+      </select>
+      <button class="btn b-pri" onclick="carregar()" id="bAnalisar">▶ Analisar</button>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+  <div id="corpo"><div class="carregando">Escolha o período (vencimento) e clique em <b>Analisar</b>.<br>A análise roda no seu navegador com os dados ao vivo do Sallamo.</div></div>
+</div>
+
+<div id="modal" class="hidden" onclick="if(event.target===this)fechar()"><div class="card" id="mBody"></div></div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+const SB_URL = 'https://rdztzurfesnobfkazgpm.supabase.co';
+const SB_KEY = 'sb_publishable_4LHSO4TrP7F4m4tpJyH44g_BGmfC92h';
+const NO_PORTAL = /github\.io$/.test(location.hostname);
+const sb = supabase.createClient(SB_URL, SB_KEY, {auth: {persistSession: true, autoRefreshToken: true, ...(NO_PORTAL ? {} : {storageKey: 'fin-auditoria-auth'})}});
+const A = window.FinAudit;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const brl = A.brl, dBRa = A.dBRa;
+const brlK = v => { const a = Math.abs(v); return a >= 1e6 ? 'R$ ' + (v / 1e6).toLocaleString('pt-BR', {maximumFractionDigits: 2}) + ' mi' : a >= 1e4 ? 'R$ ' + (v / 1e3).toLocaleString('pt-BR', {maximumFractionDigits: 1}) + ' mil' : brl(v); };
+const n0 = v => Number(v || 0).toLocaleString('pt-BR');
+const hojeISO = () => new Date().toLocaleDateString('en-CA', {timeZone: 'America/Sao_Paulo'});
+const SEV = {alta: 'Alta', media: 'Média', baixa: 'Baixa'};
+const SIT = {pendente: 'Pendente', em_analise: 'Em análise', justificada: 'Justificada', irregular: 'Irregular', corrigida: 'Corrigida'};
+const sevChip = s => `<span class="chip sv-${s}">${SEV[s]}</span>`;
+const sitChip = s => `<span class="chip st-${s}">${SIT[s]}</span>`;
+function toast(m, ms = 3500) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', ms); }
+
+// ---------- estado ----------
+let R = null, DADOS = null, ANAL = {}, CFG = {}, ABA = 'painel', NOMES = [], NIDX = new Map();
+const fx = nome => NIDX.get(nome);  // índice do fornecedor para os onclick (nomes podem ter aspas)
+let F = {regra: '', sev: '', sit: '', q: '', cc: '', ord: 'sev', pag: 0};
+
+// ---------- login ----------
+function mostrarLogin(m) { $('vApp').classList.add('hidden'); $('vLogin').classList.remove('hidden'); $('lErr').textContent = m || ''; }
+async function entrou() {
+  const ok = await sb.rpc('fin_pode_auditar').then(r => r.data === true, () => false);
+  if (!ok) return mostrarLogin('Este usuário não tem acesso à Auditoria Financeira (perfis: administrador, controladoria ou diretoria).');
+  $('vLogin').classList.add('hidden'); $('vApp').classList.remove('hidden');
+}
+window.entrar = async () => {
+  $('lErr').textContent = '';
+  const r = await sb.auth.signInWithPassword({email: $('lEmail').value.trim(), password: $('lSenha').value});
+  if (r.error) { $('lErr').textContent = 'Email ou senha incorretos.'; return; }
+  entrou();
+};
+window.sair = async () => { await sb.auth.signOut(); mostrarLogin(); };
+$('lSenha').addEventListener('keydown', e => { if (e.key === 'Enter') entrar(); });
+
+// ---------- período ----------
+const somaMes = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setMonth(d.getMonth() + n); return d.toISOString().slice(0, 10); };
+function preset(p) {
+  const h = hojeISO();
+  if (p === '12') { $('fDe').value = somaMes(h, -12); $('fAte').value = somaMes(h, 3); }
+  if (p === 'ano') { $('fDe').value = h.slice(0, 4) + '-01-01'; $('fAte').value = h.slice(0, 4) + '-12-31'; }
+  if (p === 'tudo') { $('fDe').value = '2024-01-01'; $('fAte').value = '2027-12-31'; }
+}
+preset('12');
+
+// ---------- carga ----------
+async function carregar() {
+  const de = $('fDe').value, ate = $('fAte').value;
+  if (!de || !ate || de > ate) return toast('Período inválido.');
+  $('bAnalisar').disabled = true;
+  $('corpo').innerHTML = '<div class="carregando"><div class="spin"></div>Buscando o Contas a Pagar no Sallamo…</div>';
+  try {
+    const {data: {session}} = await sb.auth.getSession();
+    if (!session) return mostrarLogin();
+    const [resp, anal] = await Promise.all([
+      fetch(`${SB_URL}/functions/v1/financeiro-sallamo?dataInicio=${de}&dataFim=${ate}`, {headers: {Authorization: 'Bearer ' + session.access_token, apikey: SB_KEY}}),
+      carregarAnalises(),
+    ]);
+    const corpo = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(corpo.erro || ('Falha ' + resp.status));
+    DADOS = corpo.dados || [];
+    ANAL = anal;
+    $('corpo').innerHTML = `<div class="carregando"><div class="spin"></div>Cruzando ${n0(DADOS.length)} títulos…</div>`;
+    await new Promise(r => setTimeout(r, 30));
+    analisar();
+    $('info').textContent = `vencimentos de ${dBRa(de)} a ${dBRa(ate)} · ${n0(DADOS.length)} títulos · atualizado às ${new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}`;
+    $('bExp').disabled = false;
+  } catch (e) {
+    $('corpo').innerHTML = `<div class="aviso"><b>Não foi possível carregar.</b> ${esc(e.message || e)}</div>`;
+  } finally { $('bAnalisar').disabled = false; }
+}
+async function carregarAnalises() {
+  const out = {};
+  for (let de = 0; ; de += 1000) {
+    const {data, error} = await sb.from('fin_analises').select('*').range(de, de + 999);
+    if (error) throw error;
+    for (const a of data) out[a.ocorrencia_id] = a;
+    if (data.length < 1000) return out;
+  }
+}
+function analisar() {
+  R = A.analisar(DADOS, CFG);
+  R.ocorrencias.forEach((o, n) => { o.n = n; o.sit = ANAL[o.id] ? ANAL[o.id].situacao : 'pendente'; });
+  NOMES = [...new Set(R.titulos.map(t => t.fornecedor))]; NIDX = new Map(NOMES.map((f, i) => [f, i]));
+  F.pag = 0;
+  render();
+}
+
+// ---------- abas ----------
+function render() {
+  const pend = R.ocorrencias.filter(o => o.sit === 'pendente' || o.sit === 'em_analise').length;
+  const abas = [['painel', 'Painel'], ['ocorrencias', 'Ocorrências', pend], ['fornecedores', 'Risco por fornecedor', R.riscoFornecedor.length], ['centros', 'Centros de custo'], ['regras', 'Regras e parâmetros']];
+  $('tabs').innerHTML = abas.map(([k, t, c]) => `<button class="${ABA === k ? 'on' : ''}" onclick="aba('${k}')">${t}${c != null ? `<span class="cnt">${n0(c)}</span>` : ''}</button>`).join('');
+  ({painel, ocorrencias, fornecedores, centros, regras})[ABA]();
+}
+window.aba = k => { ABA = k; render(); window.scrollTo(0, 0); };
+
+// ---------- PAINEL ----------
+function painel() {
+  const I = R.indicadores, oc = R.ocorrencias;
+  const alta = oc.filter(o => o.sev === 'alta');
+  const risco = oc.filter(o => ['R01', 'R03', 'R08'].includes(o.regra)).reduce((s, o) => s + o.impacto, 0);
+  const irreg = oc.filter(o => o.sit === 'irregular');
+  const porRegra = Object.keys(A.REGRAS).map(k => { const g = oc.filter(o => o.regra === k); return {k, n: g.length, alta: g.filter(o => o.sev === 'alta').length, v: g.reduce((s, o) => s + o.impacto, 0), pend: g.filter(o => o.sit === 'pendente').length}; });
+  const maxMes = Math.max(...I.porMes.map(m => m.v), 1), maxAg = Math.max(...I.aging.map(a => a.valor), 1);
+  $('corpo').innerHTML = `
+  <h2>Visão geral</h2>
+  <div class="grid">
+    ${kpi('Títulos analisados', n0(I.titulos), `${n0(I.codigos)} documentos · ${n0(I.fornecedores)} fornecedores`)}
+    ${kpi('Total pago', brlK(I.totalPago), `de ${brlK(I.valorTotal)} lançados`, 'k-ok')}
+    ${kpi('Em aberto', brlK(I.emAberto), `vencido: ${brlK(I.vencido)} (${n0(I.nVencidos)} títulos)`, 'k-warn')}
+    ${kpi('Juros/multa pagos', brl(I.juros), `${I.pctPagoAtraso.toLocaleString('pt-BR')}% pagos em atraso · ${I.prazoMedioAtraso.toLocaleString('pt-BR')} dias em média`, 'k-bad')}
+    ${kpi('Ocorrências de alta gravidade', n0(alta.length), `${n0(oc.length)} ocorrências no total`, 'k-bad')}
+    ${kpi('Dinheiro em risco', brlK(risco), 'duplicidade + pago a maior + fracionamento', 'k-bad')}
+    ${kpi('Confirmadas irregulares', n0(irreg.length), brl(irreg.reduce((s, o) => s + o.impacto, 0)), 'k-pur')}
+    ${kpi('Concentração top 10', I.pctTop10.toLocaleString('pt-BR') + '%', `HHI ${n0(I.hhi)} · ${I.hhi > 1500 ? 'concentrado' : 'pulverizado'}`)}
+  </div>
+  <h2>Regras de auditoria · clique para ver as ocorrências</h2>
+  <div class="regras">${porRegra.map(r => `<div class="card rg ${r.n ? '' : 'zero'}" onclick="filtrarRegra('${r.k}')">
+    <div class="t"><span>${r.k} · ${esc(A.REGRAS[r.k].nome)}</span>${sevChip(A.REGRAS[r.k].sev)}</div>
+    <div class="q">${n0(r.n)} <span class="i">${r.alta ? `· ${n0(r.alta)} alta` : ''}${r.pend ? ` · ${n0(r.pend)} pendente(s)` : ''}</span></div>
+    <div class="i">impacto ${brl(r.v)}</div></div>`).join('')}</div>
+  <div class="g2" style="margin-top:12px">
+    <div class="card"><h2 style="margin-top:0">Pagamentos por mês</h2>
+      ${I.porMes.map(m => `<div class="row" style="margin:6px 0"><span class="small" style="width:62px">${m.m.split('-').reverse().join('/')}</span>
+      <div class="bar" style="flex:1"><i style="width:${(m.v / maxMes * 100).toFixed(1)}%;background:var(--pri)"></i></div><span class="small num" style="width:110px">${brlK(m.v)}</span></div>`).join('')}</div>
+    <div class="card"><h2 style="margin-top:0">Contas a pagar em aberto · aging</h2>
+      ${I.aging.map((a, i) => `<div class="row" style="margin:6px 0"><span class="small" style="width:80px">${a.nome}</span>
+      <div class="bar" style="flex:1"><i style="width:${(a.valor / maxAg * 100).toFixed(1)}%;background:${i === 0 ? 'var(--ok)' : i === 1 ? 'var(--warn)' : 'var(--bad)'}"></i></div><span class="small num" style="width:150px">${brlK(a.valor)} · ${n0(a.n)}</span></div>`).join('')}</div>
+    <div class="card"><h2 style="margin-top:0">Lei de Benford · 1º dígito de todos os pagamentos</h2>${benfordSVG(R.benford)}
+      <div class="leg"><span><i style="background:var(--pri)"></i>observado</span><span><i style="background:var(--warn)"></i>esperado (Benford)</span><span>MAD ${R.benford.mad.toFixed(4)} · <b>${R.benford.conformidade}</b></span></div></div>
+    <div class="card"><h2 style="margin-top:0">Maiores fornecedores (pago)</h2>
+      <div class="tw"><table><tr><th>Fornecedor</th><th class="num">Pago</th><th class="num">%</th></tr>
+      ${I.top10.map(f => `<tr class="clic" onclick="dossie(${fx(f.f)})"><td>${esc(f.f)}</td><td class="num">${brlK(f.v)}</td><td class="num">${(f.v / I.totalPago * 100).toFixed(1)}%</td></tr>`).join('')}</table></div></div>
+    <div class="card"><h2 style="margin-top:0">Situação dos títulos</h2>
+      <div class="tw"><table><tr><th>Status</th><th class="num">Títulos</th><th class="num">Valor</th><th class="num">Saldo</th></tr>
+      ${I.status.map(s => `<tr><td>${esc(s.s)}</td><td class="num">${n0(s.n)}</td><td class="num">${brlK(s.valor)}</td><td class="num">${brlK(s.saldo)}</td></tr>`).join('')}</table></div></div>
+    <div class="card"><h2 style="margin-top:0">Maiores contas contábeis (pago)</h2>
+      <div class="tw"><table><tr><th>Conta</th><th class="num">Pago</th><th class="num">Qtde</th></tr>
+      ${I.porConta.slice(0, 12).map(c => `<tr><td>${esc(c.c)}</td><td class="num">${brlK(c.v)}</td><td class="num">${n0(c.n)}</td></tr>`).join('')}</table></div></div>
+  </div>`;
+}
+const kpi = (l, v, n, c = '') => `<div class="card kpi ${c}"><div class="l">${l}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
+function benfordSVG(b) {
+  const W = 360, H = 170, bw = W / 9, max = Math.max(...b.digitos.map(d => Math.max(d.obs, d.esp)), .01);
+  const y = v => H - 18 - v / max * (H - 30);
+  const barras = b.digitos.map((d, i) => `<rect x="${i * bw + 6}" y="${y(d.obs)}" width="${bw - 12}" height="${H - 18 - y(d.obs)}" rx="3" fill="#3b82f6"><title>${d.d}: ${(d.obs * 100).toFixed(1)}% (esperado ${(d.esp * 100).toFixed(1)}%)</title></rect><text x="${i * bw + bw / 2}" y="${H - 4}" text-anchor="middle">${d.d}</text>`).join('');
+  const linha = b.digitos.map((d, i) => `${i ? 'L' : 'M'}${i * bw + bw / 2},${y(d.esp)}`).join(' ');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${barras}<path d="${linha}" fill="none" stroke="#f5b301" stroke-width="2"/>${b.digitos.map((d, i) => `<circle cx="${i * bw + bw / 2}" cy="${y(d.esp)}" r="3" fill="#f5b301"/>`).join('')}</svg>`;
+}
+window.filtrarRegra = k => { F = {...F, regra: k, sev: '', sit: '', q: '', pag: 0}; aba('ocorrencias'); };
+
+// ---------- OCORRÊNCIAS ----------
+function filtradas() {
+  const q = F.q.trim().toUpperCase();
+  let a = R.ocorrencias.filter(o => (!F.regra || o.regra === F.regra) && (!F.sev || o.sev === F.sev) && (!F.sit || o.sit === F.sit)
+    && (!F.cc || o.titulos.some(i => R.titulos[i].cc === F.cc))
+    && (!q || (o.fornecedor + ' ' + o.detalhe + ' ' + (o.conta || '') + ' ' + (o.cc || '')).toUpperCase().includes(q)));
+  const P = A.PESO;
+  if (F.ord === 'impacto') a = [...a].sort((x, y) => y.impacto - x.impacto);
+  else if (F.ord === 'fornecedor') a = [...a].sort((x, y) => x.fornecedor.localeCompare(y.fornecedor));
+  else a = [...a].sort((x, y) => P[y.sev] - P[x.sev] || y.impacto - x.impacto);
+  return a;
+}
+function ocorrencias() {
+  const a = filtradas(), POR = 100, pags = Math.max(1, Math.ceil(a.length / POR));
+  F.pag = Math.min(F.pag, pags - 1);
+  const pg = a.slice(F.pag * POR, F.pag * POR + POR);
+  const ccs = [...new Set(R.titulos.map(t => t.cc))].sort();
+  $('corpo').innerHTML = `
+  <div class="filtros">
+    <select onchange="F.regra=this.value;F.pag=0;render()"><option value="">Todas as regras</option>${Object.entries(A.REGRAS).map(([k, r]) => `<option value="${k}" ${F.regra === k ? 'selected' : ''}>${k} · ${esc(r.nome)}</option>`).join('')}</select>
+    <select onchange="F.sev=this.value;F.pag=0;render()"><option value="">Toda gravidade</option>${Object.entries(SEV).map(([k, t]) => `<option value="${k}" ${F.sev === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
+    <select onchange="F.sit=this.value;F.pag=0;render()"><option value="">Toda situação</option>${Object.entries(SIT).map(([k, t]) => `<option value="${k}" ${F.sit === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
+    <select onchange="F.cc=this.value;F.pag=0;render()" style="max-width:220px"><option value="">Todos os centros de custo</option>${ccs.map(c => `<option ${F.cc === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+    <select onchange="F.ord=this.value;render()"><option value="sev" ${F.ord === 'sev' ? 'selected' : ''}>Ordenar: gravidade</option><option value="impacto" ${F.ord === 'impacto' ? 'selected' : ''}>Ordenar: impacto</option><option value="fornecedor" ${F.ord === 'fornecedor' ? 'selected' : ''}>Ordenar: fornecedor</option></select>
+    <input type="search" placeholder="Buscar fornecedor, código, conta…" value="${esc(F.q)}" oninput="F.q=this.value;F.pag=0;clearTimeout(window._b);window._b=setTimeout(()=>{render();const i=document.querySelector('.filtros input[type=search]');i.focus();i.setSelectionRange(i.value.length,i.value.length)},250)">
+  </div>
+  ${F.regra ? `<div class="aviso" style="border-color:var(--pri);background:rgba(59,130,246,.07)"><b>${F.regra} · ${esc(A.REGRAS[F.regra].nome)}.</b> ${esc(A.REGRAS[F.regra].desc)}</div>` : ''}
+  <div class="small mut" style="margin:10px 0">${n0(a.length)} ocorrência(s) · impacto somado ${brl(a.reduce((s, o) => s + o.impacto, 0))}</div>
+  <div class="tw"><table>
+    <tr><th>Gravidade</th><th>Regra</th><th>Fornecedor</th><th>O que foi encontrado</th><th class="num">Impacto</th><th>Análise</th></tr>
+    ${pg.map(o => `<tr class="clic" onclick="abrir(${o.n})"><td>${sevChip(o.sev)}</td><td class="small"><b>${o.regra}</b><br><span class="mut">${esc(o.nome)}</span></td>
+      <td class="small" style="max-width:240px">${esc(o.fornecedor)}${o.conta ? `<br><span class="mut">${esc(o.conta.slice(0, 60))}</span>` : ''}</td>
+      <td class="small">${esc(o.detalhe)}</td><td class="num b">${brl(o.impacto)}</td><td>${sitChip(o.sit)}</td></tr>`).join('') || '<tr><td colspan="6" class="mut" style="text-align:center;padding:30px">Nenhuma ocorrência com esses filtros.</td></tr>'}
+  </table></div>
+  ${pags > 1 ? `<div class="pag"><button class="btn" ${F.pag ? '' : 'disabled'} onclick="F.pag--;render()">‹ Anterior</button><span class="small mut">página ${F.pag + 1} de ${pags}</span><button class="btn" ${F.pag < pags - 1 ? '' : 'disabled'} onclick="F.pag++;render()">Próxima ›</button></div>` : ''}`;
+}
+
+// ---------- detalhe da ocorrência + análise ----------
+const tabTitulos = idx => `<div class="tw" style="max-height:420px;overflow:auto"><table>
+  <tr><th>Código</th><th>Status</th><th>Fornecedor</th><th>Venc.</th><th>Compet.</th><th>Pagto.</th><th class="num">Parcela</th><th class="num">Pago</th><th class="num">Saldo</th><th>Conta</th><th>Centro de custo</th></tr>
+  ${idx.slice(0, 500).map(i => { const t = R.titulos[i]; return `<tr><td class="b">${t.codigo}</td><td class="small">${esc(t.status)}</td><td class="small">${esc(t.fornecedor)}</td><td class="small">${dBRa(t.vencimento)}</td><td class="small">${dBRa(t.competencia)}</td><td class="small">${dBRa(t.pagamento)}</td>
+  <td class="num">${brl(t.valorParcela)}</td><td class="num">${brl(t.valorPago)}</td><td class="num">${brl(t.saldo)}</td><td class="small">${esc(t.conta)}</td><td class="small">${esc(t.cc)}</td></tr>`; }).join('')}
+  </table></div>${idx.length > 500 ? `<div class="small mut">Mostrando 500 de ${n0(idx.length)} títulos — exporte para Excel para ver todos.</div>` : ''}`;
+
+window.abrir = async n => {
+  const o = R.ocorrencias[n]; if (!o) return; const id = o.id;
+  const a = ANAL[id] || {};
+  $('mBody').innerHTML = `<button class="btn x" onclick="fechar()">✕</button>
+    <div class="row">${sevChip(o.sev)}<b>${o.regra} · ${esc(o.nome)}</b>${sitChip(o.sit)}</div>
+    <h1 style="font-size:19px;margin-top:10px">${esc(o.fornecedor)}</h1>
+    <div style="margin-top:6px">${esc(o.detalhe)}</div>
+    <div class="small mut" style="margin-top:6px">${esc(A.REGRAS[o.regra].desc)}</div>
+    <div class="row" style="margin-top:8px"><span class="chip sv-baixa">Impacto ${brl(o.impacto)}</span>${o.conta ? `<span class="small mut">${esc(o.conta)}</span>` : ''}</div>
+    ${o.benford ? `<div style="max-width:420px;margin-top:10px">${benfordSVG(o.benford)}</div>` : ''}
+    <h2>Títulos envolvidos (${n0(o.titulos.length)})</h2>${tabTitulos(o.titulos)}
+    <h2>Análise do auditor</h2>
+    <div class="sit">${['em_analise', 'justificada', 'irregular', 'corrigida'].map(s => `<button class="btn ${s === 'irregular' ? 'b-bad' : s === 'justificada' ? 'b-ok' : s === 'corrigida' ? 'b-pri' : 'b-warn'} ${a.situacao === s ? 'on' : ''}" onclick="salvar(${n},'${s}')">${SIT[s]}</button>`).join('')}</div>
+    <label class="small">Comentário / justificativa / providência</label>
+    <textarea id="aCom" placeholder="Ex.: NF 1234 conferida, rateio entre lojas · ou · solicitado estorno ao fornecedor em 16/10">${esc(a.comentario || '')}</textarea>
+    ${a.atualizado_por ? `<div class="small mut">Última análise: ${esc(a.atualizado_por)} em ${new Date(a.atualizado_em).toLocaleString('pt-BR')}</div>` : ''}
+    <div class="hist" id="aHist"></div>`;
+  $('modal').classList.remove('hidden');
+  const {data} = await sb.from('fin_analises_historico').select('situacao,comentario,usuario,em').eq('ocorrencia_id', id).order('em', {ascending: false}).limit(30);
+  if (data && data.length) $('aHist').innerHTML = '<b>Histórico</b><br>' + data.map(h => `${new Date(h.em).toLocaleString('pt-BR')} · ${esc(h.usuario || '')} · ${SIT[h.situacao] || h.situacao}${h.comentario ? ' — ' + esc(h.comentario) : ''}`).join('<br>');
+};
+window.salvar = async (n, situacao) => {
+  const o = R.ocorrencias[n], id = o.id;
+  const comentario = $('aCom').value.trim();
+  if ((situacao === 'justificada' || situacao === 'irregular') && !comentario) return toast('Escreva o comentário: a justificativa/evidência é obrigatória.');
+  const {data, error} = await sb.from('fin_analises').upsert({ocorrencia_id: id, regra: o.regra, situacao, comentario, fornecedor: o.fornecedor.slice(0, 300), valor: o.impacto, detalhe: o.detalhe.slice(0, 1000)}).select().single();
+  if (error) return toast('Erro ao salvar: ' + error.message);
+  ANAL[id] = data; o.sit = situacao;
+  toast('Análise registrada.'); fechar(); render();
+};
+window.fechar = () => $('modal').classList.add('hidden');
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fechar(); });
+
+// ---------- RISCO POR FORNECEDOR ----------
+function fornecedores() {
+  const a = R.riscoFornecedor;
+  $('corpo').innerHTML = `
+  <div class="aviso" style="border-color:var(--pur);background:rgba(167,139,250,.07)">A nota de risco (0–100) soma <b>indícios diferentes</b> encontrados no mesmo fornecedor — cada regra conta uma vez, pelo peso da sua pior ocorrência (alta 10, média 4, baixa 1). Muitos indícios distintos cruzados no mesmo fornecedor = prioridade de investigação.</div>
+  <div class="tw" style="margin-top:12px"><table>
+    <tr><th>#</th><th>Fornecedor</th><th>Risco</th><th>Regras disparadas</th><th class="num">Alta/Média/Baixa</th><th class="num">Total pago</th><th class="num">Impacto</th></tr>
+    ${a.slice(0, 300).map((f, i) => `<tr class="clic" onclick="dossie(${fx(f.nome)})"><td class="mut">${i + 1}</td><td class="small b">${esc(f.nome)}</td>
+      <td style="min-width:120px"><div class="row" style="gap:6px;flex-wrap:nowrap"><div class="bar" style="flex:1"><i style="width:${f.score}%;background:${f.score >= 70 ? 'var(--bad)' : f.score >= 40 ? 'var(--warn)' : 'var(--pri)'}"></i></div><b class="small">${f.score}</b></div></td>
+      <td class="small">${f.regras.map(r => `<span class="chip sv-${f.pior[r]}" title="${esc(A.REGRAS[r].nome)}">${r}</span>`).join(' ')}</td>
+      <td class="num small">${f.alta}/${f.media}/${f.baixa}</td><td class="num">${brlK(f.pago)}</td><td class="num">${brlK(f.impacto)}</td></tr>`).join('')}
+  </table></div>${a.length > 300 ? `<div class="small mut" style="margin-top:6px">Mostrando os 300 de maior risco de ${n0(a.length)}.</div>` : ''}`;
+}
+window.dossie = k => {
+  const nome = NOMES[k];
+  const T = R.titulos.map((t, i) => i).filter(i => R.titulos[i].fornecedor === nome);
+  const oc = R.ocorrencias.filter(o => o.titulos.some(i => R.titulos[i].fornecedor === nome));
+  const f = R.riscoFornecedor.find(x => x.nome === nome);
+  const ts = T.map(i => R.titulos[i]);
+  const pago = ts.reduce((s, t) => s + t.valorPago, 0), aberto = ts.reduce((s, t) => s + (t.status !== 'Pago' ? t.saldo : 0), 0);
+  const contas = [...new Set(ts.map(t => t.conta))], ccs = [...new Set(ts.map(t => t.cc))];
+  $('mBody').innerHTML = `<button class="btn x" onclick="fechar()">✕</button>
+    <div class="small mut b">DOSSIÊ DO FORNECEDOR</div><h1 style="font-size:20px;margin-top:4px">${esc(nome)}</h1>
+    <div class="grid" style="margin-top:12px">${kpi('Nota de risco', f ? f.score : 0, f ? f.regras.join(' · ') : 'sem indícios', f && f.score >= 70 ? 'k-bad' : 'k-warn')}${kpi('Total pago', brl(pago), `${n0(ts.filter(t => t.valorPago > 0).length)} pagamentos`, 'k-ok')}${kpi('Em aberto', brl(aberto), `${n0(T.length)} títulos`)}${kpi('Classificação', `${contas.length} contas`, `${ccs.length} centros de custo`)}</div>
+    <h2>Ocorrências (${n0(oc.length)})</h2>
+    <div class="tw"><table><tr><th>Gravidade</th><th>Regra</th><th>Detalhe</th><th class="num">Impacto</th><th>Análise</th></tr>
+    ${oc.map(o => `<tr class="clic" onclick="abrir(${o.n})"><td>${sevChip(o.sev)}</td><td class="small"><b>${o.regra}</b> ${esc(o.nome)}</td><td class="small">${esc(o.detalhe)}</td><td class="num">${brl(o.impacto)}</td><td>${sitChip(o.sit)}</td></tr>`).join('') || '<tr><td colspan="5" class="mut">Nenhuma ocorrência.</td></tr>'}</table></div>
+    <h2>Contas contábeis</h2><div class="small">${contas.map(esc).join(' · ')}</div>
+    <h2>Títulos (${n0(T.length)})</h2>${tabTitulos(T.sort((a, b) => String(R.titulos[b].pagamento || R.titulos[b].vencimento).localeCompare(String(R.titulos[a].pagamento || R.titulos[a].vencimento))))}`;
+  $('modal').classList.remove('hidden');
+};
+
+// ---------- CENTROS DE CUSTO ----------
+function centros() {
+  const pago = new Map(R.indicadores.porCC.map(c => [c.c, c]));
+  const a = R.riscoCC;
+  $('corpo').innerHTML = `<div class="small mut" style="margin:14px 0">Onde as ocorrências se concentram (loja, CD, área). Clique para filtrar as ocorrências do centro de custo.</div>
+  <div class="tw"><table><tr><th>Centro de custo</th><th class="num">Ocorrências</th><th class="num">Alta/Média/Baixa</th><th>Regras</th><th class="num">Pago no período</th></tr>
+  ${a.map((c, k) => `<tr class="clic" onclick="filtrarCC(${k})"><td class="b small">${esc(c.nome)}</td><td class="num">${n0(c.n)}</td><td class="num small">${c.alta}/${c.media}/${c.baixa}</td>
+    <td class="small">${c.regras.join(' ')}</td><td class="num">${brlK((pago.get(c.nome) || {}).v || 0)}</td></tr>`).join('')}</table></div>`;
+}
+
+window.filtrarCC = k => { F = {...F, cc: R.riscoCC[k].nome, regra: '', sev: '', sit: '', q: '', pag: 0}; aba('ocorrencias'); };
+
+// ---------- REGRAS E PARÂMETROS ----------
+const PARAMS = [
+  ['dupMin', 'R01 · valor mínimo para duplicidade (R$)'], ['dupRecorrente', 'R01 · nº de títulos iguais que caracteriza cobrança recorrente'],
+  ['tolerancia', 'R03/R04 · tolerância de arredondamento (R$)'], ['antecipDias', 'R05 · dias de antecipação'],
+  ['alcada', 'R08 · alçada de aprovação (R$)'], ['fracMin', 'R08 · nº mínimo de títulos no mesmo dia'],
+  ['atipicoFator', 'R09 · vezes acima da mediana'], ['atipicoMin', 'R09 · valor mínimo (R$)'],
+  ['benfordMinLinhas', 'R10 · mínimo de pagamentos por fornecedor'], ['benfordMAD', 'R10 · MAD de não conformidade'],
+  ['pfMin', 'R12 · total mínimo a pessoa física (R$)'], ['redondoMin', 'R14 · valor redondo a partir de (R$)'],
+  ['novoValor', 'R15 · fornecedor novo: total a partir de (R$)'], ['novoDias', 'R15 · dias após o início da base'],
+  ['mesmoValorMin', 'R16 · valor mínimo (R$)'], ['vencidoMin', 'R18 · saldo vencido a partir de (R$)'], ['vencidoDias', 'R18 · dias de atraso'], ['contasMin', 'R19 · nº de contas contábeis'],
+];
+function regras() {
+  const c = Object.assign({}, A.PADRAO, CFG);
+  $('corpo').innerHTML = `<div class="g2" style="margin-top:14px">
+  <div class="card"><h2 style="margin-top:0">As ${Object.keys(A.REGRAS).length} regras de cruzamento</h2>
+    ${Object.entries(A.REGRAS).map(([k, r]) => `<div style="padding:9px 0;border-top:1px solid var(--line)"><div class="row"><b>${k} · ${esc(r.nome)}</b>${sevChip(r.sev)}</div><div class="small mut" style="margin-top:3px">${esc(r.desc)}</div></div>`).join('')}</div>
+  <div class="card"><h2 style="margin-top:0">Parâmetros (ajuste e reanalise)</h2>
+    ${PARAMS.map(([k, t]) => `<label class="small">${t}</label><input type="number" step="any" data-p="${k}" value="${c[k]}" style="width:100%">`).join('')}
+    <div class="row" style="margin-top:14px"><button class="btn b-pri" onclick="aplicarParams()">Reanalisar com esses parâmetros</button><button class="btn" onclick="CFG={};analisar();toast('Parâmetros padrão restaurados.')">Padrão</button></div>
+    <div class="small mut" style="margin-top:8px">Os parâmetros valem para esta sessão. As análises já registradas continuam ligadas a cada ocorrência.</div></div></div>`;
+}
+window.aplicarParams = () => { document.querySelectorAll('[data-p]').forEach(i => { const v = Number(i.value); if (isFinite(v)) CFG[i.dataset.p] = v; }); analisar(); toast('Reanalisado.'); };
+
+// ---------- EXCEL ----------
+async function exportar() {
+  if (!R) return;
+  if (!window.XLSX) await new Promise((ok, erro) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = ok; s.onerror = erro; document.head.appendChild(s); });
+  const wb = XLSX.utils.book_new();
+  const oc = R.ocorrencias.map(o => ({Gravidade: SEV[o.sev], Regra: o.regra, 'Nome da regra': o.nome, Fornecedor: o.fornecedor, 'Conta contábil': o.conta || '', 'Centro de custo': o.cc || '', Detalhe: o.detalhe,
+    Impacto: o.impacto, 'Códigos': [...new Set(o.titulos.map(i => R.titulos[i].codigo))].slice(0, 50).join(', '), Análise: SIT[o.sit], Comentário: (ANAL[o.id] || {}).comentario || '', 'Analisado por': (ANAL[o.id] || {}).atualizado_por || ''}));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(oc), 'Ocorrências');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(R.riscoFornecedor.map(f => ({Fornecedor: f.nome, 'Nota de risco': f.score, Regras: f.regras.join(' '), Alta: f.alta, Média: f.media, Baixa: f.baixa, 'Total pago': f.pago, Impacto: f.impacto}))), 'Risco fornecedor');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(R.riscoCC.map(c => ({'Centro de custo': c.nome, Ocorrências: c.n, Alta: c.alta, Média: c.media, Baixa: c.baixa, Regras: c.regras.join(' ')}))), 'Centros de custo');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.entries(A.REGRAS).map(([k, r]) => ({Regra: k, Nome: r.nome, Gravidade: SEV[r.sev], Descrição: r.desc, Ocorrências: R.ocorrencias.filter(o => o.regra === k).length}))), 'Regras');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(R.titulos.map(t => ({Código: t.codigo, Status: t.status, Fornecedor: t.fornecedor, Vencimento: t.vencimento, Competência: t.competencia, Pagamento: t.pagamento, Parcela: t.valorParcela, Pago: t.valorPago, Saldo: t.saldo, Conta: t.conta, 'Centro de custo': t.cc}))), 'Títulos');
+  XLSX.writeFile(wb, `auditoria_financeira_${$('fDe').value}_a_${$('fAte').value}.xlsx`);
+}
+
+// ---------- início ----------
+(async () => {
+  const s = await sb.auth.getSession();
+  if (s.data && s.data.session) entrou(); else mostrarLogin();
+})();
+</script>
+</body>
+</html>

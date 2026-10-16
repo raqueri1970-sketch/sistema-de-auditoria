@@ -1,0 +1,61 @@
+# 💰 Auditoria Financeira · Contas a Pagar (Sallamo)
+
+Módulo do Portal (menu **Financeiro → Auditoria Financeira**, ou `financeiro/` direto) que puxa o Contas a Pagar
+do Sallamo ao vivo, cruza tudo e aponta possíveis irregularidades para o auditor analisar.
+
+## Como funciona
+
+```
+Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallamo  ──Bearer SALLAMO_TOKEN──▶  API Sallamo
+      │                                  (confere perfil: administrador,
+      │                                   controladoria ou diretoria)
+      └─ auditoria.js cruza os títulos no navegador ─▶ ocorrências ─▶ análise do auditor grava em fin_analises
+```
+
+- A API do Sallamo **não libera CORS** e exige token: por isso o navegador fala com a Edge Function, que guarda o token
+  como segredo. O token **nunca** fica no HTML (o Portal é publicado no GitHub Pages).
+- A análise roda no navegador (17.943 títulos em ~1 s).
+- O período filtrado é de **vencimento** (igual à API do Sallamo).
+
+## Configuração (uma vez)
+
+1. Supabase → Project Settings → Edge Functions → **Secrets** → adicionar `SALLAMO_TOKEN` com o token do Bearer enviado pelo Alex (Sallamo).
+   Opcional: `SALLAMO_EMPRESA` (padrão `6835c03f0ffe7df22945d191`).
+2. Os usuários precisam ter perfil `administrador`, `controladoria` ou `diretoria` ativo em `orc_perfis`.
+
+## As 19 regras de cruzamento
+
+| Regra | O que pega | Por que importa |
+|---|---|---|
+| R01 Duplicidade | mesmo fornecedor + valor + vencimento + centro de custo em códigos diferentes | pagamento em dobro / NF lançada 2× |
+| R02 Linha repetida | linhas idênticas dentro do mesmo código | rateio duplicado |
+| R03 Pago a maior | valor pago > parcela | juros/multa evitáveis ou pagamento indevido |
+| R04 Status incoerente | "Pago" com saldo, cancelado com pagamento, "A vencer" já vencido | baixa errada no sistema |
+| R05 Antecipado | pago antes da competência ou ≥15 dias antes do vencimento | perda financeira / favorecimento |
+| R06 Fim de semana/feriado | baixa em sábado, domingo ou feriado nacional | fora do expediente bancário |
+| R08 Fracionamento | ≥3 títulos do mesmo fornecedor no mesmo dia, cada um abaixo da alçada, somando acima | fuga de aprovação |
+| R09 Valor atípico | valor muito acima da mediana do fornecedor/conta | desvio de padrão |
+| R10 Benford | 1º dígito dos valores foge da Lei de Benford (MAD de Nigrini) | valores "inventados" |
+| R11 Cadastro duplicado | nomes de fornecedor quase iguais | porta para pagamento em dobro |
+| R12 Pessoa física | nome de pessoa recebendo fora da folha | vínculo com funcionário / sem NF |
+| R13 Conta sensível | retirada bancária, partes relacionadas, adiantamentos, acordos, ajuda de custo… | saída sem documento fiscal |
+| R14 Redondos altos | valores cheios (múltiplos de R$ 1.000) altos | estimativa sem documento |
+| R15 Fornecedor novo | apareceu recentemente e já recebeu muito | fornecedor de fachada |
+| R16 Mesmo valor/dia | mesmo valor exato no mesmo dia para fornecedores diferentes | documento reaproveitado |
+| R17 Datas incoerentes | vencimento antes da competência / competência muito antiga | lançamento retroativo |
+| R18 Vencido em aberto | vencido há 30+ dias | juros, protesto, corte de fornecimento |
+| R19 Classificação | mesmo fornecedor em muitas contas contábeis | distorce DRE, esconde despesa |
+
+A **nota de risco por fornecedor** (0–100) soma indícios *diferentes* cruzados no mesmo fornecedor
+(cada regra conta uma vez, pelo peso da pior ocorrência: alta 10, média 4, baixa 1). Todos os limites
+são ajustáveis na aba **Regras e parâmetros**.
+
+## Trabalho do auditor
+
+Cada ocorrência tem situação **Pendente → Em análise → Justificada / Irregular / Corrigida**, com comentário
+obrigatório para justificar ou declarar irregular. Tudo fica em `fin_analises` com histórico em
+`fin_analises_historico` (quem, quando, o quê). Exportação para Excel com 5 abas.
+
+## Testes
+
+`node -e "const A=require('./financeiro/auditoria.js'); console.log(A.analisar(require('./cp.json').dados).ocorrencias.length)"`

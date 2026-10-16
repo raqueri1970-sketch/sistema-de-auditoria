@@ -307,6 +307,10 @@ input,select,textarea{font-size:16px}
     <button class="ni" data-pg="cmpaud" onclick="go('cmpaud',this)"><span class="nii">🏷️</span><span class="nil">Descontos Funcionários</span><span class="nib ct" id="nb-cmpaud">—</span></button>
   </div>
   <div class="ndv"></div>
+  <div class="sg"><div class="sgl">Financeiro</div>
+    <button class="ni" data-pg="fin" onclick="go('fin',this)"><span class="nii">💰</span><span class="nil">Auditoria Financeira</span></button>
+  </div>
+  <div class="ndv"></div>
   <div class="sg"><div class="sgl">Campanhas</div>
     <button class="ni" data-pg="mei" onclick="go('mei',this)"><span class="nii">🧦</span><span class="nil">Comissões Meias</span><span class="nib cb" id="nb-mei">—</span></button>
     <button class="ni" data-pg="gren" onclick="go('gren',this)"><span class="nii">👟</span><span class="nil">Comissões Grendene</span><span class="nib cb" id="nb-gren">—</span></button>
@@ -796,6 +800,15 @@ input,select,textarea{font-size:16px}
     <div class="lspin" id="sp-gren"><div class="spin"></div><div class="spintxt" id="spt-gren">Carregando módulo...</div></div>
     <iframe class="mifr" id="ifr-gren" sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-top-navigation-by-user-activation"></iframe>
   </div>
+</div><div id="pg-fin" class="pg modpg">
+  <div class="ph">
+    <div class="phl"><div class="phtitle">💰 Auditoria Financeira — Contas a Pagar</div><div class="phsub">Sallamo ao vivo · 19 cruzamentos de possíveis irregularidades · análise do auditor</div></div>
+    <div class="phact">
+      <button class="btn bpurp" onclick="window.open('financeiro/','_blank')">↗ Nova aba</button>
+      <button class="btnback" onclick="go('ov',document.querySelector('[data-pg=ov]'))">← Voltar</button>
+    </div>
+  </div>
+  <div class="mod-wrap full" id="mw-fin"><iframe class="mifr" id="ifr-fin" title="Auditoria Financeira" style="display:block" sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-top-navigation-by-user-activation"></iframe></div>
 </div><div id="pg-rl" class="pg modpg">
   <div class="ph">
     <div class="phl"><div class="phtitle">🚛 RL TRANSPORTES — Financeiro</div><div class="phsub">Controle de despesas · IA Vision · Conciliação FIFO · WhatsApp</div></div>
@@ -927,6 +940,7 @@ function go(pid,el){
   // 'message' abaixo) — se não achar nada, fica tudo como sempre foi.
   if((pid==='nf'||pid==='rem'||pid==='cmpaud'||pid==='desc'||pid==='mei'||pid==='gren')&&!LOADED[pid])setTimeout(function(){execMod(pid,false,true);},80);
   if(pid==='rl')setTimeout(rlLoad,100);
+  if(pid==='fin'){var fi=document.getElementById('ifr-fin');if(fi&&!fi.getAttribute('src'))fi.setAttribute('src','financeiro/?v=20261016-1');}
 
 }
 // Módulos carregados em modo silencioso (ver execMod) avisam por aqui quando acham dado
