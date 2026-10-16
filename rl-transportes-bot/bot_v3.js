@@ -598,7 +598,14 @@ const comLimite = (p, ms, rotulo) => Promise.race([Promise.resolve(p), new Promi
   setTimeout(() => rej(new Error(`${rotulo}: sem resposta em ${Math.round(ms / 1000)}s (navegador travado?)`)), ms))]);
 const ehTravamento = e => /timed out|sem resposta|Target closed|detached|Session closed|Execution context was destroyed/i.test(String(e && e.message || e || ''));
 let travamentos = [];
+// Página "desanexada"/fechada não volta sozinha: nesse estado o bot nem recebe as mensagens novas (16/10/2026 à tarde).
+const paginaMorta = e => /detached Frame|Target closed|Session closed|Execution context was destroyed/i.test(String(e && e.message || e || ''));
+function reiniciarPorPagina(origem, erro) {
+  log(`Pagina do WhatsApp quebrada (${origem}: ${String(erro && erro.message || erro).substring(0, 160)}) — reiniciando o capturador; a varredura lanca o que ficou para tras`, 'error');
+  setTimeout(() => process.exit(3), 1500);
+}
 function registrarTravamento(origem, erro) {
+  if (paginaMorta(erro)) return reiniciarPorPagina(origem, erro);
   const agora = Date.now();
   travamentos = travamentos.filter(t => agora - t < 15 * 60 * 1000);
   travamentos.push(agora);
@@ -924,6 +931,11 @@ async function checarConexao() {
   try { estado = await Promise.race([client.getState(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000))]); } catch(e) {}
   if (estado === 'CONNECTED') {
     falhasEstado = 0;
+    // getState() pode dizer CONNECTED com a página já desanexada: testa a página de verdade.
+    if (client.pupPage) {
+      try { await comLimite(client.pupPage.evaluate(() => 1), 30 * 1000, 'teste da pagina'); }
+      catch (e) { if (paginaMorta(e) || /sem resposta/.test(e.message)) return reiniciarPorPagina('vigia', e); }
+    }
     // Visto em 01/10/2026: apos reiniciar, o WhatsApp conecta (estado CONNECTED, chats
     // acessiveis) mas o evento 'ready' da lib nunca dispara -> a varredura de mensagens
     // perdidas nao rodava. Nesse caso assume pronto e roda a varredura por aqui.
