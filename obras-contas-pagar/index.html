@@ -117,7 +117,7 @@ function renderSaude() {
 
 // Despesas que valem (lançadas, não recusadas) dentro do filtro de período / obra / prestador
 function despesasFiltradas(int) {
-  return D.desp.filter(d => d.status === 'lancado' && d.situacao !== 'recusado' && noIntervalo(d.data_despesa, int)
+  return D.desp.filter(d => d.status === 'lancado' && d.situacao !== 'recusado' && !pagoDireto(d) && noIntervalo(d.data_despesa, int)
     && (!F.obra || (F.obra === 'sem' ? !d.obra_id : d.obra_id === F.obra)) && (!F.prest || d.prestador === F.prest));
 }
 // Prestação de contas do prestador que cobre a semana (para mostrar o nº e se já foi quitada)
@@ -249,13 +249,14 @@ function renderPessoas(int, ds) {
     const c = CONTAS[s.prestador] = contaPrestador(s, D.desp, D.adis, D.pags), nAlert = c.abertas.filter(d => (d.achados || []).length).length;
     const per = GASTO_PER[s.prestador] = ds.filter(d => d.prestador === s.prestador);
     const em = Number(s.em_aberto), cred = Number(s.adiantamento_disponivel), res = cred - em;
+    const dir = D.desp.filter(d => d.prestador === s.prestador && d.status === 'lancado' && pagoDireto(d)).reduce((t, d) => t + Number(d.valor), 0);
     const dups = (D.dupl || []).filter(x => x.d.prestador === s.prestador), dupSom = dups.filter(x => x.caso.startsWith('somada'));
     return `<div class="card"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${nAlert ? riscoChip(c.abertas.some(d => d.criticos) ? 'critico' : 'atencao') : '<span class="chip r-normal">SEM ALERTA</span>'}</div>
       <div class="res-prest">
         <div><span>Gastou · ${esc(int.rotulo)}</span><b>${brl(soma(per, 'valor'))}</b><span>${per.length} despesa(s)</span></div>
         <div><span>Gasto em aberto (não acertado)</span><b style="color:#fdba74">${brl(em)}</b><span>${s.itens_abertos} despesa(s)</span></div>
         <div><span>Crédito de adiantamento</span><b style="color:#93c5fd">${brl(cred)}</b><span>adiantado no total ${brl(s.total_adiantado)}</span></div>
-        <div><span>Já reembolsado / pago</span><b>${brl(s.total_pago)}</b><span>de ${brl(s.total_despesas)} gastos no total</span></div>
+        <div><span>Já reembolsado / pago</span><b>${brl(Number(s.total_pago) - dir)}</b><span>de ${brl(Number(s.total_despesas) - dir)} gastos no total${dir ? ` · + ${brl(dir)} pagos direto pela empresa` : ''}</span></div>
         <div class="tot"><span>${res >= 0 ? (em > 0 ? 'Nada a pagar: o crédito cobre o gasto · sobra com ele' : 'Crédito que está com o prestador') : 'A PAGAR ao prestador (gasto − crédito)'}</span>
           <b style="color:${res >= 0 ? '#86efac' : '#fcd34d'}">${brl(Math.abs(res))}</b></div></div>
       ${dups.length ? `<div class="${dupSom.length ? 'crit' : 'warn'}">⚠ ${dups.length} duplicidade(s) para decidir${dupSom.length ? ` · ${dupSom.length} SOMADA(S) no total (${brl(dupSom.reduce((t, x) => t + Number(x.d.valor), 0))})` : ' · nenhuma somada'} <a href="#" onclick="irDup();return false">ver</a></div>` : ''}

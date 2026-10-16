@@ -386,6 +386,17 @@ const carregarObras = () => todos(() => sb.from('obras').select('id,codigo,nome,
 const carregarPrestacoes = () => todos(() => sb.from('obras_prestacoes').select('id,numero,responsavel,periodo_inicio,periodo_fim,valor_declarado,quitada_em').order('periodo_inicio', {ascending: false, nullsFirst: false}));
 const nomeObra = n => String(n || '').replace(/^Obras\/Reformas — /, '').replace(/^Loja /, '') || 'Sem obra';
 const semPrestador = p => !p || /^a definir/i.test(p) || p === 'Desconhecido';
+// 16/10/2026: pagamento que a EMPRESA fez direto a um terceiro e o prestador só avisou por texto no grupo (favorecido/PIX,
+// sem foto). Não é gasto do prestador nem reembolso: fica fora dos totais da conta dele e aparece numa seção própria.
+// Ex.: Jhony avisou em 13/10 Eplan R$ 61.000, Wagner Lima R$ 5.000 e L Jackson R$ 1.600 — somados davam R$ 74 mil na semana dele.
+const pagoDireto = d => !d.arquivo_path && /financeiro|esposende|presidente/i.test(String(d.pagador || ''));
+function secaoPagoDireto(lista) {
+  return {titulo: `Pagos direto pela empresa a terceiros (${lista.length}) - fora da conta do prestador`,
+    nota: 'O prestador só avisou no grupo (texto com favorecido e PIX). O dinheiro saiu da empresa direto para o fornecedor: não é gasto do prestador nem reembolso.',
+    cab: ['Data', 'Avisado por', 'Favorecido', 'Descrição', 'Valor'], direita: [4],
+    linhas: lista.map(d => [dBRano(d.data_despesa), d.prestador, d.fornecedor || '', String(d.descricao || '').replace(/\s+/g, ' ').slice(0, 140), V(d.valor)]),
+    rodape: ['Total', '', '', '', V(lista.reduce((t, d) => t + Number(d.valor || 0), 0))]};
+}
 
 // ---------- Período e semana (fechamento é semanal: segunda a domingo) ----------
 const somaDias = (iso, n) => { const x = new Date(iso + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
@@ -555,7 +566,8 @@ async function pdfPagamento(pagId) {
 // Extrato completo de um prestador (despesas, pagamentos, adiantamentos e saldo). periodo = {de, ate} opcional.
 function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   const noPer = d => (!periodo.de || d >= periodo.de) && (!periodo.ate || d <= periodo.ate);
-  const lanc = desp.filter(d => d.status === 'lancado' && noPer(d.data_despesa || ''));
+  const lancTodos = desp.filter(d => d.status === 'lancado' && noPer(d.data_despesa || ''));
+  const lanc = lancTodos.filter(d => !pagoDireto(d)), diretos = lancTodos.filter(pagoDireto);
   const abertos = desp.filter(d => Number(d.saldo) > 0);
   const linhaD = d => [dBRano(d.data_despesa), d.fornecedor || '', CATS[d.categoria] || d.categoria || '', V(d.valor), V(d.valor_pago), V(d.saldo), (SIT[d.situacao] || [d.situacao])[0]];
   const soma = (a, f) => a.reduce((t, x) => t + Number(x[f] || 0), 0);
@@ -566,6 +578,7 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
     resumo: [['Despesas no período', brl(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor'))], ['Pago no período', brl(soma(lanc, 'valor_pago'))],
       ['Em aberto (hoje)', brl(saldo.em_aberto)], ['Adiantamento a descontar', brl(saldo.adiantamento_disponivel)],
       ['TOTAL A PAGAR (hoje)', brl(saldo.saldo_devedor)],
+      ...(diretos.length ? [['Pago direto pela empresa (fora da conta)', brl(soma(diretos, 'valor'))]] : []),
       ['PIX / conta', saldo.pix_chave ? `${saldo.pix_tipo || ''} ${saldo.pix_chave}` : (saldo.banco ? `${saldo.banco} ${saldo.agencia || ''} ${saldo.conta || ''}` : 'nao cadastrado')]],
     secoes: [
       {titulo: `Contas a pagar em aberto (${abertos.length})`, nota: 'Saldo acumulado de todas as semanas ainda não pagas.', cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Situação'],
@@ -577,7 +590,8 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
       ...(ad.length ? [{titulo: `Adiantamentos (${ad.length})`, cab: ['Data', 'Valor', 'Observação', 'Registrado por'],
         linhas: ad.map(a => [dBRano(a.data), V(a.valor), a.observacao || '', a.registrado_por || '']), direita: [1], rodape: ['Total', V(soma(ad, 'valor')), '', '']}] : []),
       {titulo: `Todas as despesas do período (${lanc.length})`, cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Pago', 'Em aberto', 'Situação'],
-        linhas: lanc.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total (sem recusadas)', V(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor')), V(soma(lanc, 'valor_pago')), V(soma(lanc, 'saldo')), '']}],
+        linhas: lanc.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total (sem recusadas)', V(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor')), V(soma(lanc, 'valor_pago')), V(soma(lanc, 'saldo')), '']},
+      ...(diretos.length ? [secaoPagoDireto(diretos)] : [])],
     assinaturas: ['Presidente', `Prestador: ${prestador}`], arquivo: `extrato_${prestador}_${hojeISO()}`, paisagem: false};
 }
 const pdfExtrato = (...a) => gerarPDF(modeloExtrato(...a));
