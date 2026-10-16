@@ -26,11 +26,24 @@ const MODELOS_FUNDO = lista(process.env.GEMINI_MODELOS_FUNDO, 'gemma-4-26b-a4b-i
 const PAUSA_CLAUDE_MS = 30 * 60 * 1000;
 
 const espera = ms => new Promise(r => setTimeout(r, ms));
+// Pega o PRIMEIRO objeto JSON completo da resposta (chaves balanceadas, respeitando strings). 16/10/2026: o Gemma às vezes
+// manda o JSON e depois um comentário/outro bloco — "do primeiro { ao último }" quebrava e a leitura boa era jogada fora.
 const limparJson = txt => {
-  const t = String(txt || '').trim().replace(/^```json?\s*/i, '').replace(/\s*```$/, '');
-  const i = t.indexOf('{'), j = t.lastIndexOf('}');
-  return JSON.parse(i >= 0 && j > i ? t.slice(i, j + 1) : t);
+  const t = String(txt || '');
+  const i = t.indexOf('{');
+  if (i < 0) return JSON.parse(t.trim());
+  let nivel = 0, emTexto = false, escape = false;
+  for (let k = i; k < t.length; k++) {
+    const c = t[k];
+    if (emTexto) { if (escape) escape = false; else if (c === '\\') escape = true; else if (c === '"') emTexto = false; continue; }
+    if (c === '"') emTexto = true;
+    else if (c === '{') nivel++;
+    else if (c === '}' && --nivel === 0) return JSON.parse(t.slice(i, k + 1));
+  }
+  return JSON.parse(t.slice(i, t.lastIndexOf('}') + 1));
 };
+// Mensagem de erro sem o prefixo enorme do SDK do Google (o que importa é o código/causa no fim)
+const resumoErro = e => String(e && e.message || e || '').replace(/\[GoogleGenerativeAI Error\]:\s*Error fetching from \S+?:(generateContent|streamGenerateContent):\s*/, '').replace(/\s+/g, ' ').substring(0, 180);
 // "retryDelay":"41976s" ou "Please retry in 11h39m36s" → ms
 function atrasoPedido(msg) {
   const s = String(msg || '');
@@ -120,7 +133,7 @@ function criarIA({ log = () => {} } = {}) {
       if (ehSemCreditoClaude(e.message)) {
         claudePausadoAte = Date.now() + PAUSA_CLAUDE_MS; claudeMotivo = 'sem credito/chave recusada';
         log(`IA: Claude recusou (${e.message.substring(0, 140)}) — tenta de novo em 30 min`, 'warn');
-      } else log(`IA: Claude falhou (${e.message.substring(0, 140)})`, 'warn');
+      } else log(`IA: Claude falhou (${resumoErro(e)})`, 'warn');
       falhas.push(`claude: ${e.message.substring(0, 120)}`);
       return undefined;
     }
@@ -138,7 +151,12 @@ function criarIA({ log = () => {} } = {}) {
         } else if (/not found|404|not supported|no longer available/i.test(e.message)) {
           geminiForaAte[nome] = Date.now() + 24 * 3600e3;
           log(`IA: modelo ${nome} indisponivel nesta chave — ignorado por 24h`, 'warn');
-        } else log(`IA: ${nome} falhou (${e.message.substring(0, 140)})`, 'warn');
+        } else {
+          // Falha passageira (500/503/limite por minuto já tentado de novo): deixa o modelo de lado 3 min
+          // para não atrasar cada comprovante da fila tentando de novo um modelo que está fora.
+          geminiForaAte[nome] = Date.now() + 3 * 60 * 1000;
+          log(`IA: ${nome} falhou (${resumoErro(e)}) — de lado por 3 min`, 'warn');
+        }
         falhas.push(`${nome}: ${e.message.substring(0, 120)}`);
       }
     }
@@ -187,4 +205,4 @@ function criarIA({ log = () => {} } = {}) {
 }
 
 module.exports = criarIA;
-module.exports._interno = { atrasoPedido, ehCotaDiaria, limparJson };
+module.exports._interno = { atrasoPedido, ehCotaDiaria, limparJson, resumoErro };

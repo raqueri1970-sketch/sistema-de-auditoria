@@ -315,7 +315,8 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     if (error) { L(`Gravar no Supabase falhou (${nome}): ${error.message}`, 'error'); throw new Error(error.message); }
     const total = linhas.filter(l => l.status === 'lancado').reduce((s, l) => s + l.valor, 0);
     L(`${nomeRemetente}: ${linhas.length} item(ns) de ${nome} — R$ ${total.toFixed(2)} lancado`);
-    if (linhas.some(l => l.status === 'lancado')) setTimeout(() => enfileirar(() => auditarArquivo(caminho).catch(e => L(`Auditor IA (${nome}): ${e.message}`, 'warn'))), 5000);
+    // 16/10/2026: a auditoria antifraude NÃO entra mais no meio da fila (com a fila cheia ela atrasava os comprovantes novos).
+    // Os novos são auditados pelo lote de 15 min, que só roda com a fila vazia (auditarFotos pega os mais novos primeiro).
     return linhas.length;
   }
 

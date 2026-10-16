@@ -95,6 +95,7 @@ const item = (o) => ({ tipo_documento: 'comprovante', itens: [{ tipo_doc: 'cupom
 (async () => {
   process.env.ANTHROPIC_API_KEY = 'teste';
   process.env.GEMINI_API_KEY = 'teste';
+  process.env.GEMINI_MODELOS_FUNDO = 'modelo-fundo-teste';  // separado: o cenário 'IA fora' deixa os principais de lado por 3 min
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'obras-'));
   for (const f of ['obras_bot.js', 'ia.js']) fs.copyFileSync(path.join(__dirname, f), path.join(dir, f));
   const logs = [];
