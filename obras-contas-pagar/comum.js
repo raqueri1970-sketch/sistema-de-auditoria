@@ -398,6 +398,43 @@ function secaoPagoDireto(lista) {
     rodape: ['Total', '', '', '', V(lista.reduce((t, d) => t + Number(d.valor || 0), 0))]};
 }
 
+// ---------- Caixa do prestador (16/10/2026): o dinheiro da empresa que está com ele, como um extrato bancário ----------
+// Regra do fundo fixo: a empresa adianta (ex.: R$ 10 mil), ele gasta (sai do caixa dele), a empresa reembolsa (volta ao caixa).
+// Caixa hoje = adiantamento ainda não descontado − despesas ainda não reembolsadas (= crédito − gasto em aberto).
+// Negativo = ele gastou mais do que tinha e a empresa deve a diferença.
+const caixaPrestador = s => Math.round((Number(s && s.adiantamento_disponivel || 0) - Number(s && s.em_aberto || 0)) * 100) / 100;
+// Lançamentos do livro-caixa: + adiantamento, − despesa, + reembolso. O saldo anterior fecha a conta: o saldo final é sempre o caixa de hoje.
+function livroCaixa(prestador, desp, pags, adis, saldo, periodo = {}) {
+  const inicioPadrao = adis.filter(a => !a.cancelado).map(a => a.data).sort()[0] || null;
+  const de = periodo.de || inicioPadrao, ate = periodo.ate || null;
+  const mov = [];
+  for (const a of adis) if (!a.cancelado && a.data)
+    mov.push({data: a.data, ordem: 0, hist: 'ADIANTAMENTO recebido' + (a.observacao ? ' · ' + String(a.observacao).slice(0, 90) : ''), ent: Number(a.valor), sai: 0});
+  for (const d of desp) if (d.status === 'lancado' && d.situacao !== 'recusado' && !pagoDireto(d) && d.data_despesa)
+    mov.push({data: String(d.data_despesa).slice(0, 10), ordem: 1, hist: `Despesa · ${d.fornecedor || 'fornecedor não lido'} · ${CATS[d.categoria] || d.categoria || ''}`, ent: 0, sai: Number(d.valor)});
+  for (const p of pags) if (['pago', 'auditado', 'pendencia'].includes(p.status) && Number(p.valor_pago) > 0)
+    mov.push({data: String(p.pago_em || p.created_at).slice(0, 10), ordem: 2,
+      hist: `REEMBOLSO nº ${p.numero} (${FORMAS[p.forma_pagamento] || p.forma_pagamento || 'pagamento'})${Number(p.valor_abatido) > 0 ? ` · usou ${brl(p.valor_abatido)} do adiantamento` : ''}`, ent: Number(p.valor_pago), sai: 0});
+  mov.sort((a, b) => a.data.localeCompare(b.data) || a.ordem - b.ordem);
+  const hoje = caixaPrestador(saldo), depoisDoInicio = mov.filter(m => !de || m.data >= de);
+  let corr = Math.round((hoje - depoisDoInicio.reduce((t, m) => t + m.ent - m.sai, 0)) * 100) / 100;
+  const linhas = [{data: de, hist: 'SALDO ANTERIOR', ent: 0, sai: 0, saldo: corr}];
+  let ent = 0, sai = 0;
+  for (const m of depoisDoInicio) {
+    corr = Math.round((corr + m.ent - m.sai) * 100) / 100;
+    if (ate && m.data > ate) continue;
+    ent += m.ent; sai += m.sai; linhas.push({...m, saldo: corr});
+  }
+  return {de, ate, linhas, entradas: ent, saidas: sai, saldoFinal: linhas[linhas.length - 1].saldo, hoje};
+}
+function secaoLivroCaixa(lc) {
+  return {titulo: 'Extrato do caixa do prestador (como extrato bancário)',
+    nota: 'Entrada = adiantamento ou reembolso que a empresa mandou. Saída = despesa que ele pagou com o dinheiro. Saldo = dinheiro da empresa que está com ele (negativo = a empresa deve a ele).',
+    cab: ['Data', 'Histórico', 'Entrada', 'Saída', 'Saldo'], direita: [2, 3, 4],
+    linhas: lc.linhas.map(l => [l.data ? dBRano(l.data) : '', l.hist, l.ent ? V(l.ent) : '', l.sai ? V(l.sai) : '', V(l.saldo)]),
+    rodape: ['', 'Totais do período / saldo final', V(lc.entradas), V(lc.saidas), V(lc.saldoFinal)]};
+}
+
 // ---------- Período e semana (fechamento é semanal: segunda a domingo) ----------
 const somaDias = (iso, n) => { const x = new Date(iso + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
 const segundaDe = iso => { const x = new Date((iso || hojeISO()) + 'T12:00:00'); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x.toISOString().slice(0, 10); };
@@ -575,12 +612,14 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   const ad = adis.filter(a => !a.cancelado && noPer(a.data));
   const per = periodo.de || periodo.ate ? `Período ${periodo.de ? dBRano(periodo.de) : 'início'} a ${periodo.ate ? dBRano(periodo.ate) : 'hoje'}` : 'Todo o período';
   return {titulo: `Extrato do prestador - ${prestador}`, subtitulo: `Obras & Reformas - Esposende - ${per}`,
-    resumo: [['Despesas no período', brl(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor'))], ['Pago no período', brl(soma(lanc, 'valor_pago'))],
+    resumo: [['CAIXA COM O PRESTADOR (hoje)', (caixaPrestador(saldo) < 0 ? 'empresa deve ' : '') + brl(Math.abs(caixaPrestador(saldo)))],
+      ['Despesas no período', brl(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor'))], ['Pago no período', brl(soma(lanc, 'valor_pago'))],
       ['Em aberto (hoje)', brl(saldo.em_aberto)], ['Adiantamento a descontar', brl(saldo.adiantamento_disponivel)],
       ['TOTAL A PAGAR (hoje)', brl(saldo.saldo_devedor)],
       ...(diretos.length ? [['Pago direto pela empresa (fora da conta)', brl(soma(diretos, 'valor'))]] : []),
       ['PIX / conta', saldo.pix_chave ? `${saldo.pix_tipo || ''} ${saldo.pix_chave}` : (saldo.banco ? `${saldo.banco} ${saldo.agencia || ''} ${saldo.conta || ''}` : 'nao cadastrado')]],
     secoes: [
+      secaoLivroCaixa(livroCaixa(prestador, desp, pags, adis, saldo, periodo)),
       {titulo: `Contas a pagar em aberto (${abertos.length})`, nota: 'Saldo acumulado de todas as semanas ainda não pagas.', cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Situação'],
         linhas: abertos.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total', V(soma(abertos, 'valor')), V(soma(abertos, 'valor_pago')), V(soma(abertos, 'saldo')), '']},
       {titulo: `Pagamentos (${pg.length})`, cab: ['Nº', 'Data', 'Despesas', 'Adiant. desc.', 'Valor pago', 'Situação', 'Aprovado / pago por'],

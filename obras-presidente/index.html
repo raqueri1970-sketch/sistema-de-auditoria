@@ -26,7 +26,7 @@
 <div id="vApp" class="hidden">
   <div class="top">
     <div><h1>Obras &amp; Reformas · Pagamentos</h1><div class="sub" id="quem"></div></div>
-    <div class="row"><button class="btn" onclick="carregar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button></div>
+    <div class="row"><button class="btn" onclick="carregar()">Atualizar</button><button class="btn b-pri" onclick="pdfResumoPresidente()">PDF do resumo</button><button class="btn" onclick="sair()">Sair</button></div>
   </div>
   <div id="menu"></div>
 
@@ -56,7 +56,7 @@
 
 <input type="file" id="arquivo" accept="image/*,application/pdf" class="hidden">
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js?v=20261016-1"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261016-2"></script>
 <script>
 let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], FLUXO = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = true;
 let ORCS = [], ACEITOS = new Map(), VENDO_ORC = false, OBRAS = [], SEM_INICIAL = null, DUPS = [];
@@ -97,6 +97,7 @@ function renderMain() {
   $('kpis').innerHTML = k('k-pagar', 'Total a pagar (todos os prestadores)', brl(soma(SALDOS, 'saldo_devedor')), `gasto em aberto ${brl(gasto)} − crédito usado ${brl(credUsado)}`, "irPara('cards')")
     + k('', 'Gasto em aberto (todos)', brl(gasto), `${soma(SALDOS, 'itens_abertos')} despesa(s) · inclui quem tem crédito`, "irPara('cards')")
     + k('k-ok', 'Crédito de adiantamento', brl(soma(SALDOS, 'adiantamento_disponivel')), `usado ${brl(credUsado)} · sobra ${brl(soma(SALDOS, 'adiantamento_disponivel') - credUsado)}`, "irPara('cards')")
+    + k('', 'Caixa com os prestadores', brl(SALDOS.reduce((t, s) => t + caixaPrestador(s), 0)), 'dinheiro da empresa que está com eles hoje (adiantado − gasto em aberto)', "irPara('cards')")
     + k(dupSom.length ? 'k-bad' : '', 'Duplicidades para decidir', String(DUPS.length), dupSom.length ? `<b>${dupSom.length} SOMADA(S) no total · ${brl(dupSom.reduce((t, x) => t + Number(x.d.valor), 0))}</b>` : 'nenhuma somada no total', "irPara('dupTitulo')")
     + (oa.length ? k('k-orc', 'Orçamentos recebidos', brl(soma(oa, 'valor')), `${oa.length} orçamento(s) · <b>toque para marcar como pago</b>`, 'abrirOrcamentos()') : '')
     + (aguardando.length ? k('', 'Aprovados antes, aguardando pagamento', brl(soma(aguardando, 'valor_aprovado')), `${aguardando.length} pagamento(s) · registre “já paguei” ou cancele`, "irPara('pagamentos')") : '')
@@ -112,6 +113,7 @@ function renderMain() {
         <div><span>Crédito de adiantamento</span><b style="color:#93c5fd">${brl(cred)}</b><span>adiantado no total ${brl(s.total_adiantado)}</span></div>
         <div class="tot"><span>${res < 0 ? 'TOTAL A PAGAR (gasto − crédito)' : em > 0 ? 'A pagar: nada · o crédito cobre o gasto · sobra' : 'Nada em aberto · crédito com o prestador'}</span>
           <b style="color:${res < 0 ? '#fcd34d' : '#86efac'}">${brl(res < 0 ? s.saldo_devedor : res)}</b></div></div>
+      <div class="small" style="margin-top:4px">Caixa com ele hoje: <b style="color:${caixaPrestador(s) < 0 ? '#fca5a5' : '#86efac'}">${caixaPrestador(s) < 0 ? 'empresa deve ' : ''}${brl(Math.abs(caixaPrestador(s)))}</b></div>
       <div class="small mut">${s.semana_mais_antiga && s.itens_abertos ? `em aberto desde ${dBR(s.semana_mais_antiga)} · ` : ''}já pago ${brl(s.total_pago)} de ${brl(s.total_despesas)} gastos no total</div>
       ${dupsP.length ? `<div class="${dupSomP.length ? 'crit' : 'warn'}">⚠ ${dupsP.length} duplicidade(s) para decidir${dupSomP.length ? ` · ${dupSomP.length} SOMADA(S) no total` : ' · nenhuma somada'}</div>` : ''}
       ${Number(s.com_financeiro) ? `<div class="small" style="margin-top:4px">Aprovado, aguardando pagamento: <b>${brl(s.com_financeiro)}</b></div>` : ''}
@@ -534,6 +536,37 @@ async function pdfExtratoAtual() {
   try { toast('Gerando PDF…');
     const desp = await carregarDespesas(q => q.eq('prestador', ATUAL));
     await pdfExtrato(ATUAL, desp, PAGS.filter(p => p.prestador === ATUAL), ADIS.filter(a => a.prestador === ATUAL), saldoDe(ATUAL));
+  } catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); }
+}
+
+// PDF com as informações finais da tela (cards, situação de cada prestador, pagamentos do mês e o extrato de caixa de cada um).
+async function pdfResumoPresidente() {
+  try { toast('Gerando PDF do resumo…');
+    const soma = (a, f) => a.reduce((t, x) => t + Number(x[f] || 0), 0);
+    const mes = hojeISO().slice(0, 7);
+    const pagosMes = PAGS.filter(p => ['pago', 'auditado', 'pendencia'].includes(p.status) && (p.pago_em || '').slice(0, 7) === mes);
+    const gasto = soma(SALDOS, 'em_aberto'), credUsado = SALDOS.reduce((t, s) => t + Math.min(Number(s.adiantamento_disponivel), Number(s.em_aberto)), 0);
+    const caixa = SALDOS.reduce((t, s) => t + caixaPrestador(s), 0);
+    const lista = SALDOS.filter(prestVisivel).sort((a, b) => b.saldo_devedor - a.saldo_devedor || a.prestador.localeCompare(b.prestador));
+    const secoes = [{titulo: 'Situação de cada prestador', nota: 'Caixa = dinheiro da empresa com o prestador hoje (adiantado − gasto em aberto). Negativo = a empresa deve a ele.',
+      cab: ['Prestador', 'Gasto em aberto', 'Despesas', 'Crédito adiant.', 'A pagar', 'Caixa com ele', 'Já pago', 'Gasto no total'], direita: [1, 2, 3, 4, 5, 6, 7],
+      linhas: lista.map(s => [s.prestador, brl(s.em_aberto), String(s.itens_abertos || 0), brl(s.adiantamento_disponivel), brl(s.saldo_devedor),
+        (caixaPrestador(s) < 0 ? '−' : '') + brl(Math.abs(caixaPrestador(s))), brl(s.total_pago), brl(s.total_despesas)]),
+      rodape: ['TOTAL', brl(soma(lista, 'em_aberto')), String(soma(lista, 'itens_abertos')), brl(soma(lista, 'adiantamento_disponivel')), brl(soma(lista, 'saldo_devedor')),
+        brl(lista.reduce((t, s) => t + caixaPrestador(s), 0)), brl(soma(lista, 'total_pago')), brl(soma(lista, 'total_despesas'))]},
+      {titulo: 'Pagamentos deste mês', cab: ['Nº', 'Data', 'Prestador', 'Situação', 'Forma', 'Valor pago'], direita: [5],
+       linhas: pagosMes.map(p => [String(p.numero || ''), dBR((p.pago_em || '').slice(0, 10)), p.prestador, p.status, p.forma_pagamento || '', brl(p.valor_pago)]),
+       rodape: ['', '', '', '', 'TOTAL', brl(soma(pagosMes, 'valor_pago'))]}];
+    for (const s of lista.filter(s => Number(s.total_adiantado) > 0 || Number(s.em_aberto) > 0)) {
+      const desp = await carregarDespesas(q => q.eq('prestador', s.prestador));
+      const sec = secaoLivroCaixa(livroCaixa(s.prestador, desp, PAGS.filter(p => p.prestador === s.prestador), ADIS.filter(a => a.prestador === s.prestador), s));
+      secoes.push({...sec, titulo: 'Extrato de caixa · ' + s.prestador});
+    }
+    await gerarPDF({titulo: 'Pagamentos · Presidente — resumo final', subtitulo: 'Obras & Reformas · posição de ' + dBR(hojeISO()), paisagem: true,
+      resumo: [['Total a pagar', brl(soma(SALDOS, 'saldo_devedor'))], ['Gasto em aberto', brl(gasto)], ['Crédito de adiantamento', brl(soma(SALDOS, 'adiantamento_disponivel'))],
+        ['Crédito usado', brl(credUsado)], ['Caixa com os prestadores', brl(caixa)], ['Duplicidades p/ decidir', String(DUPS.length)],
+        ['Pago neste mês', brl(soma(pagosMes, 'valor_pago')) + ' (' + pagosMes.length + ')'], ['Pendências', String(PAGS.filter(p => p.status === 'pendencia').length)]],
+      secoes, arquivo: 'resumo-presidente-' + hojeISO() + '.pdf'});
   } catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); }
 }
 

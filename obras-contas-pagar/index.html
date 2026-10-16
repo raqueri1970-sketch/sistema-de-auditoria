@@ -63,7 +63,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="comum.js?v=20261016-1"></script>
+<script src="comum.js?v=20261016-2"></script>
 <script>
 let D = null, TIMER = null, VER_HISTORICO = false, PAP = {};
 let F = {p: '30', obra: '', prest: '', ...lerFiltro('obras-visao-filtro')};
@@ -153,6 +153,8 @@ function render() {
   $('kpis').innerHTML =
     k('k-pagar', 'A pagar hoje', brl(aPagar), `gasto em aberto ${brl(gastoAberto)} − crédito usado ${brl(creditoUsado)}`, "location.href='../obras-presidente/'") +
     k('', 'Gasto em aberto (ainda não acertado)', brl(gastoAberto), `${abertas.length} despesa(s) · ${new Set(abertas.map(d => d.prestador + d.semana)).size} semana(s) · mesmo com crédito`) +
+    k(soma(saldos, s => caixaPrestador(s)) >= 0 ? 'k-ok' : 'k-bad', 'Caixa com os prestadores', brl(soma(saldos, s => caixaPrestador(s))),
+      saldos.filter(s => Number(s.adiantamento_disponivel) > 0 || Number(s.em_aberto) > 0).map(s => `${esc(s.prestador.split(' ')[0])} ${brl(caixaPrestador(s))}`).join(' · ') || 'nenhum adiantamento') +
     k('k-ok', 'Crédito de adiantamento', brl(credito), sobra > 0.005 ? `usa ${brl(creditoUsado)} · sobra ${brl(sobra)} com o(s) prestador(es)` : 'todo usado nas despesas') +
     k(dupSomadas.length ? 'k-bad' : '', 'Duplicidades para decidir', String(D.dupl.length), dupSomadas.length ? `<b>${dupSomadas.length} SOMADA(S) no total · ${brl(dupSomadas.reduce((t, x) => t + Number(x.d.valor), 0))}</b>${dupAbertas.length ? ` · <b>${dupAbertas.length} no a pagar (${brl(dupAbertas.reduce((t, x) => t + Number(x.d.valor), 0))})</b>` : ' · nenhuma no a pagar'}` : 'nenhuma somada no total', "irDup()") +
     k('', `Despesas · ${esc(int.rotulo)}`, brl(soma(ds, 'valor')), `${ds.length} despesa(s)`) +
@@ -256,6 +258,7 @@ function renderPessoas(int, ds) {
         <div><span>Gastou · ${esc(int.rotulo)}</span><b>${brl(soma(per, 'valor'))}</b><span>${per.length} despesa(s)</span></div>
         <div><span>Gasto em aberto (não acertado)</span><b style="color:#fdba74">${brl(em)}</b><span>${s.itens_abertos} despesa(s)</span></div>
         <div><span>Crédito de adiantamento</span><b style="color:#93c5fd">${brl(cred)}</b><span>adiantado no total ${brl(s.total_adiantado)}</span></div>
+        <div><span>Caixa com ele hoje (dinheiro da empresa)</span><b style="color:${res >= 0 ? '#86efac' : '#fca5a5'}">${res >= 0 ? '' : '− '}${brl(Math.abs(res))}</b><span>${brl(cred)} de crédito − ${brl(em)} já gasto e não reembolsado</span></div>
         <div><span>Já reembolsado / pago</span><b>${brl(Number(s.total_pago) - dir)}</b><span>de ${brl(Number(s.total_despesas) - dir)} gastos no total${dir ? ` · + ${brl(dir)} pagos direto pela empresa` : ''}</span></div>
         <div class="tot"><span>${res >= 0 ? (em > 0 ? 'Nada a pagar: o crédito cobre o gasto · sobra com ele' : 'Crédito que está com o prestador') : 'A PAGAR ao prestador (gasto − crédito)'}</span>
           <b style="color:${res >= 0 ? '#86efac' : '#fcd34d'}">${brl(Math.abs(res))}</b></div></div>
