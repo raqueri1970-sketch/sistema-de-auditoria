@@ -24,6 +24,21 @@ async function podeAuditar(auth: string) {
   return r.ok && (await r.json()) === true;
 }
 
+// Token guardado no Supabase Vault (criptografado). Só o service_role executa fin_sallamo_token().
+let tokenCache: string | null = null;
+async function tokenDoVault() {
+  if (tokenCache) return tokenCache;
+  const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const r = await fetch(Deno.env.get("SUPABASE_URL") + "/rest/v1/rpc/fin_sallamo_token", {
+    method: "POST",
+    headers: { apikey: service, Authorization: `Bearer ${service}`, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (!r.ok) return null;
+  tokenCache = (await r.json()) || null;
+  return tokenCache;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "GET") return json({ erro: "Método não permitido." }, 405);
@@ -31,9 +46,9 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("Authorization") || "";
   if (!auth.startsWith("Bearer ") || !(await podeAuditar(auth))) return json({ erro: "Acesso não autorizado à Auditoria Financeira." }, 403);
 
-  const token = Deno.env.get("SALLAMO_TOKEN");
+  const token = Deno.env.get("SALLAMO_TOKEN") || (await tokenDoVault());
   const empresa = Deno.env.get("SALLAMO_EMPRESA") || "6835c03f0ffe7df22945d191";
-  if (!token) return json({ erro: "Segredo SALLAMO_TOKEN não configurado na Edge Function." }, 500);
+  if (!token) return json({ erro: "Token do Sallamo não configurado (segredo SALLAMO_TOKEN ou Vault 'sallamo_token')." }, 500);
 
   const u = new URL(req.url);
   const de = u.searchParams.get("dataInicio") || "", ate = u.searchParams.get("dataFim") || "";

@@ -17,11 +17,13 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
 - A análise roda no navegador (17.943 títulos em ~1 s).
 - O período filtrado é de **vencimento** (igual à API do Sallamo).
 
-## Configuração (uma vez)
+## Configuração
 
-1. Supabase → Project Settings → Edge Functions → **Secrets** → adicionar `SALLAMO_TOKEN` com o token do Bearer enviado pelo Alex (Sallamo).
-   Opcional: `SALLAMO_EMPRESA` (padrão `6835c03f0ffe7df22945d191`).
+1. O token do Sallamo está no **Supabase Vault** (criptografado) com o nome `sallamo_token` — cadastrado em 16/10/2026.
+   Para trocar o token, ver `supabase/migrations/20261016b_financeiro_token_vault.sql`. (Se existir o segredo
+   `SALLAMO_TOKEN` nas Edge Functions, ele tem prioridade.) Opcional: `SALLAMO_EMPRESA` (padrão `6835c03f0ffe7df22945d191`).
 2. Os usuários precisam ter perfil `administrador`, `controladoria` ou `diretoria` ativo em `orc_perfis`.
+3. Publicado no Portal: `portal-esposende-login` (pasta `financeiro/` + `financeiro-patch.js`), menu Financeiro → Auditoria Financeira.
 
 ## As 19 regras de cruzamento
 
