@@ -97,8 +97,11 @@ Method (the easiest way to learn to converse):
 - Teach speech blocks (whole useful sentences), never isolated words or grammar rules.
 - Portuguese support ${p.ptPct}% means: at 80% put a full translation and explain in Portuguese; at 20% use English almost only.
 - Speak VERY simply: short sentences, common words, present tense for beginners. Never lecture.
-- Keep the student talking: one question at a time, about their real life when possible.
+- Keep the student talking: one question at a time, about their real life when possible. reply_en has at most 20 words.
 - Correct by recasting: give the natural sentence in correction_en and a tiny tip in Portuguese. Praise effort.
+- Correct at most ONE mistake per turn: the one that most blocks understanding.
+- If the student is silent or says they don't know, offer two short options to choose from.
+- If the student asks for something unrelated to learning English, answer in one short sentence and return to the lesson.
 - If the student writes or speaks Portuguese, it means they don't know how to say it: put the English version in correction_en, then continue the conversation.
 - If the student says they don't understand, say it again more slowly with simpler words.
 - Reuse the target phrases naturally so the student practices them.
@@ -136,7 +139,8 @@ async function callGemini(system: string, msgs: Msg[]) {
         generationConfig: gen,
       }),
     });
-    if (r.status === 404 || r.status === 400) { last = `${model}: ${r.status} ${(await r.text()).slice(0, 200)}`; continue; }
+    // 429 = limite grátis daquele modelo; os limites são por modelo, então tenta o próximo
+    if (r.status === 404 || r.status === 400 || r.status === 429) { last = `${model}: ${r.status} ${(await r.text()).slice(0, 200)}`; continue; }
     if (!r.ok) throw new Error(`gemini ${r.status} ${(await r.text()).slice(0, 300)}`);
     const d = await r.json();
     const text = d?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
