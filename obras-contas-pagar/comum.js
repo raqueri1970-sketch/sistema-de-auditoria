@@ -391,7 +391,7 @@ const semPrestador = p => !p || /^a definir/i.test(p) || p === 'Desconhecido';
 // Ex.: Jhony avisou em 13/10 Eplan R$ 61.000, Wagner Lima R$ 5.000 e L Jackson R$ 1.600 — somados davam R$ 74 mil na semana dele.
 const pagoDireto = d => !d.arquivo_path && /financeiro|esposende|presidente/i.test(String(d.pagador || ''));
 function secaoPagoDireto(lista) {
-  return {titulo: `Pagos direto pela empresa a terceiros (${lista.length}) - fora da conta do prestador`,
+  return {titulo: `Pagos direto pela empresa (${lista.length})`,
     nota: 'O prestador só avisou no grupo (texto com favorecido e PIX). O dinheiro saiu da empresa direto para o fornecedor: não é gasto do prestador nem reembolso.',
     cab: ['Data', 'Avisado por', 'Favorecido', 'Descrição', 'Valor'], direita: [4],
     linhas: lista.map(d => [dBRano(d.data_despesa), d.prestador, d.fornecedor || '', String(d.descricao || '').replace(/\s+/g, ' ').slice(0, 140), V(d.valor)]),
@@ -409,16 +409,16 @@ function livroCaixa(prestador, desp, pags, adis, saldo, periodo = {}) {
   const de = periodo.de || inicioPadrao, ate = periodo.ate || null;
   const mov = [];
   for (const a of adis) if (!a.cancelado && a.data)
-    mov.push({data: a.data, ordem: 0, hist: 'ADIANTAMENTO recebido' + (a.observacao ? ' · ' + String(a.observacao).slice(0, 90) : ''), ent: Number(a.valor), sai: 0});
+    mov.push({data: a.data, ordem: 0, hist: 'Adiantamento', ent: Number(a.valor), sai: 0});
   for (const d of desp) if (d.status === 'lancado' && d.situacao !== 'recusado' && !pagoDireto(d) && d.data_despesa)
     mov.push({data: String(d.data_despesa).slice(0, 10), ordem: 1, hist: `Despesa · ${d.fornecedor || 'fornecedor não lido'} · ${CATS[d.categoria] || d.categoria || ''}`, ent: 0, sai: Number(d.valor)});
   for (const p of pags) if (['pago', 'auditado', 'pendencia'].includes(p.status) && Number(p.valor_pago) > 0)
     mov.push({data: String(p.pago_em || p.created_at).slice(0, 10), ordem: 2,
-      hist: `REEMBOLSO nº ${p.numero} (${FORMAS[p.forma_pagamento] || p.forma_pagamento || 'pagamento'})${Number(p.valor_abatido) > 0 ? ` · usou ${brl(p.valor_abatido)} do adiantamento` : ''}`, ent: Number(p.valor_pago), sai: 0});
+      hist: `Reembolso nº ${p.numero}${p.forma_pagamento ? ' · ' + (FORMAS[p.forma_pagamento] || p.forma_pagamento) : ''}`, ent: Number(p.valor_pago), sai: 0});
   mov.sort((a, b) => a.data.localeCompare(b.data) || a.ordem - b.ordem);
   const hoje = caixaPrestador(saldo), depoisDoInicio = mov.filter(m => !de || m.data >= de);
   let corr = Math.round((hoje - depoisDoInicio.reduce((t, m) => t + m.ent - m.sai, 0)) * 100) / 100;
-  const linhas = [{data: de, hist: 'SALDO ANTERIOR', ent: 0, sai: 0, saldo: corr}];
+  const linhas = [{data: de, hist: 'Saldo anterior', ent: 0, sai: 0, saldo: corr}];
   let ent = 0, sai = 0;
   for (const m of depoisDoInicio) {
     corr = Math.round((corr + m.ent - m.sai) * 100) / 100;
@@ -428,7 +428,7 @@ function livroCaixa(prestador, desp, pags, adis, saldo, periodo = {}) {
   return {de, ate, linhas, entradas: ent, saidas: sai, saldoFinal: linhas[linhas.length - 1].saldo, hoje};
 }
 function secaoLivroCaixa(lc) {
-  return {titulo: 'Extrato do caixa do prestador (como extrato bancário)',
+  return {titulo: 'Extrato de caixa',
     nota: 'Entrada = adiantamento ou reembolso que a empresa mandou. Saída = despesa que ele pagou com o dinheiro. Saldo = dinheiro da empresa que está com ele (negativo = a empresa deve a ele).',
     cab: ['Data', 'Histórico', 'Entrada', 'Saída', 'Saldo'], direita: [2, 3, 4],
     linhas: lc.linhas.map(l => [l.data ? dBRano(l.data) : '', l.hist, l.ent ? V(l.ent) : '', l.sai ? V(l.sai) : '', V(l.saldo)]),
@@ -582,7 +582,7 @@ async function gerarPDF(doc) {
   for (const s of doc.secoes || []) {
     if (y > H - 130) { pdf.addPage(); y = 50; }  // título não fica sozinho no pé da página
     if (s.titulo) { pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.text(pdfTxt(s.titulo), M, y); pdf.setFont('helvetica', 'normal'); y += 6; }
-    if (s.nota) { pdf.setFontSize(8.5); pdf.setTextColor(90); const ls = pdf.splitTextToSize(pdfTxt(s.nota), W - 2 * M); pdf.text(ls, M, y + 9); y += 9 + ls.length * 10; pdf.setTextColor(20); }
+    // 17/10/2026: relatório sem observações/explicações (pedido do Ricardo) — s.nota não é impresso
     const colStyles = {}; (s.direita || []).forEach(i => colStyles[i] = {halign: 'right'});
     // colunas de valor: alinhadas à direita e sem quebra (as casas decimais ficam uma embaixo da outra)
     (s.direita || []).forEach(i => colStyles[i] = {halign: 'right', overflow: 'visible', cellWidth: 72});
@@ -603,7 +603,7 @@ async function gerarPDF(doc) {
   const n = pdf.internal.getNumberOfPages();
   for (let i = 1; i <= n; i++) { pdf.setPage(i); pdf.setFontSize(8); pdf.setTextColor(120);
     const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
-    pdf.text(`Pagina ${i} de ${n}`, W - M, H - 18, {align: 'right'}); pdf.text('Sistema de Auditoria Esposende - documento gerado automaticamente', M, H - 18); }
+    pdf.text(`Pagina ${i} de ${n}`, W - M, H - 18, {align: 'right'}); pdf.text('Esposende - Obras & Reformas', M, H - 18); }
   pdf.save((doc.arquivo || doc.titulo).normalize('NFD').replace(/[^A-Za-z0-9._-]+/g, '_') + '.pdf');
 }
 
@@ -659,17 +659,17 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
       ['Em aberto (hoje)', brl(saldo.em_aberto)], ['Crédito de adiantamento', brl(saldo.adiantamento_disponivel)],
       ['Total a pagar (hoje)', brl(saldo.saldo_devedor)],
       ...(diretos.length ? [['Pago direto pela empresa', brl(soma(diretos, 'valor'))]] : []),
-      ['PIX / conta', saldo.pix_chave ? `${saldo.pix_tipo || ''} ${saldo.pix_chave}` : (saldo.banco ? `${saldo.banco} ${saldo.agencia || ''} ${saldo.conta || ''}` : 'nao cadastrado')]],
+    ],
     secoes: [
       secaoLivroCaixa(lc),
       {titulo: `Contas a pagar em aberto (${abertos.length})`, nota: 'Saldo acumulado de todas as semanas ainda não pagas.', cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Situação'],
         linhas: abertos.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total', V(soma(abertos, 'valor')), V(soma(abertos, 'valor_pago')), V(soma(abertos, 'saldo')), '']},
-      {titulo: `Pagamentos (${pg.length})`, cab: ['Nº', 'Data', 'Despesas', 'Adiant. desc.', 'Valor pago', 'Situação', 'Aprovado / pago por'],
-        linhas: pg.map(p => [p.numero, dBRano((p.pago_em || p.created_at).slice(0, 10)), V(p.valor_itens), V(p.valor_abatido), V(p.valor_pago ?? p.valor_aprovado),
-          (PAG[p.status] || [p.status])[0], `${p.aprovado_por || ''}${p.pago_por ? ' / ' + p.pago_por : ''}`]), direita: [2, 3, 4],
-        rodape: ['', '', V(soma(pg, 'valor_itens')), V(soma(pg, 'valor_abatido')), V(pg.reduce((t, p) => t + Number(p.valor_pago ?? p.valor_aprovado), 0)), '', '']},
-      ...(ad.length ? [{titulo: `Adiantamentos (${ad.length})`, cab: ['Data', 'Valor', 'Observação', 'Registrado por'],
-        linhas: ad.map(a => [dBRano(a.data), V(a.valor), a.observacao || '', a.registrado_por || '']), direita: [1], rodape: ['Total', V(soma(ad, 'valor')), '', '']}] : []),
+      {titulo: `Pagamentos (${pg.length})`, cab: ['Nº', 'Data', 'Despesas', 'Valor pago', 'Forma', 'Situação'],
+        linhas: pg.map(p => [p.numero, dBRano((p.pago_em || p.created_at).slice(0, 10)), V(p.valor_itens), V(p.valor_pago ?? p.valor_aprovado),
+          FORMAS[p.forma_pagamento] || p.forma_pagamento || '', (PAG[p.status] || [p.status])[0]]), direita: [2, 3],
+        rodape: ['', 'Total', V(soma(pg, 'valor_itens')), V(pg.reduce((t, p) => t + Number(p.valor_pago ?? p.valor_aprovado), 0)), '', '']},
+      ...(ad.length ? [{titulo: `Adiantamentos (${ad.length})`, cab: ['Data', 'Valor'],
+        linhas: ad.map(a => [dBRano(a.data), V(a.valor)]), direita: [1], rodape: ['Total', V(soma(ad, 'valor'))]}] : []),
       {titulo: `Todas as despesas do período (${lanc.length})`, cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Pago', 'Em aberto', 'Situação'],
         linhas: lanc.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total (sem recusadas)', V(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor')), V(soma(lanc, 'valor_pago')), V(soma(lanc, 'saldo')), '']},
       ...(diretos.length ? [secaoPagoDireto(diretos)] : [])],
@@ -692,7 +692,7 @@ function htmlModelo(m) {
   const cel = (c, i, s) => `<td class="${(s.direita || []).includes(i) ? 'r' : ''}">${esc(celTxt(c))}</td>`;
   return `${m.resumo ? `<div class="grid" style="margin:10px 0">${m.resumo.map(([l, v]) => `<div class="card kpi t-${tomResumo(l, v)}"><div class="l">${esc(l)}</div><div class="v" style="font-size:19px">${esc(v)}</div></div>`).join('')}</div>` : ''}
     ${m.graficos && m.graficos.length ? `<div class="g2 graf-rel">${m.graficos.map(g => `<div>${svgGrafico(g)}</div>`).join('')}</div>` : ''}
-    ${m.secoes.map(s => `<div class="card" style="margin-top:12px"><b>${esc(s.titulo || '')}</b>${s.nota ? `<div class="small mut">${esc(s.nota)}</div>` : ''}
+    ${m.secoes.map(s => `<div class="card" style="margin-top:12px"><b>${esc(s.titulo || '')}</b>
       ${s.linhas.length ? `<div class="tw"><table><thead><tr>${s.cab.map((h, i) => `<th class="${(s.direita || []).includes(i) ? 'r' : ''}">${esc(h)}</th>`).join('')}</tr></thead>
       <tbody>${s.linhas.slice(0, 400).map(l => `<tr>${l.map((c, i) => cel(c, i, s)).join('')}</tr>`).join('')}</tbody>
       ${s.rodape ? `<tfoot><tr>${s.rodape.map((c, i) => cel(c, i, s)).join('')}</tr></tfoot>` : ''}</table></div>
@@ -702,7 +702,7 @@ function htmlModelo(m) {
 // ---------- Gráficos dos relatórios (16/10/2026): o mesmo desenho na tela (SVG) e no PDF (SVG → imagem) ----------
 // g = {titulo, tipo: 'barras' (horizontal) | 'colunas' (vertical) | 'linha' (saldo no tempo), itens: [{rotulo, a, b?}], series: ['nome a', 'nome b'], nota}
 // altura do gráfico: barras crescem com o número de itens (sem espaço vazio); colunas e linha têm altura fixa
-const alturaGrafico = g => g.tipo === 'barras' ? Math.max(110, 44 + Math.min(10, (g.itens || []).filter(i => Number(i.a) || Number(i.b)).length) * ((g.series || []).length > 1 ? 30 : 24) + (g.nota ? 16 : 4)) : 270;
+const alturaGrafico = g => g.tipo === 'barras' ? Math.max(110, 44 + Math.min(10, (g.itens || []).filter(i => Number(i.a) || Number(i.b)).length) * ((g.series || []).length > 1 ? 30 : 24) + 4) : 270;
 function svgGrafico(g, W = 560, H = alturaGrafico(g)) {
   const X = t => String(t == null ? '' : t).replace(/[&<>"]/g, m => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[m]));
   const corta = (t, n) => { t = String(t || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
@@ -712,8 +712,7 @@ function svgGrafico(g, W = 560, H = alturaGrafico(g)) {
   o += `<text x="14" y="22" ${F} font-size="13" font-weight="700" fill="${txt}">${X(g.titulo)}</text>`;
   if (duas) g.series.forEach((n, k) => { const lx = W - 14 - (g.series.length - k) * 110; o += `<rect x="${lx}" y="12" width="10" height="10" rx="2" fill="${C[k]}"/><text x="${lx + 14}" y="21" ${F} font-size="10.5" fill="${mut}">${X(corta(n, 16))}</text>`; });
   if (!it.length) return o + `<text x="${W / 2}" y="${H / 2}" ${F} font-size="12" fill="${mut}" text-anchor="middle">Sem dados no filtro</text></svg>`;
-  const top = 36, base = H - (g.nota ? 18 : 8);
-  if (g.nota) o += `<text x="14" y="${H - 6}" ${F} font-size="9.5" fill="${mut}">${X(corta(g.nota, 110))}</text>`;
+  const top = 36, base = H - 8;
   if (g.tipo === 'barras') {
     const l = it.slice(0, 10), max = Math.max(1, ...l.map(i => Math.max(Number(i.a) || 0, Number(i.b) || 0)));
     const lab = 172, x0 = 14 + lab, larg = W - x0 - 70, h = Math.min(duas ? 30 : 24, (base - top) / l.length);

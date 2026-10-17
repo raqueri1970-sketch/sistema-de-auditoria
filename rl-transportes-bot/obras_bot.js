@@ -62,6 +62,15 @@ Se o documento for a CAPA de uma prestacao de contas com totais, preencha tambem
 Responda SOMENTE JSON valido, sem markdown:
 {"tipo_documento":"comprovante|prestacao_contas|orcamento|outros","itens":[{"tipo_doc":"cupom_fiscal","categoria":"materiais_insumos","valor":null,"data":null,"hora":null,"fornecedor":null,"pagador":null,"cnpj":null,"descricao":null,"loja_obra":null,"forma_pagamento":null,"autenticacao":null,"confianca":0.5}],"resumo":{"responsavel":null,"periodo":null,"valor_total":null,"valor_adiantado":null,"reembolso":null}}`;
 
+// Motivo "data futura / ano impossível" quando a data do comprovante é até hoje = engano da IA (não sabe o ano atual)
+function dataFuturaFalsa(motivo, dataFoto) {
+  if (!/futur|20\d\d (?:é|e) imposs|data imposs/i.test(motivo)) return false;
+  const m = String(dataFoto || '').match(/(\d{4})-(\d{2})-(\d{2})|(\d{2})\/(\d{2})\/(\d{2,4})/);
+  if (!m) return true;  // sem data lida: não dá para provar que é futura
+  const d = m[1] ? new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00`) : new Date(`${m[6].length === 2 ? '20' + m[6] : m[6]}-${m[5]}-${m[4]}T12:00:00`);
+  return !(d.getTime() > Date.now() + 2 * 864e5);
+}
+
 // Auditoria antifraude da FOTO (14/10/2026): a IA olha cada comprovante como auditor e aponta fraude/desvio de finalidade.
 const PROMPT_AUDITOR = `Voce e AUDITOR ANTIFRAUDE de despesas de obras/reformas de lojas (rede de calcados Esposende).
 O prestador manda a foto/PDF do comprovante no WhatsApp e a empresa reembolsa. Olhe o documento com desconfianca profissional e procure:
@@ -72,6 +81,10 @@ O prestador manda a foto/PDF do comprovante no WhatsApp e a empresa reembolsa. O
 - estabelecimento incompativel com obra; cupom em nome/CPF de outra pessoa; documento de outra cidade/data muito antiga
 - divergencia entre a foto e o que foi lancado (dados abaixo)
 Lancado no sistema: {LANCADO}
+DATA DE HOJE: {HOJE}. Estamos em {ANO}: datas de {ANO} ate hoje sao NORMAIS e nunca sao "data futura". So aponte data futura se for DEPOIS de {HOJE}.
+NAO sao sinais de fraude: o nome do prestador no sistema e um apelido (sobrenome, grafia ou nome completo diferente na foto e normal);
+pagamento a pessoa fisica (pedreiro, ajudante, diarista, frete) e normal em obra; hotel, alimentacao, transporte, Uber, onibus e estacionamento
+do prestador em viagem sao despesas normais; documento em contingencia ou de outra cidade da obra e normal.
 Seja justo: comprovante comum, legivel e coerente = risco "baixo" e motivos vazio. So use "alto" com sinal concreto.
 Responda SOMENTE JSON: {"risco":"baixo|medio|alto","motivos":["frase curta em portugues"],"valor_na_foto":null,"data_na_foto":null}`;
 
@@ -409,9 +422,15 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     const lancado = linhas.slice(0, 15).map(l => `R$ ${Number(l.valor).toFixed(2)} em ${l.data_despesa} · ${l.fornecedor || '?'} · ${l.categoria} · ${l.tipo_doc} · ${(l.descricao || '').substring(0, 80)}`).join(' | ')
       + ` · legenda: "${(linhas[0].legenda || '').substring(0, 120)}" · prestador: ${linhas[0].responsavel || '?'}`;
     // Auditoria é leitura de fundo: só modelos grátis de cota alta (Gemma), nunca o Claude pago nem a cota das despesas novas.
-    const r = await ia.ler(buf.toString('base64'), mt, PROMPT_AUDITOR.replace('{LANCADO}', lancado), { maxTokens: 4096, fundo: true });
-    const motivos = Array.isArray(r && r.motivos) ? r.motivos.filter(Boolean).map(String).slice(0, 6) : [];
+    // 17/10/2026: a IA grátis achava que 2026 era "futuro" e marcava centenas de comprovantes como críticos. Vai a data de hoje
+    // no pedido e, por garantia, motivo de "data futura" com data até hoje é descartado.
+    const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }), ano = hoje.slice(-4);
+    const pedido = PROMPT_AUDITOR.replace('{LANCADO}', lancado).replace(/\{HOJE\}/g, hoje).replace(/\{ANO\}/g, ano);
+    const r = await ia.ler(buf.toString('base64'), mt, pedido, { maxTokens: 4096, fundo: true });
+    const brutos = Array.isArray(r && r.motivos) ? r.motivos.filter(Boolean).map(String) : [];
+    const motivos = brutos.filter(m => !dataFuturaFalsa(m, r && r.data_na_foto)).slice(0, 6);
     let risco = ['baixo', 'medio', 'alto'].includes(String(r && r.risco).toLowerCase()) ? String(r.risco).toLowerCase() : 'baixo';
+    if (brutos.length && !motivos.length) risco = 'baixo';  // só tinha "data futura" (falso)
     // valor da foto x valor lançado (só quando o arquivo é um comprovante só)
     const vf = num(r && r.valor_na_foto);
     if (linhas.length === 1 && vf > 0 && Math.abs(vf - Number(linhas[0].valor)) > Math.max(1, Number(linhas[0].valor) * 0.01)) {
@@ -586,3 +605,4 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     _fila: () => naFila, _auditarFotos: auditarFotos, _tabela: () => TAB, _lerBlocosPagamento: lerBlocosPagamento,
     _estadoIA: () => ia.estado() };
 };
+module.exports.dataFuturaFalsa = dataFuturaFalsa;  // usado no teste
