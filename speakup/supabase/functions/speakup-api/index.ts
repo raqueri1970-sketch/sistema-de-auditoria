@@ -265,7 +265,7 @@ async function hello(b: any) {
     await sql`insert into english_ai.profiles (user_id, display_name, level) values (${userId}, ${name}, 'iniciante_zero')
               on conflict (user_id) do nothing`;
   }
-  const [profile] = await sql`select display_name, level, daily_goal_minutes, portuguese_support_pct, conversation_goal_minutes
+  const [profile] = await sql`select display_name, level, daily_goal_minutes, portuguese_support_pct, conversation_goal_minutes, focus
                                 from english_ai.profiles where user_id = ${userId}`;
   const modules = await sql`select id, title, description, icon, sort_order from english_ai.modules where active order by sort_order`;
   const lessons = await sql`select id, module_id, title, objective, sort_order, estimated_minutes, difficulty, content
@@ -276,17 +276,29 @@ async function hello(b: any) {
   return { token, profile, modules, lessons, progress, stats: await stats(userId), ai: { enabled: lim.enabled } };
 }
 
+// ids já validados (só [a-z0-9_]), então o literal de array é seguro e funciona também vazio
+const pgArray = (ids: string[]) => `{${ids.join(",")}}`;
+
 async function saveProfile(userId: string, b: any) {
   const level = ["iniciante_zero", "iniciante", "basico", "intermediario", "avancado"].includes(b.level) ? b.level : null;
   const goal = Number.isFinite(+b.daily_goal_minutes) ? Math.max(5, Math.min(120, Math.round(+b.daily_goal_minutes))) : null;
   const pt = Number.isFinite(+b.portuguese_support_pct) ? Math.max(0, Math.min(100, Math.round(+b.portuguese_support_pct))) : null;
   const name = str(b.display_name, 60) || null;
+  // foco = situações que o aluno escolheu (ids de módulos ativos)
+  let focus: string[] | null = null;
+  if (Array.isArray(b.focus)) {
+    const ids = b.focus.filter((x: unknown) => typeof x === "string" && /^[a-z0-9_]{1,40}$/.test(x)).slice(0, 12);
+    const ok = await sql`select id from english_ai.modules where active and id = any(${pgArray(ids)}::text[])`;
+    const valid = new Set(ok.map((r: any) => r.id));
+    focus = ids.filter((x: string) => valid.has(x));
+  }
   await sql`update english_ai.profiles set
+      focus = coalesce(${focus && pgArray(focus)}::text[], focus),
       display_name = coalesce(${name}, display_name), level = coalesce(${level}, level),
       daily_goal_minutes = coalesce(${goal}, daily_goal_minutes),
       portuguese_support_pct = coalesce(${pt}, portuguese_support_pct), updated_at = now()
     where user_id = ${userId}`;
-  const [p] = await sql`select display_name, level, daily_goal_minutes, portuguese_support_pct from english_ai.profiles where user_id = ${userId}`;
+  const [p] = await sql`select display_name, level, daily_goal_minutes, portuguese_support_pct, focus from english_ai.profiles where user_id = ${userId}`;
   return { profile: p };
 }
 
@@ -317,7 +329,12 @@ async function turn(userId: string, b: any) {
   const text = str(b.text, 500);
   const lang = b.lang === "pt" ? "pt" : "en";
   const [lesson] = await sql`select id, title, objective, content from english_ai.lessons where id = ${s.scenario}`;
-  const [p] = await sql`select display_name, level, portuguese_support_pct from english_ai.profiles where user_id = ${userId}`;
+  const [p] = await sql`select display_name, level, portuguese_support_pct, focus from english_ai.profiles where user_id = ${userId}`;
+  if (lesson?.content?.mode === "free_conversation" && p?.focus?.length) {
+    // conversa livre puxa para as situações que o aluno escolheu como foco
+    const mods = await sql`select title from english_ai.modules where id = any(${pgArray(p.focus)}::text[])`;
+    lesson.content = { ...lesson.content, scenario: `Free conversation focused on the situations the student chose to practice: ${mods.map((m: any) => m.title).join(", ")} (titles in Portuguese). Start by asking which one they want, then run a realistic role-play of it (you play the waiter, receptionist, client, etc.). Switch situations when the student wants.` };
+  }
   const hist = await sql`select speaker, text_content from english_ai.turns
                           where session_id = ${s.id} order by id desc limit 16`;
   const msgs: Msg[] = hist.reverse().map((t: any) => ({ role: t.speaker === "aluno" ? "user" : "model", text: t.text_content }));

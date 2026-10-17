@@ -75,6 +75,12 @@ details summary{cursor:pointer;color:var(--mut)}
 .hero{margin:18px 0 8px}.heromic{width:132px;height:132px;font-size:54px}.hero-t{font-size:20px;font-weight:800;margin-top:14px}
 .done-ic{font-size:64px;text-align:center;margin-top:30px}
 .stat3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.stat3 div{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;text-align:center}.stat3 b{display:block;font-size:24px}
+.sits{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sit{position:relative;text-align:left;background:var(--card);border:2px solid var(--line);border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:4px;min-height:112px}
+.sit.on{border-color:var(--pri);background:#0f2c5c}.sit .ic{font-size:30px}.sit b{font-size:16px;line-height:1.2}.sit small{color:var(--mut);font-weight:400;font-size:12px}
+.sit .tag{position:absolute;top:10px;right:10px;font-size:11px;background:var(--pri2);border-radius:999px;padding:2px 8px}
+.sit .bar{margin-top:auto;height:5px}
+.opts.multi .opt{font-size:15px;padding:12px 8px}
 </style>
 </head>
 <body>
@@ -94,6 +100,17 @@ details summary{cursor:pointer;color:var(--mut)}
       <div class="opt" data-v="iniciante">Sei um pouquinho</div>
       <div class="opt" data-v="basico">Básico</div>
       <div class="opt" data-v="intermediario">Intermediário</div>
+    </div>
+    <label>Para que você quer o inglês? (escolha quantas quiser)</label>
+    <div class="opts multi" id="ob-focus">
+      <div class="opt" data-v="travel">✈️ Viagem</div>
+      <div class="opt" data-v="food">🍽️ Restaurante</div>
+      <div class="opt" data-v="business">💼 Negócios</div>
+      <div class="opt" data-v="leisure">🎉 Lazer</div>
+      <div class="opt" data-v="shopping">🛍️ Compras</div>
+      <div class="opt" data-v="social">🤝 Fazer amigos</div>
+      <div class="opt" data-v="health">🏥 Saúde</div>
+      <div class="opt" data-v="daily">☀️ Dia a dia</div>
     </div>
     <label>Meta por dia</label>
     <div class="opts" id="ob-goal">
@@ -120,6 +137,9 @@ details summary{cursor:pointer;color:var(--mut)}
     <div class="hero-t" id="h-next">Toque e fale</div>
     <div class="small mut" id="h-nextsub"></div>
   </div>
+  <h2>Situações de conversa</h2>
+  <p class="small mut" style="margin:-4px 0 10px">Toque numa situação para treinar. Marque como foco o que você mais precisa (vai viajar? foque em Viagem e Restaurante) e o professor prioriza isso.</p>
+  <div class="sits" id="h-sits"></div>
   <div class="card">
     <div class="row"><div class="grow"><b>Hoje</b> <span class="mut small" id="h-goaltxt"></span></div><span id="h-streak" class="chip">🔥 0</span></div>
     <div class="bar"><i id="h-goalbar"></i></div>
@@ -138,8 +158,17 @@ details summary{cursor:pointer;color:var(--mut)}
     </ol>
     <p class="small mut">Sem decoreba de gramática: você aprende frases inteiras e o padrão vem sozinho. O português começa alto (80%) e vai sumindo conforme você evolui. Dica: não tenha medo de errar. Falar um pouco todo dia vale mais que estudar muito de vez em quando.</p>
   </details>
-  <details id="h-trail"><summary class="small" style="margin:20px 0 6px">📚 Ver todas as situações</summary>
-  <div id="h-modules"></div></details>
+</section>
+
+<!-- Situação -->
+<section id="v-sit" class="hidden">
+  <div class="row"><button class="side" id="t-back" aria-label="Voltar">←</button><div class="grow"></div></div>
+  <div class="center" style="font-size:56px;margin-top:6px" id="t-ic"></div>
+  <h1 class="center" id="t-title"></h1>
+  <p class="mut center" id="t-desc"></p>
+  <button class="btn-pri" id="t-start">▶️ Começar</button>
+  <button class="big" id="t-focus" style="margin-top:12px"></button>
+  <div class="card" id="t-lessons"></div>
 </section>
 
 <!-- Aula -->
@@ -210,7 +239,7 @@ const S = { data: null, token: store.get("token", ""), prefs: Object.assign({ ra
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 function show(view) {
-  for (const v of ["onboard", "home", "lesson", "done", "settings"]) $("v-" + v).classList.toggle("hidden", v !== view);
+  for (const v of ["onboard", "home", "sit", "lesson", "done", "settings"]) $("v-" + v).classList.toggle("hidden", v !== view);
   $("micbar").classList.toggle("hidden", view !== "lesson");
   window.scrollTo(0, 0);
 }
@@ -330,9 +359,20 @@ function orderedLessons() {
   return [...S.data.lessons].sort((a, b) => mods.indexOf(a.module_id) - mods.indexOf(b.module_id) || a.sort_order - b.sort_order);
 }
 const statusOf = (id) => S.data.progress.find((p) => p.lesson_id === id)?.status || "nao_iniciada";
+const SPECIAL = ["review", "free"];
+const focusOf = () => S.data.profile.focus || [];
+// ordem: Aula Zero, depois as situações em foco, depois o resto da trilha
 function nextLesson() {
-  const list = orderedLessons().filter((l) => !["review_01", "free_01"].includes(l.id));
-  return list.find((l) => statusOf(l.id) !== "concluida") || list[0];
+  const list = orderedLessons().filter((l) => !SPECIAL.includes(l.module_id));
+  const f = focusOf();
+  const rank = (l) => l.module_id === "zero" ? 0 : f.includes(l.module_id) ? 1 : 2;
+  const sorted = [...list].sort((a, b) => rank(a) - rank(b));
+  return sorted.find((l) => statusOf(l.id) !== "concluida") || sorted.find((l) => rank(l) === 1) || list[0];
+}
+const lessonsOf = (mid) => orderedLessons().filter((l) => l.module_id === mid);
+async function saveFocus(f) {
+  S.data.profile.focus = f;
+  try { const d = await api("profile", { focus: f }); S.data.profile = Object.assign(S.data.profile, d.profile); } catch {}
 }
 function renderHome() {
   const d = S.data, st = d.stats, p = d.profile;
@@ -356,24 +396,44 @@ function renderHome() {
   $("h-review").classList.toggle("hidden", !st.review_due);
   $("h-reviewsub").textContent = `${st.review_due} ${st.review_due === 1 ? "frase está" : "frases estão"} esperando você`;
   $("h-aioff").classList.toggle("hidden", !!d.ai.enabled);
-  const box = $("h-modules"); box.textContent = "";
-  for (const m of d.modules) {
-    const ls = orderedLessons().filter((l) => l.module_id === m.id);
-    if (!ls.length) continue;
-    const c = el("div", "card");
-    const h = el("div", "row"); h.append(el("span", null, m.icon || "📘"), el("b", "grow", m.title));
-    const doneN = ls.filter((l) => statusOf(l.id) === "concluida").length;
-    h.append(el("span", "small mut", `${doneN}/${ls.length}`)); c.append(h);
-    if (m.description) c.append(el("div", "small mut", m.description));
-    for (const l of ls) {
-      const r = el("div", "lesson"); const s = statusOf(l.id);
-      r.append(el("span", "st", s === "concluida" ? "✅" : s === "em_andamento" ? "🟡" : "⚪"), el("span", "t", l.title), el("span", "small mut", `${l.estimated_minutes || 10} min`));
-      r.onclick = () => openLesson(l.id); c.append(r);
-    }
-    box.append(c);
+  const f = focusOf();
+  if (f.length) $("h-nextsub").textContent = `🎯 Foco: ${f.map(moduleTitle).join(", ")} · ${n.title}`;
+  const box = $("h-sits"); box.textContent = "";
+  const mods = d.modules.filter((m) => !SPECIAL.includes(m.id) && lessonsOf(m.id).length)
+    .sort((a, b) => (f.includes(b.id) ? 1 : 0) - (f.includes(a.id) ? 1 : 0));
+  for (const m of mods) {
+    const ls = lessonsOf(m.id), doneN = ls.filter((l) => statusOf(l.id) === "concluida").length;
+    const c = el("button", "sit" + (f.includes(m.id) ? " on" : ""));
+    if (f.includes(m.id)) c.append(el("span", "tag", "🎯 foco"));
+    const t = el("b", null, m.title); const sm = el("small", null, `${doneN} de ${ls.length} ${ls.length === 1 ? "aula" : "aulas"}`);
+    const bar = el("div", "bar"); const bi = el("i"); bi.style.width = (doneN / ls.length) * 100 + "%"; bar.append(bi);
+    c.append(el("span", "ic", m.icon || "📘"), t, sm, bar);
+    c.onclick = () => openSit(m.id); box.append(c);
   }
   show("home");
 }
+function openSit(mid) {
+  const m = S.data.modules.find((x) => x.id === mid); const ls = lessonsOf(mid);
+  $("t-ic").textContent = m.icon || "📘"; $("t-title").textContent = m.title; $("t-desc").textContent = m.description || "";
+  const nx = ls.find((l) => statusOf(l.id) !== "concluida") || ls[0];
+  $("t-start").textContent = `▶️ ${statusOf(nx.id) === "nao_iniciada" ? "Começar" : "Treinar"}: ${nx.title}`;
+  $("t-start").onclick = () => openLesson(nx.id);
+  const on = focusOf().includes(mid), fb = $("t-focus"); fb.textContent = "";
+  fb.append(el("span", "ic", on ? "✅" : "🎯"));
+  const tx = el("span", null, on ? "Esta situação está no seu foco" : "Focar nesta situação");
+  tx.append(el("small", null, on ? "Toque para tirar do foco" : "O professor prioriza estas aulas e a conversa livre puxa para cá"));
+  fb.append(tx);
+  fb.onclick = async () => { const f = focusOf().filter((x) => x !== mid); if (!on) f.push(mid); await saveFocus(f); openSit(mid); };
+  const box = $("t-lessons"); box.textContent = "";
+  for (const l of ls) {
+    const r = el("div", "lesson"); const s = statusOf(l.id);
+    const t = el("span", "t", l.title); t.append(el("small", "mut", " · " + (l.objective || "")));
+    r.append(el("span", "st", s === "concluida" ? "✅" : s === "em_andamento" ? "🟡" : "⚪"), t, el("span", "small mut", `${l.estimated_minutes || 10} min`));
+    r.onclick = () => openLesson(l.id); box.append(r);
+  }
+  show("sit"); window.scrollTo(0, 0);
+}
+$("t-back").onclick = () => renderHome();
 const moduleTitle = (id) => S.data.modules.find((m) => m.id === id)?.title || "";
 
 /* ---------- aula ---------- */
@@ -399,6 +459,7 @@ async function openLesson(id, opts = {}) {
   $("l-chat").classList.add("hidden"); $("c-msgs").textContent = ""; $("l-typing").classList.add("hidden");
   show("lesson");
   try { L.session = (await api("start", { lesson_id: id })).session_id; } catch (e) { setStatus("Sem conexão: seu progresso desta aula pode não ser salvo."); }
+  if (L?.lesson !== lesson) return; // saiu da aula antes de ela carregar
   if (!steps.length && !withChat) { renderEmpty(); return; }
   if (steps.length) renderStep(); else startChat();
 }
@@ -470,6 +531,7 @@ async function speakStep(rate) {
   Mic.stop();
   setStatus("🔊 Ouça...");
   await Voice.say(currentText(), { rate });
+  if (!L) return; // saiu da aula enquanto o professor falava
   setStatus(Mic.available() ? "Sua vez! Toque no microfone 🎙️" : "Sua vez! Use o teclado ⌨️");
   if (S.prefs.auto && Mic.available() && SR && !L.busy && L.i < L.steps.length) toggleListen(true);
 }
@@ -695,13 +757,15 @@ function pick(groupId) {
   return () => g.querySelector(".opt.on")?.dataset.v;
 }
 const obLevel = pick("ob-level"), obGoal = pick("ob-goal");
+$("ob-focus").querySelectorAll(".opt").forEach((o) => (o.onclick = () => o.classList.toggle("on")));
+const obFocus = () => [...$("ob-focus").querySelectorAll(".opt.on")].map((o) => o.dataset.v);
 $("ob-go").onclick = async () => {
   const btn = $("ob-go"); btn.disabled = true; btn.textContent = "Preparando sua aula...";
   Voice.say("Hello!"); // libera o áudio no iPhone com o toque
   try {
     const d = await api("hello", { name: $("ob-name").value.trim() || "Aluno" });
     S.token = d.token; store.set("token", d.token); S.data = d;
-    const pd = await api("profile", { level: obLevel(), daily_goal_minutes: +obGoal(), portuguese_support_pct: obLevel() === "iniciante_zero" ? 80 : 50 });
+    const pd = await api("profile", { level: obLevel(), daily_goal_minutes: +obGoal(), portuguese_support_pct: obLevel() === "iniciante_zero" ? 80 : 50, focus: obFocus() });
     S.data.profile = Object.assign(S.data.profile, pd.profile);
     openLesson(nextLesson().id);
   } catch (e) { alert("Não consegui começar: " + e.message); }
