@@ -49,6 +49,7 @@ Contexto: de 20/09 a 27/09/2026 o bot ficou sem WhatsApp, e ao voltar só buscou
 | `POST /api/reconciliar-fifo` | Revincula despesas a depósitos pela data e depois espelha no Supabase |
 | `GET /api/status-wa` | Estado da conexão com o WhatsApp |
 | `GET/POST /api/espelho-nuvem` | Estado da cópia nuvem → painel / copia agora (só em reserva) |
+| `GET /api/reuso/:id` | Comprovante reutilizado: o reenvio, o original e o período em que cada um foi usado |
 
 ## Comandos
 
@@ -85,3 +86,23 @@ Variáveis novas (opcionais) no `.env`: `GEMINI_MODELOS`, `GEMINI_MODELOS_FUNDO`
 node teste_obras_bot.js    :: cenários de Obras
 node teste_ia_lider.js     :: IA (cota/sem crédito) e trava de instância
 ```
+
+## Comprovante reutilizado (19/10/2026)
+
+Se alguém manda de novo um comprovante que já foi lançado — de qualquer mês — o bot **não soma de novo** e registra o
+reenvio na tabela `reusos` (Supabase `rl_reusos`). Conta como o mesmo comprovante:
+
+- a **mesma foto/PDF** (hash do arquivo) vinda de outra mensagem;
+- a **mesma autenticação do banco** com o **mesmo valor** (ex.: print ou foto diferente do mesmo PIX);
+- o **mesmo fornecedor + valor + data + hora** do comprovante.
+
+A aba **Auditoria** do painel mostra a seção "Comprovantes Reutilizados"; clicando, aparecem os dois comprovantes lado a
+lado com o período em que o original foi usado (dia, semana e mês, e o depósito de onde saiu) e quando foi reenviado.
+Teste: `node teste_reuso_rl.js`.
+
+## Alinhar ao iniciar (19/10/2026)
+
+Qualquer instância (nuvem ou D90), ao ligar, espera 2 min e compara o maior número de despesa/depósito do SQLite com o
+do Supabase. Se o Supabase estiver na frente (a outra instância lançou enquanto esta estava fora), copia tudo do Supabase
+antes de lançar qualquer coisa. Assim a nuvem pode voltar depois de o D90 ter assumido sem repetir numeração e sem o
+espelho de 2h apagar o que o D90 lançou. Teste: `node teste_espelho_nuvem.js`.

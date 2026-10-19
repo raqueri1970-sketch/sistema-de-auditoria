@@ -51,6 +51,9 @@ async function run() {
   const fornecedores = db.prepare('SELECT * FROM fornecedores').all()
     .map(({ id, ...r }) => ({ ...r, aliases: json(r.aliases) || [], servicos: json(r.servicos) || [] }));
   const ajustes = db.prepare('SELECT * FROM ajustes').all();
+  // Comprovantes reutilizados (19/10/2026). Bancos antigos sem a tabela: nada a mandar.
+  let reusos = [];
+  try { reusos = db.prepare('SELECT * FROM reusos').all(); } catch (e) {}
   const saldoInicial = db.prepare('SELECT * FROM saldo_inicial WHERE id=1').get();
 
   // 1) Remove do Supabase despesas/depositos excluidos localmente (despesas primeiro por causa da FK deposito_id)
@@ -59,7 +62,7 @@ async function run() {
     if (ids.length) { const { error } = await sb.from(tab).delete().in('id', ids); console.log(error ? `ERRO delete ${tab}: ${error.message}` : `Removidos de ${tab}: ${ids.join(', ')}`); }
   }
   // 2) Upsert em lotes (depositos antes das despesas, por causa da FK)
-  for (const [tab, linhas, opt] of [['rl_depositos', depositos], ['rl_despesas', despesas], ['rl_fornecedores', fornecedores, { onConflict: 'nome' }], ['rl_ajustes', ajustes]]) {
+  for (const [tab, linhas, opt] of [['rl_depositos', depositos], ['rl_despesas', despesas], ['rl_fornecedores', fornecedores, { onConflict: 'nome' }], ['rl_ajustes', ajustes], ['rl_reusos', reusos]]) {
     let ok = 0;
     for (let i = 0; i < linhas.length; i += 200) {
       const { error } = await sb.from(tab).upsert(linhas.slice(i, i + 200), opt);

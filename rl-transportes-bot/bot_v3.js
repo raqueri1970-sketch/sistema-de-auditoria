@@ -40,7 +40,11 @@ if (sbBase && process.env.SUPABASE_ROBO_EMAIL && process.env.SUPABASE_ROBO_SENHA
 }
 // Trava de instancia (lider.js): criada mais abaixo, depois do log. Enquanto nao existe, nao bloqueia nada.
 let lider = null;
-const rlGrava = () => !lider || lider.rlPode();
+// Alinhamento ao iniciar (19/10/2026, espelho_nuvem.js): se a OUTRA instancia lancou enquanto esta estava fora, o
+// Supabase tem lancamentos que o SQLite daqui nao tem. Ate puxar, esta nao lanca nada (senao repetiria a numeracao e o
+// espelho de 2h apagaria do Supabase o que a outra lancou). Sem Supabase (ou modo sombra) nao ha o que alinhar.
+let rlAlinhada = MODO_SOMBRA || !sbBase;
+const rlGrava = () => rlAlinhada && (!lider || lider.rlPode());
 function sbSync(promise, label) {
   if (!sb || !rlGrava()) return;
   Promise.resolve(promise).then(({ error }) => {
@@ -180,6 +184,17 @@ try { db.exec(`ALTER TABLE depositos ADD COLUMN hora_documento TEXT`); } catch(e
 try { db.exec(`ALTER TABLE despesas ADD COLUMN autenticacao TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE depositos ADD COLUMN autenticacao TEXT`); } catch(e) {}
 db.exec(`CREATE INDEX IF NOT EXISTS idx_despesas_hash ON despesas(arquivo_hash)`);
+// Comprovante REUTILIZADO (19/10/2026): reenvio de um comprovante ja lancado, em qualquer periodo (a mesma foto, ou o
+// mesmo pagamento: mesma autenticacao + valor, ou mesmo fornecedor + valor + data + hora). Nao soma de novo; fica aqui,
+// apontando para o lancamento original, e a Auditoria mostra os dois comprovantes lado a lado. Espelho: rl_reusos.
+db.exec(`CREATE TABLE IF NOT EXISTS reusos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  data TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  remetente TEXT, arquivo TEXT UNIQUE, arquivo_hash TEXT, motivo TEXT,
+  original_tabela TEXT, original_id INTEGER,
+  valor REAL, fornecedor TEXT, data_documento TEXT, hora_documento TEXT, autenticacao TEXT, legenda TEXT,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
 
 function hashArquivo(nomeArquivo) {
   if (!nomeArquivo) return null;
@@ -410,10 +425,57 @@ const stmtInsDep     = db.prepare(`INSERT INTO depositos (valor,remetente,banco,
 const stmtInsDesp    = db.prepare(`INSERT INTO despesas (deposito_id,valor,remetente,fornecedor,servico,placa,nf,cnpj,banco,pix,tipo_doc,descricao,arquivo,arquivo_hash,ocr_json,confianca,data_documento,hora_documento,autenticacao) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 const stmtUpdForn    = db.prepare(`INSERT INTO fornecedores (nome,total_gasto,total_ocorrencias) VALUES (?,?,1) ON CONFLICT(nome) DO UPDATE SET total_gasto=total_gasto+?,total_ocorrencias=total_ocorrencias+1,updated_at=datetime('now','localtime')`);
 
+// Grava o reenvio de um comprovante ja lancado (nao soma) e avisa no log. O arquivo novo fica em fotos/ para a Auditoria
+// mostrar lado a lado com o original. Uma vez por arquivo (rescan da mesma mensagem nao duplica o alerta).
+const stmtInsReuso = db.prepare(`INSERT OR IGNORE INTO reusos (remetente,arquivo,arquivo_hash,motivo,original_tabela,original_id,valor,fornecedor,data_documento,hora_documento,autenticacao,legenda) VALUES (@remetente,@arquivo,@arquivo_hash,@motivo,@original_tabela,@original_id,@valor,@fornecedor,@data_documento,@hora_documento,@autenticacao,@legenda)`);
+function registrarReuso(r) {
+  const linha = { remetente:null, arquivo:null, arquivo_hash:null, motivo:null, original_tabela:'despesa', original_id:null, valor:null, fornecedor:null, data_documento:null, hora_documento:null, autenticacao:null, legenda:null, ...r };
+  if (linha.arquivo && !linha.arquivo_hash) linha.arquivo_hash = hashArquivo(linha.arquivo);
+  const { changes, lastInsertRowid: id } = stmtInsReuso.run(linha);
+  if (!changes) return null;
+  const orig = db.prepare(`SELECT data, arquivo FROM ${linha.original_tabela === 'deposito' ? 'depositos' : 'despesas'} WHERE id=?`).get(linha.original_id);
+  log(`COMPROVANTE REUTILIZADO: ${linha.remetente||'?'} mandou de novo o ${linha.original_tabela} #${linha.original_id} (enviado em ${orig ? periodoDe(dataEnvio(orig)).texto : '?'}) — ${linha.motivo}. NAO somado; ver Auditoria (reuso #${id})`, 'error');
+  if (sb) sbSync(sb.from('rl_reusos').upsert({ id, ...linha, data: new Date().toISOString() }, { onConflict: 'id' }), `reuso #${id}`);
+  return id;
+}
+// "Periodo" de um lancamento para a Auditoria: dia, semana (segunda a domingo) e mes. data = 'AAAA-MM-DD HH:MM:SS' local.
+function periodoDe(data) {
+  const m = String(data || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return { texto: '?' };
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  const seg = new Date(d); seg.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  const dom = new Date(seg); dom.setDate(seg.getDate() + 6);
+  const f = x => `${String(x.getDate()).padStart(2,'0')}/${String(x.getMonth()+1).padStart(2,'0')}`;
+  const meses = ['janeiro','fevereiro','marco','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  return { dia: `${f(d)}/${m[1]}`, semana: `${f(seg)} a ${f(dom)}`, mes: `${meses[d.getMonth()]}/${m[1]}`, texto: `${f(d)}/${m[1]} (semana ${f(seg)} a ${f(dom)})` };
+}
+// Quando o comprovante chegou: o nome WA_<timestamp>_... traz a hora da mensagem no WhatsApp (melhor que a hora em que
+// o bot processou, que pode ser dias depois numa recuperacao de periodo). Upload manual: data do lancamento.
+function dataEnvio(row) {
+  const m = String(row && row.arquivo || '').match(/^WA_(\d{12,})_/);
+  if (!m) return row && row.data;
+  const d = new Date(Number(m[1])), z = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
+}
+// Mesmo pagamento ja lancado = mesmo codigo de autenticacao do banco E mesmo valor (so o codigo poderia ser lido errado).
+const autValida = a => String(a || '').replace(/\s+/g, '').length >= 6;
+const stmtDespMesmaAut = db.prepare(`SELECT id, arquivo FROM despesas WHERE REPLACE(autenticacao,' ','')=REPLACE(?,' ','') AND ABS(valor-?)<0.005 AND status!='cancelado' ORDER BY id LIMIT 1`);
+const stmtDepMesmaAut  = db.prepare(`SELECT id, arquivo FROM depositos WHERE REPLACE(autenticacao,' ','')=REPLACE(?,' ','') AND ABS(valor-?)<0.005 ORDER BY id LIMIT 1`);
+// Mesmo timestamp no nome do arquivo = mesma mensagem do WhatsApp (nao e reenvio)
+const mesmaMensagem = (a, b) => { const t = n => (String(n || '').match(/^WA_(\d+)_/) || [])[1]; return !!(t(a) && t(a) === t(b)); };
+
 function criarDeposito(dadosIA, remetente, arquivo) {
   const valor = parseValor(dadosIA?.valor);
   const dataDoc = extrairDataDocumento(JSON.stringify(dadosIA));
   const horaDoc = extrairHoraDocumento(JSON.stringify(dadosIA));
+  if (autValida(dadosIA?.autenticacao) && valor) {
+    const orig = stmtDepMesmaAut.get(dadosIA.autenticacao, valor);
+    if (orig && !mesmaMensagem(orig.arquivo, arquivo)) {
+      registrarReuso({ remetente, arquivo, motivo: 'Mesma autenticação do banco e mesmo valor de um depósito já lançado', original_tabela: 'deposito', original_id: orig.id,
+        valor, fornecedor: dadosIA?.fornecedor || null, data_documento: dataDoc, hora_documento: horaDoc, autenticacao: dadosIA.autenticacao, legenda: dadosIA?.descricao || null });
+      return null;
+    }
+  }
   const arqHash = hashArquivo(arquivo);
   const { lastInsertRowid: id } = stmtInsDep.run(valor, remetente, dadosIA?.banco||null, dadosIA?.pix||null, dadosIA?.descricao||'Deposito via WhatsApp', arquivo, arqHash, JSON.stringify(dadosIA), valor, dataDoc, horaDoc, dadosIA?.autenticacao||null);
   log(`DEPOSITO #${id} criado — R$ ${valor.toFixed(2)} — ${remetente}`);
@@ -432,7 +494,7 @@ function criarDeposito(dadosIA, remetente, arquivo) {
 // reprocessado de fontes diferentes, etc). So aplica quando a hora e conhecida (comprovante
 // PIX/TED normalmente mostra horario exato) — sem hora seria arriscado demais (dois
 // pagamentos iguais no mesmo dia sao possiveis).
-const stmtDespesaEquivalente = db.prepare(`SELECT id FROM despesas WHERE fornecedor=? AND valor=? AND COALESCE(data_documento,substr(data,1,10))=? AND hora_documento=? AND status!='cancelado' LIMIT 1`);
+const stmtDespesaEquivalente = db.prepare(`SELECT id, arquivo FROM despesas WHERE fornecedor=? AND valor=? AND COALESCE(data_documento,substr(data,1,10))=? AND hora_documento=? AND status!='cancelado' LIMIT 1`);
 function criarDespesa(dadosIA, remetente, arquivo) {
   const isOrcamento = !!(dadosIA?.is_orcamento || dadosIA?.tipo_doc === 'orcamento');
   const contaComoDespesa = ehDespesaReal(dadosIA?.tipo_doc) && !isOrcamento;
@@ -440,11 +502,21 @@ function criarDespesa(dadosIA, remetente, arquivo) {
   const dataDoc  = extrairDataDocumento(JSON.stringify(dadosIA));
   const horaDoc  = extrairHoraDocumento(JSON.stringify(dadosIA));
 
+  // Reenvio de comprovante ja lancado (de qualquer periodo): nao soma; registra o reuso para a Auditoria.
+  const reuso = (orig, motivo) => {
+    registrarReuso({ remetente, arquivo, motivo, original_tabela: 'despesa', original_id: orig.id, valor, fornecedor: dadosIA?.fornecedor || null,
+      data_documento: dataDoc, hora_documento: horaDoc, autenticacao: dadosIA?.autenticacao || null, legenda: dadosIA?.descricao || null });
+    return orig.id;
+  };
+  if (autValida(dadosIA?.autenticacao) && valor) {
+    const orig = stmtDespMesmaAut.get(dadosIA.autenticacao, valor);
+    if (orig && !mesmaMensagem(orig.arquivo, arquivo)) return reuso(orig, 'Mesma autenticação do banco e mesmo valor de uma despesa já lançada');
+  }
   if (dadosIA?.fornecedor && valor && dataDoc && horaDoc) {
     const equivalente = stmtDespesaEquivalente.get(dadosIA.fornecedor, valor, dataDoc, horaDoc);
+    if (equivalente && !mesmaMensagem(equivalente.arquivo, arquivo)) return reuso(equivalente, 'Mesmo fornecedor, valor, data e hora de uma despesa já lançada');
     if (equivalente) {
-      log(`Despesa equivalente ja existe (#${equivalente.id} — mesmo fornecedor/valor/data/hora) — ignorando duplicata`, 'warn');
-      if (arquivo) { try { fs.unlinkSync(path.join(PASTA_FOTOS, arquivo)); } catch(e) {} }
+      log(`Despesa equivalente ja existe (#${equivalente.id} — mesma mensagem) — ignorando`, 'warn');
       return equivalente.id;
     }
   }
@@ -504,10 +576,11 @@ function prefixoArquivoMsg(msg) {
 }
 const stmtDespPorPrefixo = db.prepare(`SELECT id FROM despesas WHERE arquivo LIKE ? LIMIT 1`);
 const stmtDepPorPrefixo  = db.prepare(`SELECT id FROM depositos WHERE arquivo LIKE ? LIMIT 1`);
+const stmtReusoPorPrefixo = db.prepare(`SELECT id FROM reusos WHERE arquivo LIKE ? LIMIT 1`);
 function mensagemJaLancada(msg) {
   const pref = prefixoArquivoMsg(msg);
   if (!pref) return false;
-  return !!(stmtDespPorPrefixo.get(pref + '%') || stmtDepPorPrefixo.get(pref + '%'));
+  return !!(stmtDespPorPrefixo.get(pref + '%') || stmtDepPorPrefixo.get(pref + '%') || stmtReusoPorPrefixo.get(pref + '%'));
 }
 
 async function processarMidia(msg, nomeRemetente) {
@@ -705,10 +778,16 @@ async function processarMidiaInterno(msg, nomeRemetente) {
     const jaDesp = db.prepare(`SELECT id, arquivo FROM despesas WHERE arquivo_hash=? LIMIT 1`).get(hash);
     const jaDep  = db.prepare(`SELECT id, arquivo FROM depositos WHERE arquivo_hash=? LIMIT 1`).get(hash);
     if (jaDesp || jaDep) {
-      log(`Midia identica ja processada (despesa #${jaDesp?.id||'-'} / deposito #${jaDep?.id||'-'}) — ignorando duplicata`, 'warn');
-      // So apaga o arquivo recem-gravado se ele NAO for o proprio arquivo original ja
-      // referenciado no banco (nome deterministico pode coincidir com o original).
       const arquivoOriginal = jaDesp?.arquivo || jaDep?.arquivo;
+      if (arquivoOriginal !== nome && !mesmaMensagem(arquivoOriginal, nome)) {
+        // Outra mensagem com a MESMA foto de um comprovante ja lancado (de qualquer periodo): reuso. Mantem o arquivo.
+        const o = jaDesp ? db.prepare(`SELECT * FROM despesas WHERE id=?`).get(jaDesp.id) : db.prepare(`SELECT * FROM depositos WHERE id=?`).get(jaDep.id);
+        registrarReuso({ remetente: nomeRemetente, arquivo: nome, arquivo_hash: hash, motivo: 'Foto idêntica a um comprovante já lançado',
+          original_tabela: jaDesp ? 'despesa' : 'deposito', original_id: o.id, valor: o.valor, fornecedor: o.fornecedor || o.remetente || null,
+          data_documento: o.data_documento, hora_documento: o.hora_documento, autenticacao: o.autenticacao, legenda: (msg.body || '').substring(0, 500) || null });
+        return 'duplicada';
+      }
+      log(`Midia identica ja processada (despesa #${jaDesp?.id||'-'} / deposito #${jaDep?.id||'-'}) — mesma mensagem, ignorando`, 'warn');
       if (arquivoOriginal !== nome) { try { fs.unlinkSync(fPath); } catch(e) {} }
       return 'duplicada';
     }
@@ -795,6 +874,12 @@ catch (e) { log(`Health check nao carregou: ${e.message}`, 'warn'); }
 let espelhoNuvem = null;
 try { if (!MODO_SOMBRA) espelhoNuvem = require('./espelho_nuvem')({ db, sb: sbBase, log, lider, client, grupo: GRUPO_ALVO, pastaFotos: PASTA_FOTOS }); }
 catch (e) { log(`Copia da nuvem para o painel nao carregou: ${e.message}`, 'warn'); }
+// RL so lanca depois de alinhar o SQLite com o Supabase (ver rlAlinhada e espelho_nuvem.js); depois roda a varredura.
+if (espelhoNuvem) espelhoNuvem.alinharAoIniciar(() => {
+  rlAlinhada = true;
+  if (waPronto && rlGrava()) setTimeout(() => processarMensagensPerdidas(), 5000);
+});
+else rlAlinhada = true;
 
 client.on('qr', qr => {
   qrcode.generate(qr, { small: true }, qrAscii => {
@@ -1408,6 +1493,18 @@ const server = http.createServer((req, res) => {
     });
   }
 
+  // ── COMPROVANTE REUTILIZADO: os dois comprovantes e o periodo em que cada um foi usado ──
+  if (url.startsWith('/api/reuso/')) {
+    const id = parseInt(url.split('/').pop());
+    const r = db.prepare('SELECT * FROM reusos WHERE id=?').get(id);
+    if (!r) return jsonResp(res, { erro:'reuso nao encontrado' }, 404);
+    const tab = r.original_tabela === 'deposito' ? 'depositos' : 'despesas';
+    const original = db.prepare(`SELECT * FROM ${tab} WHERE id=?`).get(r.original_id) || null;
+    const deposito = original && original.deposito_id ? db.prepare('SELECT id,data,data_documento,valor,remetente FROM depositos WHERE id=?').get(original.deposito_id) : null;
+    return jsonResp(res, { reuso: { ...r, enviado_em: dataEnvio(r), periodo: periodoDe(dataEnvio(r)) },
+      original: original ? { ...original, enviado_em: dataEnvio(original), periodo: periodoDe(dataEnvio(original)) } : null, deposito, tabela: r.original_tabela });
+  }
+
   if (url === '/api/auditoria') {
     // Fotos duplicadas CONFIRMADAS: mesmo codigo de autenticacao do banco (Cora/Itau/etc)
     // E mesma data+hora+minuto+segundo do comprovante — praticamente certeza absoluta de
@@ -1434,7 +1531,14 @@ const server = http.createServer((req, res) => {
     if (faltandoDesp.length) arquivoAusente.push({ tipo_alerta:'Arquivo Ausente (Despesa)', referencia:`${faltandoDesp.length} lançamento(s) sem foto no servidor`, ocorrencias:faltandoDesp.length, valor_total:faltandoDesp.reduce((s,d)=>s+(d.valor||0),0), primeira:faltandoDesp.reduce((m,d)=>!m||d.data<m?d.data:m,null), ultima:faltandoDesp.reduce((m,d)=>!m||d.data>m?d.data:m,null), tabela:'despesa', ids:faltandoDesp.map(d=>d.id).join(',') });
     if (faltandoDep.length)  arquivoAusente.push({ tipo_alerta:'Arquivo Ausente (Deposito)', referencia:`${faltandoDep.length} depósito(s) sem foto no servidor`, ocorrencias:faltandoDep.length, valor_total:faltandoDep.reduce((s,d)=>s+(d.valor||0),0), primeira:faltandoDep.reduce((m,d)=>!m||d.data<m?d.data:m,null), ultima:faltandoDep.reduce((m,d)=>!m||d.data>m?d.data:m,null), tabela:'deposito', ids:faltandoDep.map(d=>d.id).join(',') });
 
-    return jsonResp(res, [...fotoDupConfirmada,...hashDupDesp,...hashDupDep,...arquivoDupDesp,...arquivoDupDep,...valorDataDup,...nfDup,...semDep,...altosVal,...arquivoAusente]);
+    // Comprovante reutilizado (19/10/2026): reenvio de comprovante ja lancado, em qualquer periodo. Nao foi somado.
+    const reusos = db.prepare('SELECT * FROM reusos ORDER BY id DESC').all().map(r => {
+      const o = db.prepare(`SELECT data, arquivo FROM ${r.original_tabela === 'deposito' ? 'depositos' : 'despesas'} WHERE id=?`).get(r.original_id);
+      return { tipo_alerta:'Comprovante Reutilizado', referencia:`${(r.fornecedor || '—').trim()} — reenviado por ${r.remetente || '?'} em ${periodoDe(dataEnvio(r)).texto}; original ${r.original_tabela} #${r.original_id} usado em ${o ? periodoDe(dataEnvio(o)).texto : '?'}`,
+        ocorrencias:2, valor_total:r.valor, primeira:o ? dataEnvio(o) : null, ultima:dataEnvio(r), tabela:'reuso', ids:String(r.id), motivo:r.motivo };
+    });
+
+    return jsonResp(res, [...reusos,...fotoDupConfirmada,...hashDupDesp,...hashDupDep,...arquivoDupDesp,...arquivoDupDep,...valorDataDup,...nfDup,...semDep,...altosVal,...arquivoAusente]);
   }
 
   // ── REPROCESSAR ZERADAS (despesas e depositos, revalida com IA, roda em 2º plano) ──
