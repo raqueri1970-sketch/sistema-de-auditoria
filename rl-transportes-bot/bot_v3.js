@@ -790,6 +790,11 @@ catch (e) { log(`Modulo Obras nao carregou: ${e.message}`, 'warn'); }
 // Health check (09/10/2026): publica o estado em capturador_status a cada 1 min. So le; nunca derruba o bot.
 try { require('./capturador_status')({ client, sb: sbBase, db, obras, log, ia, lider, versao: MODO_SOMBRA ? 'bot_v3 (sombra)' : 'bot_v3' }); }
 catch (e) { log(`Health check nao carregou: ${e.message}`, 'warn'); }
+// Painel da RL no D90 (19/10/2026): em reserva, copia a RL da nuvem (Supabase) para o SQLite local a cada 3 min,
+// senao o painel 3456 fica parado no dia em que a nuvem assumiu. Ver espelho_nuvem.js.
+let espelhoNuvem = null;
+try { if (!MODO_SOMBRA) espelhoNuvem = require('./espelho_nuvem')({ db, sb: sbBase, log, lider, client, grupo: GRUPO_ALVO, pastaFotos: PASTA_FOTOS }); }
+catch (e) { log(`Copia da nuvem para o painel nao carregou: ${e.message}`, 'warn'); }
 
 client.on('qr', qr => {
   qrcode.generate(qr, { small: true }, qrAscii => {
@@ -1974,6 +1979,14 @@ const server = http.createServer((req, res) => {
       }
     });
     return;
+  }
+
+  // ── COPIA DA NUVEM PARA O PAINEL (so em reserva) ───────────────
+  // GET: estado da ultima copia. POST: copia agora.
+  if (url === '/api/espelho-nuvem') {
+    if (!espelhoNuvem) return jsonResp(res, { ativo:false, motivo:'modulo nao carregado' });
+    if (req.method === 'POST') { espelhoNuvem.puxar('manual').then(r => jsonResp(res, { ok:!!r, resumo:r, ...espelhoNuvem.estado() })); return; }
+    return jsonResp(res, espelhoNuvem.estado());
   }
 
   // ── STATUS DO CLIENTE WHATSAPP ─────────────────────────────────

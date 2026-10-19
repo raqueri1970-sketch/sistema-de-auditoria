@@ -18,6 +18,7 @@ Fluxo: WhatsApp (grupo "RL TRANSPORTES") → leitura do comprovante → SQLite l
 | `obras_bot.js` | Módulo Obras (08/10/2026): grupo "Adm Obras Esposende" → `obras_comprovantes` + bucket `obras-comprovantes`. Carregado pelo `bot_v3.js`, mesma sessão |
 | `leitor_pdf.py` | Lê PIX e boleto do Cora direto do texto do PDF, sem IA e sem custo. Usado antes da IA |
 | `sync_supabase.js` | Espelho completo SQLite → Supabase (upsert + remove o que foi excluído localmente) |
+| `espelho_nuvem.js` | Só na instância em reserva (D90 com a nuvem no ar): copia a RL do Supabase para o SQLite local a cada 3 min e baixa do WhatsApp os comprovantes lançados pela nuvem, para o painel 3456 ficar em dia |
 | `ia.js` | Leitura com IA da RL e de Obras: Claude primeiro, Gemini (vários modelos) de reserva, respeitando a cota diária |
 | `lider.js` | Uma instância só gravando: com a nuvem no ar, o D90 fica em reserva sozinho |
 
@@ -47,6 +48,7 @@ Contexto: de 20/09 a 27/09/2026 o bot ficou sem WhatsApp, e ao voltar só buscou
 | `POST /api/reprocessar-zeradas` | Relê com IA ou leitor local todos os lançamentos com valor 0 |
 | `POST /api/reconciliar-fifo` | Revincula despesas a depósitos pela data e depois espelha no Supabase |
 | `GET /api/status-wa` | Estado da conexão com o WhatsApp |
+| `GET/POST /api/espelho-nuvem` | Estado da cópia nuvem → painel / copia agora (só em reserva) |
 
 ## Comandos
 
