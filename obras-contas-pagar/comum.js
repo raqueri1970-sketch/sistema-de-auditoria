@@ -386,6 +386,54 @@ const carregarObras = () => todos(() => sb.from('obras').select('id,codigo,nome,
 const carregarPrestacoes = () => todos(() => sb.from('obras_prestacoes').select('id,numero,responsavel,periodo_inicio,periodo_fim,valor_declarado,quitada_em').order('periodo_inicio', {ascending: false, nullsFirst: false}));
 const nomeObra = n => String(n || '').replace(/^Obras\/Reformas — /, '').replace(/^Loja /, '') || 'Sem obra';
 const semPrestador = p => !p || /^a definir/i.test(p) || p === 'Desconhecido';
+// 16/10/2026: pagamento que a EMPRESA fez direto a um terceiro e o prestador só avisou por texto no grupo (favorecido/PIX,
+// sem foto). Não é gasto do prestador nem reembolso: fica fora dos totais da conta dele e aparece numa seção própria.
+// Ex.: Jhony avisou em 13/10 Eplan R$ 61.000, Wagner Lima R$ 5.000 e L Jackson R$ 1.600 — somados davam R$ 74 mil na semana dele.
+const pagoDireto = d => !d.arquivo_path && /financeiro|esposende|presidente/i.test(String(d.pagador || ''));
+function secaoPagoDireto(lista) {
+  return {titulo: `Pagos direto pela empresa (${lista.length})`,
+    nota: 'O prestador só avisou no grupo (texto com favorecido e PIX). O dinheiro saiu da empresa direto para o fornecedor: não é gasto do prestador nem reembolso.',
+    cab: ['Data', 'Avisado por', 'Favorecido', 'Descrição', 'Valor'], direita: [4],
+    linhas: lista.map(d => [dBRano(d.data_despesa), d.prestador, d.fornecedor || '', String(d.descricao || '').replace(/\s+/g, ' ').slice(0, 140), V(d.valor)]),
+    rodape: ['Total', '', '', '', V(lista.reduce((t, d) => t + Number(d.valor || 0), 0))]};
+}
+
+// ---------- Caixa do prestador (16/10/2026): o dinheiro da empresa que está com ele, como um extrato bancário ----------
+// Regra do fundo fixo: a empresa adianta (ex.: R$ 10 mil), ele gasta (sai do caixa dele), a empresa reembolsa (volta ao caixa).
+// Caixa hoje = adiantamento ainda não descontado − despesas ainda não reembolsadas (= crédito − gasto em aberto).
+// Negativo = ele gastou mais do que tinha e a empresa deve a diferença.
+const caixaPrestador = s => Math.round((Number(s && s.adiantamento_disponivel || 0) - Number(s && s.em_aberto || 0)) * 100) / 100;
+// Lançamentos do livro-caixa: + adiantamento, − despesa, + reembolso. O saldo anterior fecha a conta: o saldo final é sempre o caixa de hoje.
+function livroCaixa(prestador, desp, pags, adis, saldo, periodo = {}) {
+  const inicioPadrao = adis.filter(a => !a.cancelado).map(a => a.data).sort()[0] || null;
+  const de = periodo.de || inicioPadrao, ate = periodo.ate || null;
+  const mov = [];
+  for (const a of adis) if (!a.cancelado && a.data)
+    mov.push({data: a.data, ordem: 0, hist: 'Adiantamento', ent: Number(a.valor), sai: 0});
+  for (const d of desp) if (d.status === 'lancado' && d.situacao !== 'recusado' && !pagoDireto(d) && d.data_despesa)
+    mov.push({data: String(d.data_despesa).slice(0, 10), ordem: 1, hist: `Despesa · ${d.fornecedor || 'fornecedor não lido'} · ${CATS[d.categoria] || d.categoria || ''}`, ent: 0, sai: Number(d.valor)});
+  for (const p of pags) if (['pago', 'auditado', 'pendencia'].includes(p.status) && Number(p.valor_pago) > 0)
+    mov.push({data: String(p.pago_em || p.created_at).slice(0, 10), ordem: 2,
+      hist: `Reembolso nº ${p.numero}${p.forma_pagamento ? ' · ' + (FORMAS[p.forma_pagamento] || p.forma_pagamento) : ''}`, ent: Number(p.valor_pago), sai: 0});
+  mov.sort((a, b) => a.data.localeCompare(b.data) || a.ordem - b.ordem);
+  const hoje = caixaPrestador(saldo), depoisDoInicio = mov.filter(m => !de || m.data >= de);
+  let corr = Math.round((hoje - depoisDoInicio.reduce((t, m) => t + m.ent - m.sai, 0)) * 100) / 100;
+  const linhas = [{data: de, hist: 'Saldo anterior', ent: 0, sai: 0, saldo: corr}];
+  let ent = 0, sai = 0;
+  for (const m of depoisDoInicio) {
+    corr = Math.round((corr + m.ent - m.sai) * 100) / 100;
+    if (ate && m.data > ate) continue;
+    ent += m.ent; sai += m.sai; linhas.push({...m, saldo: corr});
+  }
+  return {de, ate, linhas, entradas: ent, saidas: sai, saldoFinal: linhas[linhas.length - 1].saldo, hoje};
+}
+function secaoLivroCaixa(lc) {
+  return {titulo: 'Extrato de caixa',
+    nota: 'Entrada = adiantamento ou reembolso que a empresa mandou. Saída = despesa que ele pagou com o dinheiro. Saldo = dinheiro da empresa que está com ele (negativo = a empresa deve a ele).',
+    cab: ['Data', 'Histórico', 'Entrada', 'Saída', 'Saldo'], direita: [2, 3, 4],
+    linhas: lc.linhas.map(l => [l.data ? dBRano(l.data) : '', l.hist, l.ent ? V(l.ent) : '', l.sai ? V(l.sai) : '', V(l.saldo)]),
+    rodape: ['', 'Totais do período / saldo final', V(lc.entradas), V(lc.saidas), V(lc.saldoFinal)]};
+}
 
 // ---------- Período e semana (fechamento é semanal: segunda a domingo) ----------
 const somaDias = (iso, n) => { const x = new Date(iso + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
@@ -463,7 +511,24 @@ const quemCurto = q => String(q || '').split('@')[0];
 const celTxt = c => c && typeof c === 'object' ? c.t : c;
 const V = v => ({t: brl(v), n: Number(v || 0)});
 
-// doc = {titulo, subtitulo, resumo: [[rótulo, valor]], secoes: [{titulo, cab, linhas, rodape, direita: [índices de colunas numéricas], nota}], assinaturas: [..], arquivo, paisagem}
+// Cor de cada quadro de resumo pelo significado (16/10/2026): azul = crédito/adiantamento, verde = pago/caixa positivo,
+// laranja = em aberto/a pagar, vermelho = negativo/duplicidade/crítico, roxo = totais de despesas, cinza = informação
+const TONS = {azul: {tela: '#93c5fd', bar: [57, 135, 229], fundo: [235, 243, 254], txt: [29, 78, 216]}, verde: {tela: '#86efac', bar: [22, 163, 74], fundo: [234, 249, 239], txt: [21, 128, 61]},
+  laranja: {tela: '#fdba74', bar: [234, 88, 12], fundo: [255, 243, 232], txt: [194, 65, 12]}, vermelho: {tela: '#fca5a5', bar: [220, 38, 38], fundo: [254, 236, 236], txt: [185, 28, 28]},
+  roxo: {tela: '#c4b5fd', bar: [124, 58, 237], fundo: [243, 238, 254], txt: [109, 40, 217]}, cinza: {tela: '#e2e8f0', bar: [148, 163, 184], fundo: [246, 247, 250], txt: [30, 41, 59]}};
+function tomResumo(rotulo, valor) {
+  const l = String(rotulo || '').toLowerCase(), v = String(valor ?? ''), zero = /^(r\$\s*)?0([,.]00)?$|^0 de /i.test(v.trim()), neg = /^[-−]|empresa deve/i.test(v.trim());
+  if (/pix|conta$|recibos|despesas$|semanas em|fornecedores$/.test(l) && !/semanas quitadas/.test(l)) return /recibos|despesas$|fornecedores$/.test(l) ? 'roxo' : 'cinza';
+  if (/pago direto/.test(l)) return 'cinza';  // fora da conta do prestador
+  if (/caixa/.test(l)) return neg ? 'vermelho' : 'verde';
+  if (/duplic|pago a mais|crític|pendênc|recusad/.test(l)) return zero ? 'verde' : 'vermelho';
+  if (/a pagar|em aberto|aberto|aguardando|atenção|com ponto/.test(l)) return zero ? 'verde' : 'laranja';
+  if (/crédito|adiantament/.test(l)) return 'azul';
+  if (/pago|quitad|reembols|pagamentos/.test(l)) return 'verde';
+  if (/despesa|gasto|total|valor/.test(l)) return 'roxo';
+  return 'cinza';
+}
+// doc = {titulo, subtitulo, resumo: [[rótulo, valor]], graficos: [ver svgGrafico], secoes: [{titulo, cab, linhas, rodape, direita: [índices de colunas numéricas], nota}], assinaturas: [..], arquivo, paisagem}
 async function gerarPDF(doc) {
   const JsPDF = await pdfLib();
   const pdf = new JsPDF({orientation: doc.paisagem ? 'landscape' : 'portrait', unit: 'pt', format: 'a4'});
@@ -479,24 +544,45 @@ async function gerarPDF(doc) {
   pdf.setTextColor(20); let y = 92;
   if (doc.resumo && doc.resumo.length) {
     // Caixas do mesmo tamanho, texto centralizado; o valor diminui ou quebra em 2 linhas para nunca sair da caixa
-    const col = Math.min(4, doc.resumo.length), cw = (W - 2 * M) / col, bw = cw - 8, BH = 44;
+    const col = Math.min(4, doc.resumo.length), gapR = 8, bw = (W - 2 * M - gapR * (col - 1)) / col, cw = bw + gapR, BH = 50, pad = 8;
+    // encaixa o texto na largura: diminui a fonte até o mínimo e, se ainda não couber, quebra em 2 linhas
+    const encaixa = (t, max, min, larg) => { let fs = max; pdf.setFontSize(fs); while (fs > min && pdf.getTextWidth(t) > larg) pdf.setFontSize(fs -= .25);
+      return pdf.getTextWidth(t) <= larg ? {fs, ls: [t]} : {fs, ls: pdf.splitTextToSize(t, larg).slice(0, 2)}; };
     doc.resumo.forEach(([l, v], i) => {
-      const x = M + (i % col) * cw, yy = y + Math.floor(i / col) * (BH + 8), cx = x + bw / 2;
-      pdf.setDrawColor(200); pdf.roundedRect(x, yy - 12, bw, BH, 4, 4);
-      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(90); pdf.text(pdfTxt(l), cx, yy, {align: 'center'});
-      pdf.setFont('helvetica', 'bold'); pdf.setTextColor(20);
-      let fs = 11.5; const val = pdfTxt(v);
-      pdf.setFontSize(fs); while (fs > 8 && pdf.getTextWidth(val) > bw - 10) pdf.setFontSize(fs -= .5);
-      if (pdf.getTextWidth(val) > bw - 10) { const ls = pdf.splitTextToSize(val, bw - 10).slice(0, 2); pdf.text(ls, cx, yy + 13, {align: 'center'}); }
-      else pdf.text(val, cx, yy + 17, {align: 'center'});
+      const x = M + (i % col) * cw, top = y - 12 + Math.floor(i / col) * (BH + 8), cx = x + bw / 2;
+      const tom = TONS[tomResumo(l, v)];
+      pdf.setFillColor(...tom.fundo); pdf.setDrawColor(...tom.bar); pdf.setLineWidth(.6); pdf.roundedRect(x, top, bw, BH, 4, 4, 'FD');
+      pdf.setFillColor(...tom.bar); pdf.rect(x + .3, top + 6, 3, BH - 12, 'F');  // faixa colorida à esquerda
+      pdf.setFont('helvetica', 'normal'); pdf.setTextColor(70, 80, 100);
+      const r = encaixa(pdfTxt(l), 8, 6.5, bw - 2 * pad);
+      pdf.setFontSize(r.fs); r.ls.forEach((t, k) => pdf.text(t, cx, top + (r.ls.length > 1 ? 10 : 14) + k * (r.fs + 1.5), {align: 'center'}));
+      pdf.setFont('helvetica', 'bold'); pdf.setTextColor(...tom.txt);
+      const vv = encaixa(pdfTxt(v), 12, 8, bw - 2 * pad), base = top + (r.ls.length > 1 ? 31 : 32);
+      pdf.setFontSize(vv.fs);
+      if (vv.ls.length > 1) vv.ls.forEach((t, k) => pdf.text(t, cx, base - 3 + k * (vv.fs + 1), {align: 'center'}));
+      else pdf.text(vv.ls[0], cx, base + 4, {align: 'center'});
     });
+    pdf.setLineWidth(.5); pdf.setTextColor(20); pdf.setDrawColor(200);
     pdf.setFont('helvetica', 'normal');
     y += Math.ceil(doc.resumo.length / col) * (BH + 8) + 6;
   }
+  if (doc.graficos && doc.graficos.length) {
+    // 2 por linha na folha deitada; 1 por linha (mais estreito) na folha em pé
+    const porLinha = doc.paisagem ? 2 : 1, gap = 12, gw = porLinha === 2 ? (W - 2 * M - gap) / 2 : W - 2 * M;
+    for (let k = 0; k < doc.graficos.length; k += porLinha) {
+      const linha = doc.graficos.slice(k, k + porLinha), alt = linha.map(g => gw * alturaGrafico(g) / 560), gh = Math.max(...alt);
+      if (y + gh > H - 40) { pdf.addPage(); y = 50; }
+      for (let c = 0; c < linha.length; c++) {
+        try { pdf.addImage(await svgPNG(svgGrafico(linha[c]), 560, alturaGrafico(linha[c])), 'PNG', M + c * (gw + gap), y, gw, alt[c]); } catch (e) { console.warn('[PDF] gráfico:', e); }
+      }
+      y += gh + 14;
+    }
+    y += 6;
+  }
   for (const s of doc.secoes || []) {
-    if (y > H - 90) { pdf.addPage(); y = 50; }
+    if (y > H - 130) { pdf.addPage(); y = 50; }  // título não fica sozinho no pé da página
     if (s.titulo) { pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.text(pdfTxt(s.titulo), M, y); pdf.setFont('helvetica', 'normal'); y += 6; }
-    if (s.nota) { pdf.setFontSize(8.5); pdf.setTextColor(90); const ls = pdf.splitTextToSize(pdfTxt(s.nota), W - 2 * M); pdf.text(ls, M, y + 9); y += 9 + ls.length * 10; pdf.setTextColor(20); }
+    // 17/10/2026: relatório sem observações/explicações (pedido do Ricardo) — s.nota não é impresso
     const colStyles = {}; (s.direita || []).forEach(i => colStyles[i] = {halign: 'right'});
     // colunas de valor: alinhadas à direita e sem quebra (as casas decimais ficam uma embaixo da outra)
     (s.direita || []).forEach(i => colStyles[i] = {halign: 'right', overflow: 'visible', cellWidth: 72});
@@ -517,7 +603,7 @@ async function gerarPDF(doc) {
   const n = pdf.internal.getNumberOfPages();
   for (let i = 1; i <= n; i++) { pdf.setPage(i); pdf.setFontSize(8); pdf.setTextColor(120);
     const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
-    pdf.text(`Pagina ${i} de ${n}`, W - M, H - 18, {align: 'right'}); pdf.text('Sistema de Auditoria Esposende - documento gerado automaticamente', M, H - 18); }
+    pdf.text(`Pagina ${i} de ${n}`, W - M, H - 18, {align: 'right'}); pdf.text('Esposende - Obras & Reformas', M, H - 18); }
   pdf.save((doc.arquivo || doc.titulo).normalize('NFD').replace(/[^A-Za-z0-9._-]+/g, '_') + '.pdf');
 }
 
@@ -555,29 +641,38 @@ async function pdfPagamento(pagId) {
 // Extrato completo de um prestador (despesas, pagamentos, adiantamentos e saldo). periodo = {de, ate} opcional.
 function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   const noPer = d => (!periodo.de || d >= periodo.de) && (!periodo.ate || d <= periodo.ate);
-  const lanc = desp.filter(d => d.status === 'lancado' && noPer(d.data_despesa || ''));
+  const lancTodos = desp.filter(d => d.status === 'lancado' && noPer(d.data_despesa || ''));
+  const lanc = lancTodos.filter(d => !pagoDireto(d)), diretos = lancTodos.filter(pagoDireto);
   const abertos = desp.filter(d => Number(d.saldo) > 0);
   const linhaD = d => [dBRano(d.data_despesa), d.fornecedor || '', CATS[d.categoria] || d.categoria || '', V(d.valor), V(d.valor_pago), V(d.saldo), (SIT[d.situacao] || [d.situacao])[0]];
   const soma = (a, f) => a.reduce((t, x) => t + Number(x[f] || 0), 0);
   const pg = pags.filter(p => p.status !== 'cancelado' && noPer((p.pago_em || p.created_at || '').slice(0, 10)));
   const ad = adis.filter(a => !a.cancelado && noPer(a.data));
   const per = periodo.de || periodo.ate ? `Período ${periodo.de ? dBRano(periodo.de) : 'início'} a ${periodo.ate ? dBRano(periodo.ate) : 'hoje'}` : 'Todo o período';
+  const lc = livroCaixa(prestador, desp, pags, adis, saldo, periodo), porCat = {};
+  for (const d of lanc) if (d.situacao !== 'recusado') porCat[CATS[d.categoria] || d.categoria || 'Outros'] = (porCat[CATS[d.categoria] || d.categoria || 'Outros'] || 0) + Number(d.valor);
   return {titulo: `Extrato do prestador - ${prestador}`, subtitulo: `Obras & Reformas - Esposende - ${per}`,
-    resumo: [['Despesas no período', brl(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor'))], ['Pago no período', brl(soma(lanc, 'valor_pago'))],
-      ['Em aberto (hoje)', brl(saldo.em_aberto)], ['Adiantamento a descontar', brl(saldo.adiantamento_disponivel)],
-      ['TOTAL A PAGAR (hoje)', brl(saldo.saldo_devedor)],
-      ['PIX / conta', saldo.pix_chave ? `${saldo.pix_tipo || ''} ${saldo.pix_chave}` : (saldo.banco ? `${saldo.banco} ${saldo.agencia || ''} ${saldo.conta || ''}` : 'nao cadastrado')]],
+    graficos: [{titulo: 'Caixa com o prestador dia a dia', tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'},
+      {titulo: 'Despesas do período por categoria', tipo: 'barras', itens: Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({rotulo: k, a: v}))}],
+    resumo: [['Caixa com o prestador (hoje)', (caixaPrestador(saldo) < 0 ? 'empresa deve ' : '') + brl(Math.abs(caixaPrestador(saldo)))],
+      ['Despesas no período', brl(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor'))], ['Pago no período', brl(soma(lanc, 'valor_pago'))],
+      ['Em aberto (hoje)', brl(saldo.em_aberto)], ['Crédito de adiantamento', brl(saldo.adiantamento_disponivel)],
+      ['Total a pagar (hoje)', brl(saldo.saldo_devedor)],
+      ...(diretos.length ? [['Pago direto pela empresa', brl(soma(diretos, 'valor'))]] : []),
+    ],
     secoes: [
+      secaoLivroCaixa(lc),
       {titulo: `Contas a pagar em aberto (${abertos.length})`, nota: 'Saldo acumulado de todas as semanas ainda não pagas.', cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Situação'],
         linhas: abertos.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total', V(soma(abertos, 'valor')), V(soma(abertos, 'valor_pago')), V(soma(abertos, 'saldo')), '']},
-      {titulo: `Pagamentos (${pg.length})`, cab: ['Nº', 'Data', 'Despesas', 'Adiant. desc.', 'Valor pago', 'Situação', 'Aprovado / pago por'],
-        linhas: pg.map(p => [p.numero, dBRano((p.pago_em || p.created_at).slice(0, 10)), V(p.valor_itens), V(p.valor_abatido), V(p.valor_pago ?? p.valor_aprovado),
-          (PAG[p.status] || [p.status])[0], `${p.aprovado_por || ''}${p.pago_por ? ' / ' + p.pago_por : ''}`]), direita: [2, 3, 4],
-        rodape: ['', '', V(soma(pg, 'valor_itens')), V(soma(pg, 'valor_abatido')), V(pg.reduce((t, p) => t + Number(p.valor_pago ?? p.valor_aprovado), 0)), '', '']},
-      ...(ad.length ? [{titulo: `Adiantamentos (${ad.length})`, cab: ['Data', 'Valor', 'Observação', 'Registrado por'],
-        linhas: ad.map(a => [dBRano(a.data), V(a.valor), a.observacao || '', a.registrado_por || '']), direita: [1], rodape: ['Total', V(soma(ad, 'valor')), '', '']}] : []),
+      {titulo: `Pagamentos (${pg.length})`, cab: ['Nº', 'Data', 'Despesas', 'Valor pago', 'Forma', 'Situação'],
+        linhas: pg.map(p => [p.numero, dBRano((p.pago_em || p.created_at).slice(0, 10)), V(p.valor_itens), V(p.valor_pago ?? p.valor_aprovado),
+          FORMAS[p.forma_pagamento] || p.forma_pagamento || '', (PAG[p.status] || [p.status])[0]]), direita: [2, 3],
+        rodape: ['', 'Total', V(soma(pg, 'valor_itens')), V(pg.reduce((t, p) => t + Number(p.valor_pago ?? p.valor_aprovado), 0)), '', '']},
+      ...(ad.length ? [{titulo: `Adiantamentos (${ad.length})`, cab: ['Data', 'Valor'],
+        linhas: ad.map(a => [dBRano(a.data), V(a.valor)]), direita: [1], rodape: ['Total', V(soma(ad, 'valor'))]}] : []),
       {titulo: `Todas as despesas do período (${lanc.length})`, cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Pago', 'Em aberto', 'Situação'],
-        linhas: lanc.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total (sem recusadas)', V(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor')), V(soma(lanc, 'valor_pago')), V(soma(lanc, 'saldo')), '']}],
+        linhas: lanc.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total (sem recusadas)', V(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor')), V(soma(lanc, 'valor_pago')), V(soma(lanc, 'saldo')), '']},
+      ...(diretos.length ? [secaoPagoDireto(diretos)] : [])],
     assinaturas: ['Presidente', `Prestador: ${prestador}`], arquivo: `extrato_${prestador}_${hojeISO()}`, paisagem: false};
 }
 const pdfExtrato = (...a) => gerarPDF(modeloExtrato(...a));
@@ -595,13 +690,66 @@ function baixarCSVModelo(m) {
 // Mostra o mesmo modelo do PDF na tela
 function htmlModelo(m) {
   const cel = (c, i, s) => `<td class="${(s.direita || []).includes(i) ? 'r' : ''}">${esc(celTxt(c))}</td>`;
-  return `${m.resumo ? `<div class="grid" style="margin:10px 0">${m.resumo.map(([l, v]) => `<div class="card kpi"><div class="l">${esc(l)}</div><div class="v" style="font-size:19px">${esc(v)}</div></div>`).join('')}</div>` : ''}
-    ${m.secoes.map(s => `<div class="card" style="margin-top:12px"><b>${esc(s.titulo || '')}</b>${s.nota ? `<div class="small mut">${esc(s.nota)}</div>` : ''}
+  return `${m.resumo ? `<div class="grid" style="margin:10px 0">${m.resumo.map(([l, v]) => `<div class="card kpi t-${tomResumo(l, v)}"><div class="l">${esc(l)}</div><div class="v" style="font-size:19px">${esc(v)}</div></div>`).join('')}</div>` : ''}
+    ${m.graficos && m.graficos.length ? `<div class="g2 graf-rel">${m.graficos.map(g => `<div>${svgGrafico(g)}</div>`).join('')}</div>` : ''}
+    ${m.secoes.map(s => `<div class="card" style="margin-top:12px"><b>${esc(s.titulo || '')}</b>
       ${s.linhas.length ? `<div class="tw"><table><thead><tr>${s.cab.map((h, i) => `<th class="${(s.direita || []).includes(i) ? 'r' : ''}">${esc(h)}</th>`).join('')}</tr></thead>
       <tbody>${s.linhas.slice(0, 400).map(l => `<tr>${l.map((c, i) => cel(c, i, s)).join('')}</tr>`).join('')}</tbody>
       ${s.rodape ? `<tfoot><tr>${s.rodape.map((c, i) => cel(c, i, s)).join('')}</tr></tfoot>` : ''}</table></div>
       ${s.linhas.length > 400 ? `<div class="small mut">Mostrando 400 de ${s.linhas.length} linhas na tela — o PDF e a planilha trazem todas.</div>` : ''}` : '<div class="small mut">Nada no filtro.</div>'}</div>`).join('')}`;
 }
+
+// ---------- Gráficos dos relatórios (16/10/2026): o mesmo desenho na tela (SVG) e no PDF (SVG → imagem) ----------
+// g = {titulo, tipo: 'barras' (horizontal) | 'colunas' (vertical) | 'linha' (saldo no tempo), itens: [{rotulo, a, b?}], series: ['nome a', 'nome b'], nota}
+// altura do gráfico: barras crescem com o número de itens (sem espaço vazio); colunas e linha têm altura fixa
+const alturaGrafico = g => g.tipo === 'barras' ? Math.max(110, 44 + Math.min(10, (g.itens || []).filter(i => Number(i.a) || Number(i.b)).length) * ((g.series || []).length > 1 ? 30 : 24) + 4) : 270;
+function svgGrafico(g, W = 560, H = alturaGrafico(g)) {
+  const X = t => String(t == null ? '' : t).replace(/[&<>"]/g, m => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[m]));
+  const corta = (t, n) => { t = String(t || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+  const C = ['#3987e5', '#d95926'], F = 'font-family="Helvetica,Arial,sans-serif"', txt = '#1f2937', mut = '#6b7280', grade = '#e5e7eb';
+  const it = (g.itens || []).filter(i => Number(i.a) || Number(i.b)), duas = it.some(i => i.b != null) && (g.series || []).length > 1;
+  let o = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><rect width="${W}" height="${H}" rx="10" fill="#fff" stroke="#e2e8f0"/>`;
+  o += `<text x="14" y="22" ${F} font-size="13" font-weight="700" fill="${txt}">${X(g.titulo)}</text>`;
+  if (duas) g.series.forEach((n, k) => { const lx = W - 14 - (g.series.length - k) * 110; o += `<rect x="${lx}" y="12" width="10" height="10" rx="2" fill="${C[k]}"/><text x="${lx + 14}" y="21" ${F} font-size="10.5" fill="${mut}">${X(corta(n, 16))}</text>`; });
+  if (!it.length) return o + `<text x="${W / 2}" y="${H / 2}" ${F} font-size="12" fill="${mut}" text-anchor="middle">Sem dados no filtro</text></svg>`;
+  const top = 36, base = H - 8;
+  if (g.tipo === 'barras') {
+    const l = it.slice(0, 10), max = Math.max(1, ...l.map(i => Math.max(Number(i.a) || 0, Number(i.b) || 0)));
+    const lab = 172, x0 = 14 + lab, larg = W - x0 - 70, h = Math.min(duas ? 30 : 24, (base - top) / l.length);
+    l.forEach((i, k) => { const y = top + k * h, bh = duas ? (h - 6) / 2 : h - 7;
+      o += `<text x="${x0 - 8}" y="${y + h / 2 + 4}" ${F} font-size="10.5" fill="${txt}" text-anchor="end">${X(corta(i.rotulo, 30))}</text>`;
+      [i.a, duas ? i.b : null].forEach((v, s2) => { if (v == null) return; const w = Math.max(1.5, (Number(v) || 0) / max * larg), yy = y + 2 + s2 * (bh + 1);
+        o += `<rect x="${x0}" y="${yy}" width="${w}" height="${bh}" rx="3" fill="${C[s2]}"/><text x="${x0 + w + 5}" y="${yy + bh / 2 + 3.5}" ${F} font-size="9.5" fill="${mut}">${X(brlCurto(v))}</text>`; }); });
+  } else if (g.tipo === 'colunas') {
+    const l = it.slice(-14), max = Math.max(1, ...l.map(i => Math.max(Number(i.a) || 0, Number(i.b) || 0)));
+    const x0 = 62, x1 = W - 12, y1 = base - 22, alt = y1 - top - 6, gw = (x1 - x0) / l.length, bw = Math.min(28, (gw - 8) / (duas ? 2 : 1));
+    for (let k = 0; k <= 4; k++) { const y = y1 - alt * k / 4; o += `<line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" stroke="${grade}"/><text x="${x0 - 6}" y="${y + 3.5}" ${F} font-size="9" fill="${mut}" text-anchor="end">${X(brlCurto(max * k / 4))}</text>`; }
+    l.forEach((i, k) => { const cx = x0 + gw * k + gw / 2, vs = duas ? [i.a, i.b] : [i.a];
+      vs.forEach((v, s2) => { const h = Math.max(0, (Number(v) || 0) / max * alt), x = cx - (vs.length * bw) / 2 + s2 * bw; o += `<rect x="${x + 1}" y="${y1 - h}" width="${bw - 2}" height="${h}" rx="2" fill="${C[s2]}"/>`; });
+      if (l.length <= 8) o += `<text x="${cx}" y="${y1 - Math.max(0, (Number(i.a) || 0) / max * alt) - 4}" ${F} font-size="8.5" fill="${mut}" text-anchor="middle">${X(brlCurto(i.a))}</text>`;
+      o += `<text x="${cx}" y="${y1 + 14}" ${F} font-size="9.5" fill="${txt}" text-anchor="middle">${X(corta(i.rotulo, l.length > 10 ? 6 : 11))}</text>`; });
+  } else {  // linha: saldo ao longo do tempo (pode ficar negativo)
+    const l = it.length > 60 ? it.filter((_, k) => k % Math.ceil(it.length / 60) === 0 || k === it.length - 1) : it, vs = l.map(i => Number(i.a) || 0);
+    const mn = Math.min(0, ...vs), mx = Math.max(0, ...vs), amp = (mx - mn) || 1, x0 = 62, x1 = W - 70, y1 = base - 22, alt = y1 - top - 6;
+    const px = k => l.length === 1 ? (x0 + x1) / 2 : x0 + (x1 - x0) * k / (l.length - 1), py = v => y1 - (v - mn) / amp * alt;
+    for (let k = 0; k <= 4; k++) { const v = mn + amp * k / 4, y = py(v); o += `<line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" stroke="${grade}"/><text x="${x0 - 6}" y="${y + 3.5}" ${F} font-size="9" fill="${mut}" text-anchor="end">${X(brlCurto(v))}</text>`; }
+    o += `<line x1="${x0}" x2="${x1}" y1="${py(0)}" y2="${py(0)}" stroke="#94a3b8" stroke-dasharray="4 3"/>`;
+    const pts = l.map((i, k) => `${px(k).toFixed(1)},${py(vs[k]).toFixed(1)}`).join(' ');
+    o += `<polygon points="${px(0)},${py(0)} ${pts} ${px(l.length - 1)},${py(0)}" fill="${C[0]}" fill-opacity=".12"/><polyline points="${pts}" fill="none" stroke="${C[0]}" stroke-width="2.2" stroke-linejoin="round"/>`;
+    l.forEach((i, k) => { if (vs[k] < 0) o += `<circle cx="${px(k)}" cy="${py(vs[k])}" r="2.6" fill="#dc2626"/>`; });
+    const ult = vs[vs.length - 1]; o += `<text x="${px(l.length - 1) + 6}" y="${py(ult) + 4}" ${F} font-size="10.5" font-weight="700" fill="${ult < 0 ? '#dc2626' : '#15803d'}">${X(brlCurto(ult))}</text>`;
+    [0, Math.floor((l.length - 1) / 2), l.length - 1].filter((k, j, a) => a.indexOf(k) === j).forEach(k => o += `<text x="${px(k)}" y="${y1 + 14}" ${F} font-size="9.5" fill="${txt}" text-anchor="middle">${X(l[k].rotulo)}</text>`);
+  }
+  return o + '</svg>';
+}
+// SVG → PNG (para o jsPDF): desenha num canvas 2x para ficar nítido na impressão
+function svgPNG(svg, W, H) {
+  return new Promise((ok, erro) => { const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); c.width = W * 2; c.height = H * 2;
+    const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height); ok(c.toDataURL('image/png')); };
+    img.onerror = () => erro(new Error('gráfico não desenhou')); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
+}
+// Saldo do caixa do prestador dia a dia (último saldo de cada data), a partir do livro-caixa
+const serieCaixa = lc => { const m = new Map(); for (const l of lc.linhas) if (l.data) m.set(l.data, l.saldo); return [...m].map(([d, v]) => ({rotulo: dBR(d), a: v})); };
 
 // ---------- Gráficos (SVG próprio, com dica ao passar o mouse/tocar) ----------
 const COR = {s1: '#3987e5', s2: '#d95926'};

@@ -9,7 +9,6 @@ require('dotenv').config();
 
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode    = require('qrcode-terminal');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Database  = require('better-sqlite3');
 const puppeteer = require('puppeteer');
 const http      = require('http');
@@ -39,8 +38,11 @@ if (sbBase && process.env.SUPABASE_ROBO_EMAIL && process.env.SUPABASE_ROBO_SENHA
 } else if (sbBase) {
   console.warn('Supabase: SUPABASE_ROBO_EMAIL/SENHA ausentes no .env — a copia para o Supabase vai falhar (o SQLite segue normal).');
 }
+// Trava de instancia (lider.js): criada mais abaixo, depois do log. Enquanto nao existe, nao bloqueia nada.
+let lider = null;
+const rlGrava = () => !lider || lider.rlPode();
 function sbSync(promise, label) {
-  if (!sb) return;
+  if (!sb || !rlGrava()) return;
   Promise.resolve(promise).then(({ error }) => {
     if (error) log(`Supabase sync falhou (${label}): ${error.message}`, 'warn');
   }).catch(e => log(`Supabase sync falhou (${label}): ${e.message}`, 'warn'));
@@ -49,7 +51,7 @@ function sbSync(promise, label) {
 // inteiro de uma vez — mais simples e seguro espelhar tudo de novo do que tentar
 // acompanhar linha a linha uma operação de restauração de backup).
 async function sbFullResync() {
-  if (!sb) return;
+  if (!sb || !rlGrava()) return;
   try {
     const deps = db.prepare('SELECT * FROM depositos').all();
     const desps = db.prepare('SELECT * FROM despesas').all();
@@ -66,7 +68,6 @@ const GRUPO_ALVO    = process.env.GRUPO_NOME || 'RL TRANSPORTES';
 const PORTA         = parseInt(process.env.PORT || '3456');
 const PASTA_FOTOS   = path.join(process.env.DADOS_DIR || __dirname, 'fotos');
 const DB_PATH       = path.join(process.env.DADOS_DIR || __dirname, MODO_SOMBRA ? 'rl_transportes_sombra.db' : 'rl_transportes.db');
-const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
 
 if (!fs.existsSync(PASTA_FOTOS)) fs.mkdirSync(PASTA_FOTOS, { recursive: true });
 
@@ -260,8 +261,10 @@ function log(evento, nivel = 'info', dados = null) {
   try { stmtInsertLog.run(evento.substring(0,500), nivel, dados ? JSON.stringify(dados).substring(0,2000) : null); } catch {}
 }
 
-// ─── IA GEMINI (GRATUITO) ─────────────────────────────────────────
-const ai = GEMINI_KEY ? new GoogleGenerativeAI(GEMINI_KEY) : null;
+// ─── IA (16/10/2026): Claude primeiro, Gemini (varios modelos) de reserva — ver ia.js ─────────────
+// Antes era so Gemini gratuito, que passou a aceitar 20 leituras POR DIA: o resto do dia ficava sem leitura.
+const ia = require('./ia')({ log: (m, n) => log(m, n) });
+const ai = ia.disponivel() ? ia : null;   // mantido: o resto do codigo testa "if (ai)" para saber se ha IA configurada
 
 const PROMPT_IA = `Voce e um sistema de extracao de dados financeiros de documentos de transportadora.
 Analise a imagem/documento e extraia as informacoes.
@@ -292,8 +295,6 @@ Regras:
 Retorne SOMENTE o JSON, sem markdown, sem explicacao:
 {"valor":null,"data":"YYYY-MM-DD","hora":null,"fornecedor":null,"servico":null,"placa":null,"nf":null,"cnpj":null,"banco":null,"pix":null,"tipo_doc":"outros","descricao":null,"confianca":0.5,"is_orcamento":false,"autenticacao":null}`;
 
-const geminiModel = ai ? ai.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } } }) : null;
-
 // Free tier do Gemini = 5 requisicoes/minuto. Em rajada (upload em lote) isso estoura,
 // entao tentamos 1x, e se vier 429/quota, esperamos e tentamos de novo antes de desistir.
 // Leitor LOCAL de PDF (leitor_pdf.py, sem IA e sem custo). Le o texto dos comprovantes do
@@ -316,28 +317,9 @@ async function extrairComIA(mediaData, mimetype) {
     const local = lerPdfLocal(mediaData);
     if (local && local.valor > 0) { log(`Leitor local de PDF: R$ ${local.valor} — ${local.fornecedor} (sem usar IA)`); return local; }
   }
-  if (!geminiModel) throw new Error('GEMINI_API_KEY nao configurada');
+  if (!ai) throw new Error('nenhuma IA configurada (ANTHROPIC_API_KEY / GEMINI_API_KEY ausentes no .env)');
   const mimeType = (mimetype && (mimetype.startsWith('image/') || mimetype === 'application/pdf')) ? mimetype : 'image/jpeg';
-  for (let tentativa = 1; tentativa <= 3; tentativa++) {
-    try {
-      const result = await geminiModel.generateContent([
-        { inlineData: { mimeType, data: mediaData } },
-        { text: PROMPT_IA }
-      ]);
-      const txt = result.response.text().trim().replace(/^```json?\s*/i,'').replace(/\s*```$/,'');
-      return JSON.parse(txt);
-    } catch (e) {
-      const rateLimited = /429|quota|RESOURCE_EXHAUSTED/i.test(e.message);
-      const overloaded   = /503|Service Unavailable|overloaded/i.test(e.message);
-      if ((rateLimited || overloaded) && tentativa < 3) {
-        const espera = rateLimited ? 20000 : 5000 * tentativa;
-        log(`Gemini: ${rateLimited ? 'limite de requisicoes' : 'servidor sobrecarregado (503)'} — aguardando ${espera/1000}s e tentando de novo...`, 'warn');
-        await new Promise(r => setTimeout(r, espera));
-        continue;
-      }
-      throw e;
-    }
-  }
+  return ia.ler(mediaData, mimeType, PROMPT_IA, { maxTokens: 1024 });
 }
 
 // ─── INFERIR SERVICO PELO FORNECEDOR ───────────────────────────
@@ -435,12 +417,12 @@ function criarDeposito(dadosIA, remetente, arquivo) {
   const arqHash = hashArquivo(arquivo);
   const { lastInsertRowid: id } = stmtInsDep.run(valor, remetente, dadosIA?.banco||null, dadosIA?.pix||null, dadosIA?.descricao||'Deposito via WhatsApp', arquivo, arqHash, JSON.stringify(dadosIA), valor, dataDoc, horaDoc, dadosIA?.autenticacao||null);
   log(`DEPOSITO #${id} criado — R$ ${valor.toFixed(2)} — ${remetente}`);
-  if (sb) sbSync(sb.from('rl_depositos').insert({
+  if (sb) sbSync(sb.from('rl_depositos').upsert({
     id, valor, remetente, banco: dadosIA?.banco||null, pix: dadosIA?.pix||null,
     descricao: dadosIA?.descricao||'Deposito via WhatsApp', arquivo, arquivo_hash: arqHash,
     ocr_json: dadosIA||null, saldo_restante: valor, status: 'ativo',
     data_documento: dataDoc, hora_documento: horaDoc, autenticacao: dadosIA?.autenticacao||null
-  }), `deposito #${id}`);
+  }, { onConflict: 'id' }), `deposito #${id}`);
   return id;
 }
 
@@ -489,13 +471,13 @@ function criarDespesa(dadosIA, remetente, arquivo) {
   if (dadosIA?.fornecedor && contaComoDespesa) stmtUpdForn.run(dadosIA.fornecedor, valor, valor);
   log(`DESPESA #${id} criada — R$ ${valor.toFixed(2)} — ${dadosIA?.fornecedor||'fornecedor desconhecido'}`);
   if (sb) {
-    sbSync(sb.from('rl_despesas').insert({
+    sbSync(sb.from('rl_despesas').upsert({
       id, deposito_id: depId, valor, remetente, fornecedor: dadosIA?.fornecedor||null, servico: servico||null,
       placa, nf: dadosIA?.nf||null, cnpj: dadosIA?.cnpj||null, banco: dadosIA?.banco||null, pix: dadosIA?.pix||null,
       tipo_doc: dadosIA?.tipo_doc||'outros', descricao: dadosIA?.descricao||null, arquivo, arquivo_hash: arqHashDesp,
       ocr_json: dadosIA||null, confianca: dadosIA?.confianca||null, status: 'confirmado',
       data_documento: dataDoc, hora_documento: horaDoc, autenticacao: dadosIA?.autenticacao||null
-    }), `despesa #${id}`);
+    }, { onConflict: 'id' }), `despesa #${id}`);
     if (dadosIA?.fornecedor && contaComoDespesa) {
       sbSync(sb.rpc('rl_upsert_fornecedor', { p_nome: dadosIA.fornecedor, p_valor: valor }), `fornecedor ${dadosIA.fornecedor}`);
     }
@@ -604,23 +586,71 @@ async function baixarMidiaPelaPagina(msg, esperaMs = 30000) {
   }, msg.id._serialized, esperaMs);
 }
 
-async function processarMidiaInterno(msg, nomeRemetente) {
-  let media, erroLib = null;
-  const dataMsg = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleString('pt-BR') : '?';
-  for (let t = 1; t <= 3 && !media; t++) {
-    try { media = await msg.downloadMedia(); if (!media) break; }
-    catch (e) {
+// ─── DOWNLOAD COM LIMITE DE TEMPO + VIGIA DE TRAVAMENTO (16/10/2026) ───────────────────────────────
+// BUG REAL (16/10/2026 ~10:52): o navegador do WhatsApp na nuvem travou. As mensagens continuavam chegando, mas cada
+// download ficava preso ate o limite do puppeteer ("Runtime.callFunctionOn timed out", ~3 min por tentativa, 3 tentativas +
+// caminho alternativo = ~12 min por foto). Como a fila e uma por vez, uma foto presa segurava todas: dezenas de comprovantes
+// de Obras e da RL ficaram sem lancamento. Agora: cada tentativa tem limite de 60 s; se for travamento nao repete pelo mesmo
+// caminho; e 3 travamentos em 15 min sem nenhum download bom = navegador travado -> o processo encerra (codigo 3), o
+// Docker/o .bat do D90 sobe de novo em segundos e a varredura lanca tudo o que ficou para tras.
+const LIMITE_DOWNLOAD_MS = Number(process.env.DOWNLOAD_LIMITE_MS) || 60 * 1000;
+const comLimite = (p, ms, rotulo) => Promise.race([Promise.resolve(p), new Promise((_, rej) =>
+  setTimeout(() => rej(new Error(`${rotulo}: sem resposta em ${Math.round(ms / 1000)}s (navegador travado?)`)), ms))]);
+const ehTravamento = e => /timed out|sem resposta|Target closed|detached|Session closed|Execution context was destroyed/i.test(String(e && e.message || e || ''));
+let travamentos = [];
+// Página "desanexada"/fechada não volta sozinha: nesse estado o bot nem recebe as mensagens novas (16/10/2026 à tarde).
+const paginaMorta = e => /detached Frame|Target closed|Session closed|Execution context was destroyed/i.test(String(e && e.message || e || ''));
+function reiniciarPorPagina(origem, erro) {
+  log(`Pagina do WhatsApp quebrada (${origem}: ${String(erro && erro.message || erro).substring(0, 160)}) — reiniciando o capturador; a varredura lanca o que ficou para tras`, 'error');
+  setTimeout(() => process.exit(3), 1500);
+}
+function registrarTravamento(origem, erro) {
+  if (paginaMorta(erro)) return reiniciarPorPagina(origem, erro);
+  const agora = Date.now();
+  travamentos = travamentos.filter(t => agora - t < 15 * 60 * 1000);
+  travamentos.push(agora);
+  log(`Download sem resposta (${origem}) — ${travamentos.length}/3 em 15 min: ${String(erro && erro.message || erro).substring(0, 160)}`, 'warn');
+  if (travamentos.length >= 3) {
+    log('Navegador do WhatsApp TRAVADO (3 downloads sem resposta em 15 min) — reiniciando o capturador; a varredura lanca o que ficou para tras', 'error');
+    setTimeout(() => process.exit(3), 1500);
+  }
+}
+// Usado pela RL e por Obras. Devolve { media } ou { erro, info }.
+async function baixarMidia(msg, origem = 'RL') {
+  let erroLib = null;
+  for (let t = 1; t <= 3; t++) {
+    try {
+      const media = await comLimite(msg.downloadMedia(), LIMITE_DOWNLOAD_MS, 'downloadMedia');
+      if (media) { travamentos = []; return { media }; }
+      break;
+    } catch (e) {
       erroLib = e;
+      if (ehTravamento(e)) break;              // travou: repetir pelo mesmo caminho so perde mais 1 minuto
       if (t < 3) await new Promise(r => setTimeout(r, 3000 * t));
     }
   }
-  if (!media) {
-    let alt = null;
-    try { alt = await baixarMidiaPelaPagina(msg); }
-    catch (e) { alt = { info: { erro: `download alternativo falhou: ${e.message}` } }; }
+  let alt = null;
+  try { alt = await comLimite(baixarMidiaPelaPagina(msg), LIMITE_DOWNLOAD_MS, 'download alternativo'); }
+  catch (e) { alt = { info: { erro: `download alternativo falhou: ${e.message}` } }; if (ehTravamento(e)) erroLib = erroLib || e; }
+  if (alt && alt.data) {
+    travamentos = [];
+    return { media: { data: alt.data, mimetype: alt.mimetype || 'application/octet-stream', filename: alt.filename }, via: alt.info && alt.info.via, erroLib };
+  }
+  const travou = ehTravamento(erroLib) || /sem resposta/.test(String(alt && alt.info && alt.info.erro || ''));
+  if (travou) registrarTravamento(origem, erroLib || alt.info.erro);
+  return { erro: erroLib ? erroLib.message : 'midia vazia', info: alt && alt.info || null };
+}
+
+async function processarMidiaInterno(msg, nomeRemetente) {
+  let media, erroLib = null;
+  const dataMsg = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleString('pt-BR') : '?';
+  const bx = await baixarMidia(msg, 'RL');
+  media = bx.media; erroLib = bx.erroLib ? bx.erroLib : (bx.erro ? new Error(bx.erro) : null);
+  if (!media || bx.via) {
+    const alt = bx.media ? { data: bx.media.data, mimetype: bx.media.mimetype, filename: bx.media.filename, info: { via: bx.via } } : { info: bx.info };
     if (alt?.data) {
       media = { data: alt.data, mimetype: alt.mimetype || 'application/octet-stream', filename: alt.filename };
-      log(`Midia de ${nomeRemetente} (${dataMsg}) baixada pelo caminho alternativo (${alt.info?.via}) — lib falhou: ${erroLib ? erroLib.message : 'midia vazia'}`, 'warn');
+      if (bx.via) log(`Midia de ${nomeRemetente} (${dataMsg}) baixada pelo caminho alternativo (${alt.info?.via}) — lib falhou: ${erroLib ? erroLib.message : 'midia vazia'}`, 'warn');
     } else {
       log(`Erro baixar midia (msg de ${nomeRemetente} em ${dataMsg}, id ${msg.id?.id||'?'}): ${erroLib ? erroLib.message : 'midia vazia'} — caminho alternativo tambem falhou`, 'error', alt?.info || null);
       return 'erro_download';
@@ -746,17 +776,25 @@ const WA_WEB_VERSION = process.env.WA_WEB_VERSION || '2.3000.1049732041';
 const client = new Client({
   authStrategy: new LocalAuth(),
   ...(WA_WEB_VERSION !== 'auto' ? { webVersion: WA_WEB_VERSION, webVersionCache: { type: 'local', path: path.join(__dirname, '.wwebjs_cache') + path.sep } } : {}),
-  puppeteer: { headless: true, args: ['--no-sandbox','--disable-setuid-sandbox'], ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}) }
+  puppeteer: { headless: true, protocolTimeout: 90 * 1000, args: ['--no-sandbox','--disable-setuid-sandbox'], ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}) }
 });
 
 // ─── MÓDULO OBRAS (08/10/2026): grupo "Adm Obras Esposende" → obras_comprovantes (Supabase) ──
 // Mesma sessão do WhatsApp; não toca no SQLite nem nas tabelas rl_*. Ver obras_bot.js.
+// Uma instancia so gravando (16/10/2026): se a nuvem estiver no ar, o D90 fica em reserva sozinho. Ver lider.js.
+lider = require('./lider')({ sb: sbBase, log, sombra: MODO_SOMBRA });
+setTimeout(() => lider.verificar(), 5000);
 let obras = null;
-try { obras = require('./obras_bot')({ client, log, sb: sbBase, baixarMidiaPelaPagina, sombra: MODO_SOMBRA }); }
+try { obras = require('./obras_bot')({ client, log, sb: sbBase, baixarMidiaPelaPagina, baixarMidia, sombra: MODO_SOMBRA, ia, lider }); }
 catch (e) { log(`Modulo Obras nao carregou: ${e.message}`, 'warn'); }
 // Health check (09/10/2026): publica o estado em capturador_status a cada 1 min. So le; nunca derruba o bot.
-try { require('./capturador_status')({ client, sb: sbBase, db, obras, log, versao: MODO_SOMBRA ? 'bot_v3 (sombra)' : 'bot_v3' }); }
+try { require('./capturador_status')({ client, sb: sbBase, db, obras, log, ia, lider, versao: MODO_SOMBRA ? 'bot_v3 (sombra)' : 'bot_v3' }); }
 catch (e) { log(`Health check nao carregou: ${e.message}`, 'warn'); }
+// Painel da RL no D90 (19/10/2026): em reserva, copia a RL da nuvem (Supabase) para o SQLite local a cada 3 min,
+// senao o painel 3456 fica parado no dia em que a nuvem assumiu. Ver espelho_nuvem.js.
+let espelhoNuvem = null;
+try { if (!MODO_SOMBRA) espelhoNuvem = require('./espelho_nuvem')({ db, sb: sbBase, log, lider, client, grupo: GRUPO_ALVO, pastaFotos: PASTA_FOTOS }); }
+catch (e) { log(`Copia da nuvem para o painel nao carregou: ${e.message}`, 'warn'); }
 
 client.on('qr', qr => {
   qrcode.generate(qr, { small: true }, qrAscii => {
@@ -830,6 +868,7 @@ async function buscarMensagensDesde(grupo, desdeMs, { maxTentativas = 6, esperaM
 
 let varreduraRodando = false;
 async function processarMensagensPerdidas(tentativa = 1, opcoes = {}) {
+  if (!rlGrava()) return { ok:false, erro:`instancia em reserva (${lider.concorrente() || 'verificando'} e a principal)` };
   if (varreduraRodando) return { ok:false, erro:'varredura ja em andamento' };
   varreduraRodando = true;
   let erroVarredura = null;
@@ -897,6 +936,11 @@ async function checarConexao() {
   try { estado = await Promise.race([client.getState(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000))]); } catch(e) {}
   if (estado === 'CONNECTED') {
     falhasEstado = 0;
+    // getState() pode dizer CONNECTED com a página já desanexada: testa a página de verdade.
+    if (client.pupPage) {
+      try { await comLimite(client.pupPage.evaluate(() => 1), 30 * 1000, 'teste da pagina'); }
+      catch (e) { if (paginaMorta(e) || /sem resposta/.test(e.message)) return reiniciarPorPagina('vigia', e); }
+    }
     // Visto em 01/10/2026: apos reiniciar, o WhatsApp conecta (estado CONNECTED, chats
     // acessiveis) mas o evento 'ready' da lib nunca dispara -> a varredura de mensagens
     // perdidas nao rodava. Nesse caso assume pronto e roda a varredura por aqui.
@@ -911,6 +955,7 @@ async function checarConexao() {
   log(`WhatsApp nao conectado (estado: ${estado || 'indisponivel'}) — checagem ${falhasEstado}/2`, 'warn');
   if (falhasEstado >= 2) { falhasEstado = 0; reiniciarCliente(`estado ${estado || 'indisponivel'}`); }
 }
+lider.aoAssumir(() => { if (waPronto && lider.rlPode()) setTimeout(() => processarMensagensPerdidas(), 5000); });
 setTimeout(checarConexao, 2 * 60 * 1000);
 setInterval(checarConexao, 2 * 60 * 1000);
 
@@ -919,7 +964,7 @@ client.on('ready', async () => {
   waPronto = true; falhasEstado = 0;
   log(`Bot conectado! Grupo: "${GRUPO_ALVO}"`);
   log(`Painel: http://localhost:${PORTA}`);
-  log(`IA: ${ai ? 'ATIVA' : 'SEM CHAVE'} | Banco: ${DB_PATH}`);
+  log(`IA: ${ai ? ia.estado() : 'SEM CHAVE'} | Banco: ${DB_PATH}`);
   // Processar mensagens perdidas enquanto o PC estava desligado/desconectado.
   // 30s (antes 8s): da tempo do WhatsApp Web sincronizar o historico do grupo.
   setTimeout(() => processarMensagensPerdidas(), 30000);
@@ -941,7 +986,7 @@ setInterval(() => { if (waPronto) processarMensagensPerdidas(); }, 2 * 60 * 60 *
 // divergentes. sync_supabase.js faz upsert de tudo e remove o que foi excluido localmente.
 let espelhoRodando = false, espelhoPendente = false;
 function sincronizarSupabase(motivo) {
-  if (!sb) return;
+  if (!sb || !rlGrava()) return;
   if (espelhoRodando) { espelhoPendente = true; return; }
   espelhoRodando = true;
   require('child_process').execFile('node', [path.join(__dirname, 'sync_supabase.js'), 'aplicar'], { cwd: __dirname, timeout: 5 * 60 * 1000 },
@@ -958,12 +1003,24 @@ setTimeout(() => sincronizarSupabase('inicio do bot'), 3 * 60 * 1000);
 setInterval(() => sincronizarSupabase('rotina 2h'), 2 * 60 * 60 * 1000 + 20 * 60 * 1000);
 setInterval(() => { reprocessarZeradas({ automatico: true }).catch(e => log(`Erro reprocessar zeradas (auto): ${e.message}`, 'warn')); }, 2 * 60 * 60 * 1000 + 10 * 60 * 1000);
 
+// OBRAS_FROMME_1210 (12/10/2026): o evento 'message' nao dispara para o que sai do proprio numero conectado.
+// 'message_create' cobre essas mensagens; aqui so as enviadas por este numero (fromMe) no grupo de Obras.
+// Duplicidade: processar() checa wa_msg_id (jaLancada) e a fila e serial.
+client.on('message_create', async msg => {
+  if (!msg.fromMe || !msg.hasMedia) return;
+  try {
+    const chat = await msg.getChat();
+    if (chat && chat.isGroup && obras && obras.ehGrupo(chat)) await obras.onMessage(msg, chat);
+  } catch (e) { log(`Erro mensagem propria (obras): ${e.message}`, 'warn'); }
+});
+
 client.on('message', async msg => {
   try {
     const chat = await msg.getChat();
     if (!chat.isGroup) return;
     if (obras && obras.ehGrupo(chat)) { await obras.onMessage(msg, chat); return; }
     if (!chat.name.includes(GRUPO_ALVO)) return;
+    if (!rlGrava()) return; // reserva: a outra instancia lanca; a varredura desta nao roda
     const contact = await msg.getContact();
     const nome = contact.pushname || contact.name || contact.number || 'Desconhecido';
 
@@ -991,7 +1048,8 @@ client.initialize();
 // automatico=true: so pega itens dos ultimos 30 dias e ignora orcamentos/anotacoes (que
 // sao zerados de proposito), pra nao gastar IA a cada 2h com os mesmos itens.
 async function reprocessarZeradas({ automatico = false } = {}) {
-  if (!ai) return { erro:'IA nao configurada (GEMINI_API_KEY ausente)' };
+  if (automatico && !rlGrava()) return { ok:true, total:0, reserva:true };
+  if (!ai) return { erro:'IA nao configurada (ANTHROPIC_API_KEY / GEMINI_API_KEY ausentes)' };
   if (reprocessStatus.rodando) return { erro:'Ja existe um reprocessamento em andamento', status:reprocessStatus };
   const filtroAuto = automatico ? `AND tipo_doc IS NOT 'orcamento' AND created_at >= datetime('now','localtime','-30 days')` : '';
   const pendentesDesp = db.prepare(`SELECT * FROM despesas  WHERE (valor IS NULL OR valor=0) AND arquivo IS NOT NULL ${filtroAuto} ORDER BY id ASC`).all().map(d => ({ ...d, _tabela:'despesa' }));
@@ -1020,6 +1078,11 @@ async function reprocessarZeradas({ automatico = false } = {}) {
             if (existente?.ocr_json) { try { dadosIA = JSON.parse(existente.ocr_json); reaproveitado = true; } catch(e) {} }
           }
 
+          if (!dadosIA && !ia.temAgora() && !/\.pdf$/i.test(d.arquivo)) {
+            // Toda IA em pausa (sem credito / cota do dia): para a rodada aqui; a proxima (2h) continua de onde parou.
+            log(`Reprocessamento pausado: nenhuma IA disponivel agora (${ia.estado()}) — ${reprocessStatus.total - reprocessStatus.processados - reprocessStatus.erros - reprocessStatus.semArquivo} ficam para a proxima rodada`, 'warn');
+            break;
+          }
           if (!dadosIA) {
             const ext = path.extname(d.arquivo).toLowerCase();
             const mimetype = ext === '.pdf' ? 'application/pdf' : (MIME_MAP[ext] || 'image/jpeg');
@@ -1064,7 +1127,7 @@ async function reprocessarZeradas({ automatico = false } = {}) {
         // Free tier do Gemini = 5 req/min (1 a cada 12s). 1s de pausa nao bastava — varios
         // itens seguidos ainda colidiam com o limite mesmo com retry/backoff interno, e
         // esgotavam as 3 tentativas sem conseguir (visto num lote de 40: só 1 passou).
-        if (!reaproveitado) await new Promise(r => setTimeout(r, 13000));
+        if (!reaproveitado) await new Promise(r => setTimeout(r, ia.pausaEntreLeituras()));
       }
       reprocessStatus.rodando = false;
       reprocessStatus.atual = null;
@@ -1437,7 +1500,7 @@ const server = http.createServer((req, res) => {
   if (url.match(/^\/api\/reprocessar-item\/\d+$/) && req.method === 'POST') {
     (async () => {
       try {
-        if (!ai) return jsonResp(res, { erro:'IA nao configurada (GEMINI_API_KEY ausente)' }, 400);
+        if (!ai) return jsonResp(res, { erro:'IA nao configurada (ANTHROPIC_API_KEY / GEMINI_API_KEY ausentes)' }, 400);
         const id = parseInt(url.split('/').pop());
         const d = db.prepare('SELECT * FROM despesas WHERE id=?').get(id);
         if (!d) return jsonResp(res, { erro:'Despesa nao encontrada' }, 404);
@@ -1916,6 +1979,14 @@ const server = http.createServer((req, res) => {
       }
     });
     return;
+  }
+
+  // ── COPIA DA NUVEM PARA O PAINEL (so em reserva) ───────────────
+  // GET: estado da ultima copia. POST: copia agora.
+  if (url === '/api/espelho-nuvem') {
+    if (!espelhoNuvem) return jsonResp(res, { ativo:false, motivo:'modulo nao carregado' });
+    if (req.method === 'POST') { espelhoNuvem.puxar('manual').then(r => jsonResp(res, { ok:!!r, resumo:r, ...espelhoNuvem.estado() })); return; }
+    return jsonResp(res, espelhoNuvem.estado());
   }
 
   // ── STATUS DO CLIENTE WHATSAPP ─────────────────────────────────

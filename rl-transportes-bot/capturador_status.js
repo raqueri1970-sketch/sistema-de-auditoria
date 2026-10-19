@@ -7,9 +7,10 @@
 'use strict';
 const os = require('os');
 
-module.exports = function iniciarStatus({ client, sb, db, obras, log, versao = 'bot_v3' }) {
-  const INSTANCIA = process.env.CAPTURADOR_INSTANCIA || os.hostname();
-  const iniciadoEm = new Date().toISOString();
+module.exports = function iniciarStatus({ client, sb, db, obras, log, ia = null, lider = null, versao = 'bot_v3' }) {
+  const INSTANCIA = lider ? lider.INSTANCIA : (process.env.CAPTURADOR_INSTANCIA || os.hostname());
+  // lider.js decide quem é a principal pelo iniciado_em + detalhes.prioridade publicados aqui
+  const iniciadoEm = lider ? lider.iniciadoEm : new Date().toISOString();
   let ultimaMensagem = null;
   client.on('message', m => { ultimaMensagem = new Date((m.timestamp || Date.now() / 1000) * 1000).toISOString(); });
 
@@ -35,14 +36,15 @@ module.exports = function iniciarStatus({ client, sb, db, obras, log, versao = '
       ]);
       const supabaseOk = !ult.error && !pend.error;
       const erros = errosSqlite();
-      const ia = obras && obras._estadoIA ? obras._estadoIA() : null;
+      const estadoIA = ia ? ia.estado() : (obras && obras._estadoIA ? obras._estadoIA() : null);
       const { error } = await sb.from('capturador_status').upsert({
         instancia: INSTANCIA, atualizado_em: new Date().toISOString(), iniciado_em: iniciadoEm,
-        whatsapp_estado: estado || 'DESCONHECIDO', supabase_ok: supabaseOk, ia,
+        whatsapp_estado: estado || 'DESCONHECIDO', supabase_ok: supabaseOk, ia: estadoIA,
         ultima_mensagem: ultimaMensagem, ultimo_comprovante: ult.data && ult.data[0] ? ult.data[0].created_at : null,
         pendentes_leitura: pend.count || 0, fila_pendente: obras && obras._fila ? obras._fila() : 0,
         erros_24h: erros.n, ultimo_erro: erros.ultimo, versao,
-        detalhes: { node: process.version, memoria_mb: Math.round(process.memoryUsage().rss / 1048576), uptime_min: Math.round(process.uptime() / 60) }
+        detalhes: { node: process.version, memoria_mb: Math.round(process.memoryUsage().rss / 1048576), uptime_min: Math.round(process.uptime() / 60),
+          ...(lider ? { papel: lider.papel(), prioridade: lider.PRIORIDADE, rl: lider.rlPode() ? 'gravando' : 'parada (reserva)', principal: lider.concorrente() || INSTANCIA } : {}) }
       });
       if (error) log(`Health check: nao gravou no Supabase (${error.message})`, 'warn');
     } catch (e) { if (!avisou) { avisou = true; log(`Health check falhou: ${e.message}`, 'warn'); } } // nunca derruba o bot

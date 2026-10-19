@@ -62,6 +62,15 @@ Se o documento for a CAPA de uma prestacao de contas com totais, preencha tambem
 Responda SOMENTE JSON valido, sem markdown:
 {"tipo_documento":"comprovante|prestacao_contas|orcamento|outros","itens":[{"tipo_doc":"cupom_fiscal","categoria":"materiais_insumos","valor":null,"data":null,"hora":null,"fornecedor":null,"pagador":null,"cnpj":null,"descricao":null,"loja_obra":null,"forma_pagamento":null,"autenticacao":null,"confianca":0.5}],"resumo":{"responsavel":null,"periodo":null,"valor_total":null,"valor_adiantado":null,"reembolso":null}}`;
 
+// Motivo "data futura / ano impossível" quando a data do comprovante é até hoje = engano da IA (não sabe o ano atual)
+function dataFuturaFalsa(motivo, dataFoto) {
+  if (!/futur|20\d\d (?:é|e) imposs|data imposs/i.test(motivo)) return false;
+  const m = String(dataFoto || '').match(/(\d{4})-(\d{2})-(\d{2})|(\d{2})\/(\d{2})\/(\d{2,4})/);
+  if (!m) return true;  // sem data lida: não dá para provar que é futura
+  const d = m[1] ? new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00`) : new Date(`${m[6].length === 2 ? '20' + m[6] : m[6]}-${m[5]}-${m[4]}T12:00:00`);
+  return !(d.getTime() > Date.now() + 2 * 864e5);
+}
+
 // Auditoria antifraude da FOTO (14/10/2026): a IA olha cada comprovante como auditor e aponta fraude/desvio de finalidade.
 const PROMPT_AUDITOR = `Voce e AUDITOR ANTIFRAUDE de despesas de obras/reformas de lojas (rede de calcados Esposende).
 O prestador manda a foto/PDF do comprovante no WhatsApp e a empresa reembolsa. Olhe o documento com desconfianca profissional e procure:
@@ -72,10 +81,14 @@ O prestador manda a foto/PDF do comprovante no WhatsApp e a empresa reembolsa. O
 - estabelecimento incompativel com obra; cupom em nome/CPF de outra pessoa; documento de outra cidade/data muito antiga
 - divergencia entre a foto e o que foi lancado (dados abaixo)
 Lancado no sistema: {LANCADO}
+DATA DE HOJE: {HOJE}. Estamos em {ANO}: datas de {ANO} ate hoje sao NORMAIS e nunca sao "data futura". So aponte data futura se for DEPOIS de {HOJE}.
+NAO sao sinais de fraude: o nome do prestador no sistema e um apelido (sobrenome, grafia ou nome completo diferente na foto e normal);
+pagamento a pessoa fisica (pedreiro, ajudante, diarista, frete) e normal em obra; hotel, alimentacao, transporte, Uber, onibus e estacionamento
+do prestador em viagem sao despesas normais; documento em contingencia ou de outra cidade da obra e normal.
 Seja justo: comprovante comum, legivel e coerente = risco "baixo" e motivos vazio. So use "alto" com sinal concreto.
 Responda SOMENTE JSON: {"risco":"baixo|medio|alto","motivos":["frase curta em portugues"],"valor_na_foto":null,"data_na_foto":null}`;
 
-module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPagina, sombra = false }) {
+module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPagina, baixarMidia = null, sombra = false, ia = null, lider = null }) {
   // Modo sombra: tudo vai para obras_comprovantes_sombra e para a pasta sombra/ do bucket (nada oficial é tocado).
   // OBRAS_OFICIAL=1 (13/10/2026): a VPS em MODO=sombra para a RL passa a gravar Obras na tabela OFICIAL
   // (o D90 caiu do WhatsApp em 12/10 e as Obras pararam de entrar). Dedup por wa_msg_id evita duplicar se o D90 voltar.
@@ -86,14 +99,10 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   if (!fs.existsSync(PASTA)) fs.mkdirSync(PASTA, { recursive: true });
   const L = (m, nivel = 'info', dados = null) => log(`[OBRAS] ${m}`, nivel, dados);
 
-  let anthropic = null;
-  try {
-    if (process.env.ANTHROPIC_API_KEY) {
-      const Anthropic = require('@anthropic-ai/sdk');
-      anthropic = new (Anthropic.default || Anthropic)({ apiKey: process.env.ANTHROPIC_API_KEY });
-    }
-  } catch (e) { L(`SDK Anthropic indisponivel: ${e.message}`, 'warn'); }
-  const MODELO = process.env.OBRAS_MODELO_IA || 'claude-sonnet-5-5';
+  // IA compartilhada com a RL (ia.js, 16/10/2026): Claude → Gemini (vários modelos), sem desligar o Claude para sempre
+  // depois de um erro de crédito. Sem o objeto (teste isolado), cria um só para Obras.
+  if (!ia) ia = require('./ia')({ log: (m, n) => L(m, n) });
+  const obrasPode = () => !lider || lider.obrasPode();
 
   const ehGrupo = chat => !!(chat && chat.isGroup && chat.name && chat.name.includes(GRUPO));
   const idMsgCurto = msg => (msg.id?.id || '').replace(/[^A-Za-z0-9]/g, '').substring(0, 24);
@@ -113,6 +122,12 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   }
 
   async function baixar(msg, nome) {
+    // 16/10/2026: no bot usa o download do bot_v3 (limite de 60 s por tentativa + reinício se o navegador travar).
+    if (baixarMidia) {
+      const r = await baixarMidia(msg, 'Obras');
+      if (!r.media) L(`Erro baixar midia de ${nome} (id ${msg.id?.id}): ${r.erro}`, 'error', r.info || null);
+      return r.media || null;
+    }
     let media = null, erroLib = null;
     for (let t = 1; t <= 3 && !media; t++) {
       try { media = await msg.downloadMedia(); if (!media) break; }
@@ -126,60 +141,8 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     return media;
   }
 
-  let gemini = null;
-  try {
-    if (process.env.GEMINI_API_KEY) {
-      const { GoogleGenerativeAI } = require('@google/generative-ai');
-      gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY).getGenerativeModel({ model: 'gemini-2.5-flash',
-        generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } } });
-    }
-  } catch (e) { L(`Gemini indisponivel: ${e.message}`, 'warn'); }
-  let claudeSemCredito = false;
-
-  // Claude primeiro (melhor em manuscrito/PDF de prestação); sem crédito/erro → Gemini; os dois falharam → pendente_leitura.
-  async function lerComIA(base64, mimetype, prompt = PROMPT) {
-    if (anthropic && !claudeSemCredito) {
-      try { return await lerComClaude(base64, mimetype, prompt); }
-      catch (e) {
-        if (/credit balance|billing|401|403/i.test(e.message)) { claudeSemCredito = true; L('Claude sem credito — usando Gemini', 'warn'); }
-        else L(`Claude falhou (${e.message.substring(0, 120)}) — tentando Gemini`, 'warn');
-      }
-    }
-    if (!gemini) throw new Error('nenhuma IA disponivel');
-    const mimeType = /image\/|application\/pdf/.test(mimetype) ? mimetype : 'image/jpeg';
-    for (let t = 1; t <= 3; t++) {
-      try {
-        const r = await gemini.generateContent([{ inlineData: { mimeType, data: base64 } }, { text: prompt }]);
-        const txt = r.response.text().trim().replace(/^```json?\s*/i, '').replace(/\s*```$/, '');
-        return JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
-      } catch (e) {
-        if (/503|overloaded/i.test(e.message) && t < 3) { await new Promise(r => setTimeout(r, 5000 * t)); continue; }
-        if (/429|quota|RESOURCE_EXHAUSTED/i.test(e.message) && t < 2) { await new Promise(r => setTimeout(r, 20000)); continue; }
-        throw e;
-      }
-    }
-  }
-
-  async function lerComClaude(base64, mimetype, prompt = PROMPT) {
-    const bloco = mimetype === 'application/pdf'
-      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
-      : { type: 'image', source: { type: 'base64', media_type: /image\/(png|gif|webp)/.test(mimetype) ? mimetype : 'image/jpeg', data: base64 } };
-    for (let t = 1; t <= 3; t++) {
-      try {
-        const r = await anthropic.messages.create({
-          model: MODELO, max_tokens: 8000,
-          messages: [{ role: 'user', content: [bloco, { type: 'text', text: prompt }] }]
-        });
-        const txt = r.content.filter(c => c.type === 'text').map(c => c.text).join('').trim()
-          .replace(/^```json?\s*/i, '').replace(/\s*```$/, '');
-        return JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
-      } catch (e) {
-        const transitorio = /429|529|overloaded|rate_limit/i.test(e.message) && !/credit/i.test(e.message);
-        if (transitorio && t < 3) { await new Promise(r => setTimeout(r, 15000 * t)); continue; }
-        throw e;
-      }
-    }
-  }
+  // Claude primeiro (melhor em manuscrito/PDF de prestação); sem crédito/erro → Gemini; tudo falhou → pendente_leitura.
+  const lerComIA = (base64, mimetype, prompt = PROMPT) => ia.ler(base64, mimetype, prompt, { maxTokens: 8192 });
 
   function num(v) {
     if (v == null || v === '') return null;
@@ -284,7 +247,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
 
   // Relê com a IA o que ficou "pendente_leitura" (IA fora do ar / sem crédito na hora). Usa a cópia local ou o bucket.
   async function relerPendentes() {
-    if (!sb) return;
+    if (!sb || !ia.temAgora()) return;
     const { data, error } = await sb.from(TAB).select('*')
       .eq('origem', 'whatsapp').eq('status', 'pendente_leitura').like('wa_msg_id', '%#0').order('created_at').limit(20);
     if (error || !data || !data.length) return;
@@ -365,7 +328,8 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     if (error) { L(`Gravar no Supabase falhou (${nome}): ${error.message}`, 'error'); throw new Error(error.message); }
     const total = linhas.filter(l => l.status === 'lancado').reduce((s, l) => s + l.valor, 0);
     L(`${nomeRemetente}: ${linhas.length} item(ns) de ${nome} — R$ ${total.toFixed(2)} lancado`);
-    if (linhas.some(l => l.status === 'lancado')) setTimeout(() => enfileirar(() => auditarArquivo(caminho).catch(e => L(`Auditor IA (${nome}): ${e.message}`, 'warn'))), 5000);
+    // 16/10/2026: a auditoria antifraude NÃO entra mais no meio da fila (com a fila cheia ela atrasava os comprovantes novos).
+    // Os novos são auditados pelo lote de 15 min, que só roda com a fila vazia (auditarFotos pega os mais novos primeiro).
     return linhas.length;
   }
 
@@ -457,9 +421,16 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     const mt = /\.pdf$/i.test(arquivoPath) ? 'application/pdf' : /\.png$/i.test(arquivoPath) ? 'image/png' : 'image/jpeg';
     const lancado = linhas.slice(0, 15).map(l => `R$ ${Number(l.valor).toFixed(2)} em ${l.data_despesa} · ${l.fornecedor || '?'} · ${l.categoria} · ${l.tipo_doc} · ${(l.descricao || '').substring(0, 80)}`).join(' | ')
       + ` · legenda: "${(linhas[0].legenda || '').substring(0, 120)}" · prestador: ${linhas[0].responsavel || '?'}`;
-    const r = await lerComIA(buf.toString('base64'), mt, PROMPT_AUDITOR.replace('{LANCADO}', lancado));
-    const motivos = Array.isArray(r && r.motivos) ? r.motivos.filter(Boolean).map(String).slice(0, 6) : [];
+    // Auditoria é leitura de fundo: só modelos grátis de cota alta (Gemma), nunca o Claude pago nem a cota das despesas novas.
+    // 17/10/2026: a IA grátis achava que 2026 era "futuro" e marcava centenas de comprovantes como críticos. Vai a data de hoje
+    // no pedido e, por garantia, motivo de "data futura" com data até hoje é descartado.
+    const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }), ano = hoje.slice(-4);
+    const pedido = PROMPT_AUDITOR.replace('{LANCADO}', lancado).replace(/\{HOJE\}/g, hoje).replace(/\{ANO\}/g, ano);
+    const r = await ia.ler(buf.toString('base64'), mt, pedido, { maxTokens: 4096, fundo: true });
+    const brutos = Array.isArray(r && r.motivos) ? r.motivos.filter(Boolean).map(String) : [];
+    const motivos = brutos.filter(m => !dataFuturaFalsa(m, r && r.data_na_foto)).slice(0, 6);
     let risco = ['baixo', 'medio', 'alto'].includes(String(r && r.risco).toLowerCase()) ? String(r.risco).toLowerCase() : 'baixo';
+    if (brutos.length && !motivos.length) risco = 'baixo';  // só tinha "data futura" (falso)
     // valor da foto x valor lançado (só quando o arquivo é um comprovante só)
     const vf = num(r && r.valor_na_foto);
     if (linhas.length === 1 && vf > 0 && Math.abs(vf - Number(linhas[0].valor)) > Math.max(1, Number(linhas[0].valor) * 0.01)) {
@@ -472,7 +443,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   }
   let auditando = false;
   async function auditarFotos(max = LOTE_AUDITORIA) {
-    if (!sb || auditando || !(anthropic || gemini)) return 0;
+    if (!sb || auditando || !ia.temAgora() || !obrasPode()) return 0;
     auditando = true; let n = 0;
     try {
       const { data, error } = await sb.from(TAB).select('arquivo_path,created_at').eq('status', 'lancado').is('auditoria_ia', null)
@@ -495,6 +466,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   const enfileirar = fn => { naFila++; const p = fila.then(fn, fn).finally(() => naFila--).catch(e => L(`Tarefa da fila falhou: ${e.message}`, 'warn')); fila = p; return p; };
 
   async function onMessage(msg, chat) {
+    if (!obrasPode()) return; // reserva: outra instância lança; se ela cair, a varredura daqui recupera
     if (!msg.hasMedia) {
       if (!ehTextoPagamento(msg.body)) return;
       const ct = await contatoDe(msg);
@@ -574,7 +546,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   // Varredura automática: ao reconectar e a cada 2h, lança o que chegou no grupo e não entrou (WhatsApp caiu,
   // Supabase fora, download falhou). Começa 2 dias antes do último recibo do WhatsApp já lançado (mínimo: 3 dias).
   async function varrerPerdidas(motivo) {
-    if (!sb || importacao.rodando) return;
+    if (!sb || importacao.rodando || !obrasPode()) return;
     // getState() pode ficar pendurado para sempre quando o Chrome do WhatsApp trava ("detached Frame") — limite de 15s.
     const estado = await Promise.race([client.getState().catch(() => null), new Promise(r => setTimeout(() => r('TIMEOUT'), 15000))]);
     if (estado !== 'CONNECTED') { if (estado === 'TIMEOUT') L('Varredura adiada: WhatsApp nao respondeu (navegador travado?)', 'warn'); return; }
@@ -589,6 +561,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   }
   client.on('ready', () => setTimeout(() => enfileirar(() => varrerPerdidas('reconexao')), 20 * 1000));
   setTimeout(() => enfileirar(() => varrerPerdidas('inicio')), 3 * 60 * 1000);
+  if (lider) lider.aoAssumir(() => setTimeout(() => enfileirar(() => varrerPerdidas('assumiu')), 10 * 1000));
   setInterval(() => enfileirar(() => varrerPerdidas('rotina 2h')), 2 * 60 * 60 * 1000 + 5 * 60 * 1000);
   // Fotos antigas e as que ficaram sem auditoria: um lote a cada 15 min, sem atrapalhar a leitura das novas.
   setInterval(() => { if (naFila === 0) enfileirar(() => auditarFotos()); }, 15 * 60 * 1000);
@@ -602,7 +575,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
       try {
         if (url === '/api/obras/status') {
           const { count } = sb ? await sb.from(TAB).select('id', { count: 'exact', head: true }) : { count: null };
-          return jsonResp(res, { grupo: GRUPO, ia: anthropic ? MODELO : null, supabase: !!sb, comprovantes: count, importacao });
+          return jsonResp(res, { grupo: GRUPO, ia: ia.estado(), papel: lider ? lider.papel() : 'principal', supabase: !!sb, comprovantes: count, importacao });
         }
         if (url === '/api/obras/importacao') return jsonResp(res, importacao);
         if (url === '/api/obras/mensagens') {
@@ -627,8 +600,9 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
     })();
   }
 
-  L(`Modulo Obras ativo — grupo "${GRUPO}", IA ${anthropic ? MODELO : '-'} / ${gemini ? 'gemini' : '-'}`);
+  L(`Modulo Obras ativo — grupo "${GRUPO}", IA ${ia.estado()}`);
   return { ehGrupo, onMessage, http, _lerComIA: lerComIA, _relerPendentes: relerPendentes, _varrerPerdidas: varrerPerdidas,
     _fila: () => naFila, _auditarFotos: auditarFotos, _tabela: () => TAB, _lerBlocosPagamento: lerBlocosPagamento,
-    _estadoIA: () => [anthropic && !claudeSemCredito ? 'claude' : (anthropic ? 'claude SEM CREDITO' : null), gemini ? 'gemini' : null].filter(Boolean).join(' + ') || 'nenhuma' };
+    _estadoIA: () => ia.estado() };
 };
+module.exports.dataFuturaFalsa = dataFuturaFalsa;  // usado no teste
