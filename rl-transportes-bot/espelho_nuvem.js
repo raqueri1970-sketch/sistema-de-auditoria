@@ -11,6 +11,12 @@
  * não estão na pasta fotos/, para o botão PDF do painel abrir.
  * Bônus: se a nuvem cair e o D90 for reiniciado, o SQLite daqui já está igual ao dela (não colide numeração).
  *
+ * ALINHAR AO INICIAR (19/10/2026), vale para qualquer instância, inclusive a nuvem: se enquanto esta estava fora a outra
+ * lançou na RL, o Supabase tem lançamentos com número maior que o maior do SQLite daqui. Sem alinhar, esta repetiria a
+ * numeração e o espelho de 2h (sync_supabase.js) APAGARIA do Supabase o que a outra lançou. Então, ao ligar: espera
+ * 2 min (a outra vê esta no ar e passa para reserva), compara o maior número e, se o Supabase estiver na frente, puxa
+ * tudo antes de liberar a RL (bot_v3.js só lança depois de alinhar).
+ *
  * Nunca grava no Supabase. Na instância principal não faz nada.
  * Trava de segurança: se o Supabase devolver bem menos linhas do que o SQLite tem (ex.: RLS sem login devolve lista
  * vazia), não apaga nada e só avisa.
@@ -20,6 +26,7 @@ const fs = require('fs');
 const path = require('path');
 
 const INTERVALO_MS = 3 * 60 * 1000;
+const ESPERA_ALINHAR_MS = 2 * 60 * 1000;
 const json = v => (v == null ? null : typeof v === 'string' ? v : JSON.stringify(v));
 // Supabase (timestamptz) devolve "2026-10-16T09:28:38+00:00"; o SQLite guarda "2026-10-16 09:28:38" (os mesmos dígitos:
 // o sync_supabase.js manda o texto local e o Postgres o lê como UTC).
@@ -57,14 +64,23 @@ module.exports = function iniciarEspelhoNuvem({ db, sb, log = () => {}, lider, c
   const convDespesa = r => ({ ...r, data: dataLocal(r.data), created_at: dataLocal(r.created_at), ocr_json: json(r.ocr_json),
     valor: r.valor == null ? null : Number(r.valor), confianca: r.confianca == null ? null : Number(r.confianca) });
   const convAjuste = r => ({ ...r, data: dataLocal(r.data), created_at: dataLocal(r.created_at), valor: Number(r.valor) || 0 });
+  const convReuso = r => ({ ...r, data: dataLocal(r.data), created_at: dataLocal(r.created_at), valor: r.valor == null ? null : Number(r.valor) });
+  const temTabela = t => !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(t);
 
-  async function puxar(motivo = 'rotina') {
-    if (!lider.rlBloqueada() || rodando) return null;
+  async function logado() {
+    const ses = await sb.auth.getSession();
+    if (!ses || !ses.data || !ses.data.session) throw new Error('robo ainda sem login no Supabase');
+  }
+
+  // forcar=true: puxa mesmo sendo a principal (só o alinhamento ao iniciar usa)
+  async function puxar(motivo = 'rotina', { forcar = false } = {}) {
+    if ((!forcar && !lider.rlBloqueada()) || rodando) return null;
     rodando = true;
     try {
-      const ses = await sb.auth.getSession();
-      if (!ses || !ses.data || !ses.data.session) throw new Error('robo ainda sem login no Supabase');
+      await logado();
       const [deps, desps, ajustes, saldo, forns] = await Promise.all(['rl_depositos', 'rl_despesas', 'rl_ajustes', 'rl_saldo_inicial', 'rl_fornecedores'].map(lerTudo));
+      // rl_reusos é de 19/10/2026: se a tabela ainda não existir no Supabase, segue sem ela
+      const reusos = temTabela('reusos') ? await lerTudo('rl_reusos').catch(() => null) : null;
 
       const nLocal = db.prepare('SELECT (SELECT count(*) FROM despesas) d, (SELECT count(*) FROM depositos) p').get();
       if (desps.length < nLocal.d * 0.9 || deps.length < nLocal.p * 0.9)
@@ -77,6 +93,7 @@ module.exports = function iniciarEspelhoNuvem({ db, sb, log = () => {}, lider, c
           substituir('despesas', desps, convDespesa);
           substituir('depositos', deps, convDeposito);
           substituir('ajustes', ajustes, convAjuste);
+          if (reusos) substituir('reusos', reusos, convReuso);
           const s = saldo.find(x => Number(x.id) === 1);
           if (s) {
             // saldo_inicial.data local é só a data (AAAA-MM-DD)
@@ -142,8 +159,37 @@ module.exports = function iniciarEspelhoNuvem({ db, sb, log = () => {}, lider, c
     } finally { baixando = false; }
   }
 
+  async function maiorId(tabela) {
+    const { data, error } = await sb.from(tabela).select('id').order('id', { ascending: false }).limit(1);
+    if (error) throw new Error(`${tabela}: ${error.message}`);
+    return data && data.length ? Number(data[0].id) : 0;
+  }
+  // Ver cabeçalho. aoTerminar() é chamado sempre (alinhou, já estava igual ou o Supabase não respondeu em ~5 min:
+  // o bot tem de funcionar sem Supabase).
+  async function alinharAoIniciar(aoTerminar, { esperaMs = ESPERA_ALINHAR_MS, tentativas = 10, intervaloMs = 30 * 1000 } = {}) {
+    await new Promise(r => setTimeout(r, esperaMs));
+    for (let t = 1; t <= tentativas; t++) {
+      try {
+        await logado();
+        const [sDesp, sDep] = await Promise.all([maiorId('rl_despesas'), maiorId('rl_depositos')]);
+        const l = db.prepare('SELECT (SELECT COALESCE(max(id),0) FROM despesas) d, (SELECT COALESCE(max(id),0) FROM depositos) p').get();
+        if (sDesp > l.d || sDep > l.p) {
+          log(`RL: o Supabase tem lancamentos que este banco nao tem (despesa #${sDesp} x #${l.d} aqui, deposito #${sDep} x #${l.p}) — a outra instancia lancou enquanto esta estava fora. Puxando antes de lancar.`, 'warn');
+          while (rodando) await new Promise(r => setTimeout(r, 1000));
+          const r = await puxar('alinhamento ao iniciar', { forcar: true });
+          if (!r) throw new Error(ultimoErro || 'copia nao concluida');
+        } else log(`RL: banco alinhado com o Supabase (despesa #${l.d}, deposito #${l.p})`);
+        break;
+      } catch (e) {
+        if (t === tentativas) log(`RL: alinhamento com o Supabase falhou (${e.message}) — liberando a RL assim mesmo`, 'warn');
+        else await new Promise(r => setTimeout(r, intervaloMs));
+      }
+    }
+    try { aoTerminar && aoTerminar(); } catch (e) { log(`RL: erro ao liberar apos alinhamento: ${e.message}`, 'warn'); }
+  }
+
   // Primeira cópia assim que a trava de instância decidir que esta é reserva; depois a cada 3 min.
   setTimeout(() => puxar('inicio do bot'), 90 * 1000);
   setInterval(() => puxar(), INTERVALO_MS);
-  return { puxar, estado: () => ({ ativo: lider.rlBloqueada(), ultimaExecucao, ultimoResumo, ultimoErro }) };
+  return { puxar, alinharAoIniciar, estado: () => ({ ativo: lider.rlBloqueada(), ultimaExecucao, ultimoResumo, ultimoErro }) };
 };

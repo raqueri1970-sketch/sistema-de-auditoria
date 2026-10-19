@@ -239,6 +239,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
       }
       if (achou) {
         l.status = 'duplicada';
+        l.duplicado_de = achou.id;   // 19/10/2026: liga ao original (de qualquer periodo) para as telas mostrarem os dois
         l.descricao = `Duplicado de ${achou.wa_msg_id || achou.id} — nao somado. ${l.descricao || ''}`.substring(0, 500);
         L(`Comprovante repetido (${l.fornecedor} R$ ${l.valor} ${l.data_despesa}) — igual a ${achou.wa_msg_id || achou.id}, nao somado`, 'warn');
       }
@@ -307,7 +308,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
       const o = dupHash[0];
       await sb.from(TAB).insert({ ...base, wa_msg_id: `${idMsg}#0`, categoria: CATEGORIAS.includes(o.categoria) ? o.categoria : 'diversos', valor: Number(o.valor) || 0,
         fornecedor: o.fornecedor || null, data_despesa: o.data_despesa || null,
-        status: 'duplicada', descricao: `Foto reenviada (igual a ${o.wa_msg_id}) — valor da foto original, NÃO somado`, revisado: false });
+        status: 'duplicada', duplicado_de: o.id, descricao: `Foto reenviada (igual a ${o.wa_msg_id}) — valor da foto original, NÃO somado`, revisado: false });
       L(`Foto reenviada por ${nomeRemetente} — igual a ${dupHash[0].wa_msg_id}, nao somada`, 'warn');
       return 'duplicada';
     }
@@ -393,7 +394,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
         wa_msg_id: `${idMsg}#T${i}`, legenda: b.bruto.substring(0, 500), arquivo_hash: hash, arquivo_nome: null, arquivo_path: null,
         tipo_doc: 'comprovante_pix', forma_pagamento: 'pix', categoria: cat, valor: b.valor,
         data_despesa: waData.substring(0, 10), fornecedor: b.favorecido, pagador: 'Esposende', loja: b.loja,
-        status: dup && dup.length ? 'duplicada' : 'lancado', situacao_pagamento: 'pago', pago_em: waData,
+        status: dup && dup.length ? 'duplicada' : 'lancado', duplicado_de: dup && dup.length ? dup[0].id : null, situacao_pagamento: 'pago', pago_em: waData,
         descricao: ((dup && dup.length ? `Texto repetido (igual a ${dup[0].wa_msg_id}) — nao somado. ` : '') + descr).substring(0, 500),
         confianca_ocr: 1, revisado: false,
         ia_json: i === 0 ? { fonte: 'texto_whatsapp', regra: 'ja_pago', blocos: blocos.map(x => ({ ...x, bruto: undefined })) } : null });

@@ -141,6 +141,16 @@ async function compararMesmoDia(id, achados) {
   const ids = (data || []).filter(x => chave(x.fornecedor) === chave(d.fornecedor)).map(x => x.id);
   compararFotos(ids.length ? ids : [id], achados);
 }
+// Em que período o comprovante foi usado (19/10/2026, pedido do Ricardo): quando chegou, semana da prestação e se/quando foi pago.
+function periodoUso(d) {
+  if (!d) return '';
+  const partes = [];
+  if (d.wa_data) partes.push('enviado ' + dBRano(d.wa_data));
+  if (d.semana) partes.push(`semana ${dBRano(d.semana).slice(0, 5)} a ${dBRano(d.semana_fim).slice(0, 5)}/${String(d.semana_fim).slice(0, 4)}`);
+  if (Number(d.valor_pago) > 0 || d.situacao === 'pago') partes.push(`pago${d.pago_em ? ' em ' + dBRano(d.pago_em) : ''}${d.ultimo_pagamento_numero ? ' (pagamento nº ' + esc(d.ultimo_pagamento_numero) + ')' : ''}`);
+  else if (d.situacao) partes.push((SIT[d.situacao] || [d.situacao])[0]);
+  return partes.join(' · ');
+}
 async function compararFotos(ids, achados = []) {
   ids = [...new Set(ids)].slice(0, 8);
   abrirModal(`<div class="row" style="justify-content:space-between"><h3 style="margin:0">Possível duplicidade · compare as fotos</h3><button class="btn" onclick="fecharModal()">Fechar ✕</button></div>
@@ -150,7 +160,8 @@ async function compararFotos(ids, achados = []) {
   const l = (data || []).sort((a, b) => String(a.wa_data || a.data_despesa).localeCompare(String(b.wa_data || b.data_despesa)));
   window.CMP = {l, achados};
   const box = $('cmp'); box.className = '';
-  box.innerHTML = `<div class="cmp-grid">${l.map((d, i) => `<div class="cmp-col"><div class="small"><b>${i === 0 ? 'Chegou primeiro' : 'Chegou depois'}</b> · ${dtBR(d.wa_data) !== '—' ? 'enviada ' + dtBR(d.wa_data) : ''}</div>
+  box.innerHTML = `<div class="cmp-grid">${l.map((d, i) => `<div class="cmp-col"><div class="small"><b>${i === 0 ? 'Chegou primeiro (original)' : 'Chegou depois'}</b> · ${dtBR(d.wa_data) !== '—' ? 'enviada ' + dtBR(d.wa_data) : ''}</div>
+      <div class="small" style="margin-top:2px"><b>Período em que foi usado:</b> ${periodoUso(d)}</div>
       <div style="font-weight:800;margin-top:4px">${esc(d.fornecedor || 'Fornecedor não lido')}</div>
       <div class="small">${dBRano(d.data_despesa)}${d.hora_documento ? ' ' + esc(String(d.hora_documento).slice(0, 5)) : ''} · <b>${brl(d.valor)}</b> · ${esc(d.prestador || '')} · ${(SIT[d.situacao] || [d.situacao])[0]}</div>
       <div class="small mut">${esc(String(d.descricao || '').slice(0, 140))}</div>
@@ -203,7 +214,9 @@ function listaDuplicidades(desp) {
     if (d.dup_decisao) continue;
     if (d.status === 'duplicada') {
       if (/^Foto reenviada|^Texto repetido/.test(d.descricao || '') && Number(d.valor) === 0) continue;
-      out.push({d, par: null, caso: casoDup(d)}); continue;
+      // Original de qualquer período (19/10/2026). Fora da lista (outro prestador no filtro): só o id, para comparar as fotos.
+      const par = d.duplicado_de ? (porId.get(d.duplicado_de) || {id: d.duplicado_de, fora: true}) : null;
+      out.push({d, par, caso: casoDup(d)}); continue;
     }
     if (d.status !== 'lancado') continue;
     for (const a of (d.achados || []).filter(ehDupAchado)) {
@@ -229,7 +242,10 @@ function painelDuplicidadesHTML(lista, {limite = 15} = {}) {
     return `<tr><td><span class="chip ${c.cls}">${c.chip}</span></td>
       <td class="small"><b>${esc(d.prestador || '')}</b> · ${dBRano(d.data_despesa)} · ${esc(d.fornecedor || 'Fornecedor não lido')}<div><b>${brl(d.valor)}</b> · ${esc(nomeObra(d.obra))}</div>
         ${d.descricao ? `<div class="mut">${esc(String(d.descricao).slice(0, 140))}</div>` : ''}
-        ${o ? `<div class="mut">Igual a: ${esc(o.prestador || '')} · ${dBRano(o.data_despesa)} · ${esc(o.fornecedor || '')} · ${brl(o.valor)}${o.prestador !== d.prestador ? ' <b style="color:#fca5a5">(OUTRO prestador)</b>' : ''}</div>` : ''}</td>
+        <div class="mut">Esta: ${periodoUso(d)}</div>
+        ${o && o.fora ? `<div class="mut">Igual a um comprovante fora desta lista (outro prestador ou filtro) — compare as fotos</div>`
+          : o ? `<div class="mut">Igual a: ${esc(o.prestador || '')} · ${dBRano(o.data_despesa)} · ${esc(o.fornecedor || '')} · ${brl(o.valor)}${o.prestador !== d.prestador ? ' <b style="color:#fca5a5">(OUTRO prestador)</b>' : ''}</div>
+            <div class="mut">Original usado em: ${periodoUso(o)}</div>` : ''}</td>
       <td class="small">${esc(c.txt)}${x.achado ? `<div class="mut">${esc(x.achado.mensagem)}</div>` : ''}
         <div style="margin-top:4px">${o ? `<a href="#" onclick="compararFotos(['${o.id}','${d.id}']);return false">🔍 comparar as 2 fotos</a>` : linkArquivo(d.arquivo_path, 'ver foto')}</div></td>
       <td>${pode ? `<div class="row" style="flex-wrap:nowrap"><button class="btn b-ok" onclick="decidirDup(DUPL[${lista.indexOf(x)}].d, true)">Aprovar</button><button class="btn b-bad" onclick="decidirDup(DUPL[${lista.indexOf(x)}].d, false)">Reprovar</button></div>` : ''}</td></tr>`; };
@@ -376,7 +392,7 @@ async function papeis() {
 // ---------- Dados ----------
 const COLS_DESP = 'id,prestador,semana,semana_fim,data_despesa,hora_documento,fornecedor,categoria,descricao,tipo_doc,valor,status,situacao_pagamento,situacao,' +
   'valor_pago,valor_reservado,saldo,arquivo_path,obra_id,obra,legenda,remetente,remetente_numero,confianca_ocr,criticos,atencoes,achados,pago_em,ultimo_pagamento_numero,recusado_motivo,recusado_por,recusado_em,pagamento_id,pagador,' +
-  'dup_decisao,dup_decidido_por,dup_decidido_em,dup_obs,origem,prestacao_id,wa_data';
+  'dup_decisao,dup_decidido_por,dup_decidido_em,dup_obs,origem,prestacao_id,wa_data,duplicado_de';
 const carregarDespesas = (filtro = q => q) => todos(() => filtro(sb.from('obras_despesas_pagamento').select(COLS_DESP)).order('data_despesa', {ascending: true}).order('id'));
 const carregarSaldos = () => todos(() => sb.from('obras_saldo_prestador').select('*').order('prestador'));
 const carregarPagamentos = () => todos(() => sb.from('obras_pagamentos').select('*').order('created_at', {ascending: false}));
