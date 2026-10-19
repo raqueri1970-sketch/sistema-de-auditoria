@@ -53,6 +53,12 @@ const pix = (aut, valor, forn, data, hora) => ({ valor, data, hora, fornecedor: 
   await enviar(msg('Bruna', t1 + 120, pix(null, 500, 'POSTO A', '2026-09-10', '11:00:01'), 'C'));
   // 6) pagamento novo legitimo: mesmo fornecedor e valor, outro dia
   await enviar(msg('Bruna', t1 + 180, pix('AUT-OUT-999999', 500, 'POSTO A', '2026-10-15', '08:59:00'), 'D'));
+  // 6b) 19/10/2026: mesmo fornecedor/valor/data com hora SO ATE OS MINUTOS e sem autenticacao nao prova que e o mesmo documento
+  await enviar(msg('Bruna', t1 + 240, pix(null, 500, 'POSTO A', '2026-09-10', '11:00'), 'E'));
+  desp = await http('GET', '/api/despesas');
+  assert.equal(desp.length, 3, 'hora sem segundos = outro pagamento, entra normal');
+  const semSeg = desp.find(d => d.hora_documento === '11:00'); assert(semSeg, 'lancado o de hora sem segundos');
+  await http('DELETE', '/api/despesa/' + semSeg.id);
   desp = await http('GET', '/api/despesas');
   assert.equal(desp.length, 2, 'so o original e o pagamento novo contam: ' + desp.map(d => d.id + ':' + d.fornecedor).join(','));
   const aud = await http('GET', '/api/auditoria');

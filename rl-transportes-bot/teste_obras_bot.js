@@ -136,16 +136,24 @@ const item = (o) => ({ tipo_documento: 'comprovante', itens: [{ tipo_doc: 'cupom
   assert.strictEqual(linhas().filter(l => l.fornecedor === 'Restaurante Sabor' && l.status === 'lancado').length, 2);
   console.log('ok 4 mesmo valor em horarios diferentes continua valendo');
 
-  // 5) Mesmo valor/data/fornecedor/hora → duplicado (sem autenticação)
+  // 5) 19/10/2026: so e o MESMO documento com a hora ATE OS SEGUNDOS. Hora so ate os minutos (19:40 = 19:40) nao basta.
   await obras.onMessage(msgFalsa(item({ valor: 25, data: hoje, hora: '19:40', fornecedor: 'RESTAURANTE SABOR LTDA', categoria: 'alimentacao' })), {}); await esperar();
-  assert.strictEqual(linhas().filter(l => /RESTAURANTE SABOR LTDA/.test(l.fornecedor || '') && l.status === 'duplicada').length, 1);
-  console.log('ok 5 mesmo valor+data+fornecedor+hora = duplicada');
+  assert.strictEqual(linhas().filter(l => /RESTAURANTE SABOR LTDA/.test(l.fornecedor || '') && l.status === 'duplicada').length, 0);
+  await obras.onMessage(msgFalsa(item({ valor: 33, data: hoje, hora: '20:15:07', fornecedor: 'Padaria Boa', categoria: 'alimentacao' })), {}); await esperar();
+  await obras.onMessage(msgFalsa(item({ valor: 33, data: hoje, hora: '20:15:08', fornecedor: 'PADARIA BOA LTDA', categoria: 'alimentacao' })), {}); await esperar();
+  assert.strictEqual(linhas().filter(l => /PADARIA BOA/i.test(l.fornecedor || '') && l.status === 'duplicada').length, 0, '1 segundo de diferenca = outro pagamento');
+  await obras.onMessage(msgFalsa(item({ valor: 33, data: hoje, hora: '20:15:07', fornecedor: 'PADARIA BOA LTDA', categoria: 'alimentacao' })), {}); await esperar();
+  const dupPad = linhas().filter(l => /PADARIA BOA/i.test(l.fornecedor || '') && l.status === 'duplicada');
+  assert.strictEqual(dupPad.length, 1);
+  assert.ok(dupPad[0].duplicado_de, 'duplicada aponta para o original');
+  console.log('ok 5 duplicada so com mesmo favorecido+valor+data+hora ate os segundos (so minutos ou 1 s de diferenca nao conta)');
 
   // 6) Recibo igual a um já PAGO (prestação antiga) → duplicada
   sb.tabela.push({ id: 'antigo1', origem: 'prestacao_pdf', status: 'lancado', situacao_pagamento: 'pago', valor: 980, data_despesa: hoje, fornecedor: 'Deposito Sao Jose', autenticacao: null });
   await obras.onMessage(msgFalsa(item({ valor: 980, data: hoje, fornecedor: 'DEPÓSITO SÃO JOSÉ' })), {}); await esperar();
-  assert.strictEqual(linhas().filter(l => /DEP/.test(l.fornecedor || '') && l.status === 'duplicada').length, 1);
-  console.log('ok 6 recibo ja pago na prestacao antiga = duplicada');
+  // 19/10/2026: recibo sem hora/autenticacao nao prova que e o mesmo documento -> NAO marca duplicada (fica para conferencia)
+  assert.strictEqual(linhas().filter(l => /DEP/.test(l.fornecedor || '') && l.status === 'duplicada').length, 0);
+  console.log('ok 6 recibo com mesmo valor/data/fornecedor mas sem hora nem autenticacao NAO e marcado duplicado');
 
   // 7) Orçamento não soma
   await obras.onMessage(msgFalsa({ tipo_documento: 'orcamento', itens: [{ tipo_doc: 'orcamento', categoria: 'materiais_insumos', valor: 5000, fornecedor: 'Vidracaria X' }] }), {}); await esperar();

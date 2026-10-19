@@ -220,22 +220,25 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   // e, quando os dois têm hora, mesma hora (dois almoços iguais no mesmo dia em horários diferentes continuam valendo).
   const normForn = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
     .replace(/\b(LTDA|ME|EPP|EIRELI|S\/?A|COMERCIO|DE|DA|DO|E)\b/g, ' ').replace(/[^A-Z0-9]+/g, ' ').trim().split(' ').slice(0, 2).join(' ');
-  const normHora = h => (String(h || '').match(/^(\d{1,2}):(\d{2})/) || []).slice(1).map(x => x.padStart(2, '0')).join(':') || null;
+  // 19/10/2026 (pedido do Ricardo): duplicidade so quando e o MESMO documento — hora com SEGUNDOS (HH:MM:SS); so HH:MM nao basta.
+  const normHoraSeg = h => { const m = String(h || '').match(/^\s*(\d{1,2}):(\d{2}):(\d{2})/); return m ? `${m[1].padStart(2, '0')}:${m[2]}:${m[3]}` : null; };
+  // Mesmo documento = mesma autenticacao/NSU com o mesmo valor, ou mesmo favorecido + valor + data + hora ate os segundos.
+  // Valor + data + fornecedor sem a hora completa (ou com hora diferente) NAO e duplicidade. A foto identica e tratada antes (hash).
   async function marcarDuplicados(linhas, ignorarIds = []) {
     for (const l of linhas) {
       if (l.status !== 'lancado') continue;
       let achou = null;
       const aut = String(l.autenticacao || '').replace(/\s+/g, '');
       if (aut.length >= 6) {
-        const { data } = await sb.from(TAB).select('id,wa_msg_id,status').eq('autenticacao', l.autenticacao).eq('status', 'lancado').limit(5);
-        achou = (data || []).find(r => !ignorarIds.includes(r.id)) || null;
+        const { data } = await sb.from(TAB).select('id,wa_msg_id,status,valor').eq('autenticacao', l.autenticacao).eq('status', 'lancado').limit(5);
+        achou = (data || []).find(r => !ignorarIds.includes(r.id) && Math.abs(Number(r.valor) - Number(l.valor)) < 0.005) || null;
       }
-      if (!achou && l.valor > 0 && l.data_despesa && l.fornecedor) {
+      const h = normHoraSeg(l.hora_documento);
+      if (!achou && h && l.valor > 0 && l.data_despesa && l.fornecedor) {
         const { data } = await sb.from(TAB).select('id,wa_msg_id,fornecedor,hora_documento')
           .eq('valor', l.valor).eq('data_despesa', l.data_despesa).eq('status', 'lancado').limit(20);
-        const f = normForn(l.fornecedor), h = normHora(l.hora_documento);
-        achou = (data || []).find(r => !ignorarIds.includes(r.id) && f && normForn(r.fornecedor) === f &&
-          (!h || !normHora(r.hora_documento) || normHora(r.hora_documento) === h)) || null;
+        const f = normForn(l.fornecedor);
+        achou = (data || []).find(r => !ignorarIds.includes(r.id) && f && normForn(r.fornecedor) === f && normHoraSeg(r.hora_documento) === h) || null;
       }
       if (achou) {
         l.status = 'duplicada';

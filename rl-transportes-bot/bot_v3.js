@@ -512,7 +512,8 @@ function criarDespesa(dadosIA, remetente, arquivo) {
     const orig = stmtDespMesmaAut.get(dadosIA.autenticacao, valor);
     if (orig && !mesmaMensagem(orig.arquivo, arquivo)) return reuso(orig, 'Mesma autenticação do banco e mesmo valor de uma despesa já lançada');
   }
-  if (dadosIA?.fornecedor && valor && dataDoc && horaDoc) {
+  // 19/10/2026: so e o mesmo documento com a hora ATE OS SEGUNDOS (so HH:MM nao basta: dois pagamentos no mesmo minuto existem)
+  if (dadosIA?.fornecedor && valor && dataDoc && /^\d{2}:\d{2}:\d{2}/.test(horaDoc || '')) {
     const equivalente = stmtDespesaEquivalente.get(dadosIA.fornecedor, valor, dataDoc, horaDoc);
     if (equivalente && !mesmaMensagem(equivalente.arquivo, arquivo)) return reuso(equivalente, 'Mesmo fornecedor, valor, data e hora de uma despesa já lançada');
     if (equivalente) {
@@ -1515,10 +1516,11 @@ const server = http.createServer((req, res) => {
     const hashDupDep     = db.prepare(`SELECT 'Foto Identica Reenviada (Deposito)' AS tipo_alerta,('hash '||substr(arquivo_hash,1,10)) AS referencia,COUNT(*) AS ocorrencias,SUM(valor) AS valor_total,MIN(data) AS primeira,MAX(data) AS ultima,'deposito' AS tabela,GROUP_CONCAT(id) AS ids FROM depositos WHERE arquivo_hash IS NOT NULL GROUP BY arquivo_hash HAVING COUNT(*)>1`).all();
     const arquivoDupDesp = db.prepare(`SELECT 'Despesa - Arquivo Duplicado' AS tipo_alerta,arquivo AS referencia,COUNT(*) AS ocorrencias,SUM(valor) AS valor_total,MIN(data) AS primeira,MAX(data) AS ultima,'despesa' AS tabela,GROUP_CONCAT(id) AS ids FROM despesas WHERE arquivo IS NOT NULL AND status!='cancelado' GROUP BY arquivo HAVING COUNT(*)>1`).all();
     const arquivoDupDep  = db.prepare(`SELECT 'Deposito - Arquivo Duplicado' AS tipo_alerta,arquivo AS referencia,COUNT(*) AS ocorrencias,SUM(valor) AS valor_total,MIN(data) AS primeira,MAX(data) AS ultima,'deposito' AS tabela,GROUP_CONCAT(id) AS ids FROM depositos WHERE arquivo IS NOT NULL GROUP BY arquivo HAVING COUNT(*)>1`).all();
-    // So conta como duplicidade se fornecedor+valor+data baterem E o horario (quando conhecido nos dois) tambem bater.
-    // Horario desconhecido (NULL) agrupa junto por COALESCE('') — mantem o comportamento antigo quando o comprovante nao mostra hora.
-    const valorDataDup   = db.prepare(`SELECT 'Possivel Lancamento Duplicado' AS tipo_alerta,(fornecedor||' — R$ '||valor) AS referencia,COUNT(*) AS ocorrencias,SUM(valor) AS valor_total,MIN(data) AS primeira,MAX(data) AS ultima,'despesa' AS tabela,GROUP_CONCAT(id) AS ids FROM despesas WHERE valor>0 AND fornecedor IS NOT NULL AND status!='cancelado' GROUP BY fornecedor,valor,COALESCE(data_documento,substr(data,1,10)),COALESCE(hora_documento,'') HAVING COUNT(*)>1`).all();
-    const nfDup = db.prepare(`SELECT 'NF Duplicada' AS tipo_alerta,nf AS referencia,COUNT(*) AS ocorrencias,SUM(valor) AS valor_total,MIN(data) AS primeira,MAX(data) AS ultima,'despesa' AS tabela,GROUP_CONCAT(id) AS ids FROM despesas WHERE nf IS NOT NULL AND status!='cancelado' GROUP BY nf HAVING COUNT(*)>1`).all();
+    // 19/10/2026 (pedido do Ricardo): duplicidade so quando e o MESMO documento — mesmo fornecedor + valor + data + hora ATE OS
+    // SEGUNDOS. Sem hora completa no comprovante, mesmo valor/data/fornecedor NAO e duplicidade (podem ser dois pagamentos).
+    const valorDataDup   = db.prepare(`SELECT 'Possivel Lancamento Duplicado' AS tipo_alerta,(fornecedor||' — R$ '||valor||' — '||hora_documento) AS referencia,COUNT(*) AS ocorrencias,SUM(valor) AS valor_total,MIN(data) AS primeira,MAX(data) AS ultima,'despesa' AS tabela,GROUP_CONCAT(id) AS ids FROM despesas WHERE valor>0 AND fornecedor IS NOT NULL AND status!='cancelado' AND hora_documento GLOB '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*' GROUP BY fornecedor,valor,COALESCE(data_documento,substr(data,1,10)),substr(hora_documento,1,8) HAVING COUNT(*)>1`).all();
+    // Mesmo numero de NF so e a mesma nota se for do mesmo emitente (CNPJ ou fornecedor) e do mesmo valor
+    const nfDup = db.prepare(`SELECT 'NF Duplicada' AS tipo_alerta,(nf||' — '||COALESCE(cnpj,fornecedor)) AS referencia,COUNT(*) AS ocorrencias,SUM(valor) AS valor_total,MIN(data) AS primeira,MAX(data) AS ultima,'despesa' AS tabela,GROUP_CONCAT(id) AS ids FROM despesas WHERE nf IS NOT NULL AND TRIM(nf)!='' AND status!='cancelado' GROUP BY nf,COALESCE(cnpj,fornecedor),valor HAVING COUNT(*)>1`).all();
     const semDep = db.prepare(`SELECT 'Despesa sem Deposito' AS tipo_alerta,descricao AS referencia,1 AS ocorrencias,valor AS valor_total,data AS primeira,data AS ultima,'despesa' AS tabela,CAST(id AS TEXT) AS ids FROM despesas WHERE deposito_id IS NULL AND status='confirmado' LIMIT 50`).all();
     const altosVal = db.prepare(`SELECT 'Valor Alto' AS tipo_alerta,descricao AS referencia,1 AS ocorrencias,valor AS valor_total,data AS primeira,data AS ultima,'despesa' AS tabela,CAST(id AS TEXT) AS ids FROM despesas WHERE valor>20000 AND status='confirmado'`).all();
 
