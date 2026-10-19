@@ -1,0 +1,12 @@
+{
+  "name": "SpeakUp IA",
+  "short_name": "SpeakUp",
+  "description": "Professor particular de inglês por voz.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#061126",
+  "theme_color": "#07152e",
+  "lang": "pt-BR",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
