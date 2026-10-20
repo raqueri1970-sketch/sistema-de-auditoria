@@ -584,6 +584,120 @@
     return {nota, valor, n, pagos, abertos, sinais, alivios, marcas: unicos(marcas),
       excesso: r2(valor * Math.max(0, pagos - 1)), evitavel: r2(pagos ? valor * abertos : valor * Math.max(0, abertos - 1))};
   }
+  // ---------- Arquivo do banco / RH (folha, adiantamento) ----------
+  // Lê o que o RH manda para o banco e os comprovantes, e cruza com o Contas a Pagar do Sallamo:
+  // o mesmo dinheiro não pode sair pelo arquivo do banco E por um título no Sallamo (nem o lote ser lançado 2×).
+  const numBRv = s => Number(String(s).replace(/\./g, '').replace(',', '.'));
+  const isoDe = s => { const m = String(s).match(/(\d{2})\/?(\d{2})\/?(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : null; };
+  // CNAB 240 (FEBRABAN) — pagamento a fornecedores/salários: segmento A (favorecido, data, valor) + B (CPF/CNPJ)
+  function lerCNAB240(texto) {
+    const linhas = String(texto).split(/\r?\n/).filter(l => l.length >= 200);
+    const itens = []; let empresa = '', b = null;
+    for (const l of linhas) {
+      if (l[7] === '0') empresa = l.slice(72, 102).trim();
+      if (l[7] !== '3') continue;
+      if (l[13] === 'A') { b = {origem: 'cnab', nome: l.slice(43, 73).trim(), cod: l.slice(73, 93).trim().replace(/^R/, ''), data: isoDe(l.slice(93, 101)), valor: Number(l.slice(119, 134)) / 100,
+        conta: `${l.slice(20, 23)}.${l.slice(24, 28)}-${l.slice(30, 41)}${l[41]}`, cpf: ''}; itens.push(b); }
+      else if (l[13] === 'B' && b) { b.cpf = l.slice(18, 32).replace(/^0+/, '').padStart(11, '0'); b = null; }
+    }
+    return {tipo: 'cnab', empresa, itens, data: itens[0] ? itens[0].data : null};
+  }
+  // Texto de PDF (uma string por linha) — "Relação para Depósito Bancário" e "Lista de Comprovantes" do Internet Banking
+  function lerTextoBanco(linhas) {
+    const L = linhas.map(l => String(l).replace(/\s+/g, ' ').trim());
+    const txt = L.join('\n');
+    const comprovante = /Lista de Comprovantes|Número do Pagamento/i.test(txt);
+    const empresa = (L.find(l => /^[A-Z][A-Z .&]{6,}$/.test(l) && !/RELA|INTERNET|RESULTADO/.test(l)) || '').trim();
+    const itens = [];
+    for (let i = 0; i < L.length; i++) {
+      let m;
+      if (comprovante && (m = L[i].match(/^(9\d{8}) (\d{6,10}) ?(.*?) ?(\d{2}\/\d{2}\/\d{4}) (\S+) ([\d.]+,\d{2})$/)))
+        itens.push({origem: 'comprovante', npag: m[1], cod: m[2], nome: (m[3] || [L[i - 1], L[i + 1]].filter(x => x && /^[A-Z ]+$/.test(x)).join(' ')).trim(), data: isoDe(m[4]), valor: numBRv(m[6])});
+      else if (!comprovante && (m = L[i].match(/^(\d{3}\.\d{4}-\d{6,13}) ([\d.]+,\d{2}) (\d{6,10}) (.+?) (\d{11}) ([\d.]+)$/)))
+        itens.push({origem: 'relacao', conta: m[1], valor: numBRv(m[2]), cod: m[3], nome: m[4], cpf: m[5]});
+    }
+    const data = isoDe((txt.match(/Data de Pagamento:?\s*(\d{2}\/\d{2}\/\d{4})/i) || [])[1] || (itens[0] && itens[0].data ? itens[0].data.split('-').reverse().join('/') : ''));
+    if (data) itens.forEach(x => { if (!x.data) x.data = data; });
+    const competencia = ((txt.match(/Compet[eê]ncia:?\s*([^\n]+?)(\s{2,}|\n|$)/i) || [])[1] || '').trim();
+    const remessa = ((txt.match(/N[uú]mero da Remessa:?\s*(\S+)/i) || [])[1] || '');
+    const totalTxt = (txt.match(/(?:Total do valor transmitido|Valor Total):?\s*(?:R\$\s*)?([\d.]+,\d{2})/i) || [])[1];
+    return {tipo: comprovante ? 'comprovante' : 'relacao', empresa, data, competencia, remessa, itens, totalInformado: totalTxt ? numBRv(totalTxt) : null};
+  }
+  const RX_FOLHA_PAGTO = /sal[aá]ri|folha|adiantamento salarial|adiantamento de sal|f[eé]rias|rescis|re[cs]+is|13º|d[eé]cimo|pr[oó].?labore|l[ií]quido/i;
+  // lotes: [{nome, tipo, data, itens}] · T: títulos normalizados do Sallamo
+  function cruzarArquivoBanco(lotes, T, opcoes) {
+    const cfg = Object.assign({janelaLote: 5, janelaPessoa: 20}, opcoes || {});
+    const achados = [], add = (sev, tipo, titulo, detalhe, extra) => achados.push(Object.assign({sev, tipo, titulo, detalhe, titulos: [], itens: []}, extra || {}));
+    const pagos = T.filter(t => t.valorPago > 0 && t.pagamento && !/cancel/i.test(t.status));
+    const resumo = [];
+    // 1) dentro de cada arquivo: mesma pessoa (CPF/código) ou mesma conta 2×, contas compartilhadas
+    for (const L of lotes) {
+      const tot = r2(L.itens.reduce((s, x) => s + x.valor, 0));
+      resumo.push({nome: L.nome, tipo: L.tipo, data: L.data, competencia: L.competencia, n: L.itens.length, total: tot, totalInformado: L.totalInformado});
+      if (L.totalInformado != null && Math.abs(L.totalInformado - tot) > 0.01) add('alta', 'total', `Total do arquivo não fecha: ${L.nome}`, `Soma das linhas ${brl(tot)} × total informado ${brl(L.totalInformado)} — linha faltando ou a mais.`);
+      for (const [campo, rot] of [['cpf', 'CPF'], ['cod', 'código do funcionário'], ['conta', 'conta bancária']]) {
+        for (const [k, g] of agrupar(L.itens.filter(x => x[campo]), x => x[campo])) if (g.length > 1)
+          add('alta', 'repetido_arquivo', `Mesmo ${rot} ${g.length}× no arquivo ${L.nome}`, `${unicos(g.map(x => x.nome)).join(' / ')} · ${g.map(x => brl(x.valor)).join(' + ')} = ${brl(g.reduce((s, x) => s + x.valor, 0))}`, {itens: g, valor: r2(g.slice(1).reduce((s, x) => s + x.valor, 0))});
+      }
+      for (const [k, g] of agrupar(L.itens.filter(x => x.conta && x.cpf), x => x.conta)) if (unicos(g.map(x => x.cpf)).length > 1)
+        add('alta', 'conta_compartilhada', `Conta bancária ${k} recebe para pessoas diferentes`, unicos(g.map(x => x.nome)).join(' / '), {itens: g, valor: r2(g.reduce((s, x) => s + x.valor, 0))});
+    }
+    // 2) arquivo × comprovante do mesmo pagamento (mesma data): sem comprovante, comprovante a mais, valor diferente, pago 2×
+    const rel = lotes.filter(L => L.tipo !== 'comprovante'), comp = lotes.filter(L => L.tipo === 'comprovante');
+    for (const C of comp) {
+      const R = rel.find(L => L.data === C.data); if (!R) continue;
+      const porCod = agrupar(C.itens, x => x.cod), relCod = new Map(R.itens.map(x => [x.cod, x]));
+      for (const x of R.itens) { const c = porCod.get(x.cod);
+        if (!c) add('media', 'sem_comprovante', `Sem comprovante: ${x.nome}`, `${brl(x.valor)} no arquivo de ${dBRa(R.data)} sem comprovante do banco (não foi pago ou foi rejeitado).`, {itens: [x], valor: x.valor});
+        else if (c.length > 1) add('alta', 'pago_2x_banco', `Banco pagou ${c.length}×: ${x.nome}`, `Comprovantes ${c.map(y => y.npag).join(', ')} · ${c.map(y => brl(y.valor)).join(' + ')}`, {itens: [x, ...c], valor: r2(c.slice(1).reduce((s, y) => s + y.valor, 0))});
+        else if (Math.abs(c[0].valor - x.valor) > 0.01) add('alta', 'valor_diferente', `Valor pago ≠ arquivo: ${x.nome}`, `arquivo ${brl(x.valor)} × comprovante ${brl(c[0].valor)}`, {itens: [x, c[0]], valor: r2(Math.abs(c[0].valor - x.valor))}); }
+      for (const c of C.itens) if (!relCod.has(c.cod)) add('alta', 'comprovante_fora', `Pago sem estar no arquivo: ${c.nome}`, `Comprovante ${c.npag} de ${brl(c.valor)} — pessoa não está no arquivo do RH.`, {itens: [c], valor: c.valor});
+    }
+    // 3) adiantamento × folha do mesmo mês: recebeu adiantamento e sumiu da folha (desligado? o adiantamento precisa ser descontado na rescisão)
+    const ehAdto = L => /adto|adiant/i.test(L.nome + ' ' + (L.competencia || ''));
+    const adto = rel.find(ehAdto), folha = rel.find(L => !ehAdto(L));
+    if (adto && folha) {
+      const naFolha = new Set(folha.itens.map(x => x.cpf || x.cod));
+      const fora = adto.itens.filter(x => !naFolha.has(x.cpf || x.cod));
+      if (fora.length) add('media', 'adto_sem_folha', `${fora.length} pessoa(s) receberam adiantamento e não estão na folha`, `Somam ${brl(fora.reduce((s, x) => s + x.valor, 0))}. Se foram desligadas, o adiantamento tem de ser descontado na rescisão; se não, a folha delas está faltando.`, {itens: fora, valor: r2(fora.reduce((s, x) => s + x.valor, 0))});
+    }
+    // o mesmo lote pode vir em dois formatos (CNAB + relação em PDF, ou só comprovante): conta uma vez só
+    const unicosLotes = [];
+    for (const L of rel.length ? rel : comp) { const tot = r2(L.itens.reduce((s, x) => s + x.valor, 0)); if (!unicosLotes.some(u => u.L.data === L.data && Math.abs(u.tot - tot) < 0.01)) unicosLotes.push({L, tot}); }
+    // 4) o LOTE no Sallamo: o total do arquivo deve aparecer pago uma vez (± dias). Duas vezes = lote pago em dobro.
+    for (const {L, tot} of unicosLotes) {
+      if (!L.data || !tot) continue;
+      const g = pagos.filter(t => Math.abs(t.valorPago - tot) <= 0.01 && Math.abs(difDias(t.pagamento, L.data)) <= cfg.janelaLote);
+      const doDia = pagos.filter(t => RX_FOLHA_PAGTO.test(t.conta) && Math.abs(difDias(t.pagamento, L.data)) <= 1);
+      const somaDia = r2(doDia.reduce((s, t) => s + t.valorPago, 0));
+      L.sallamo = {exatos: g.map(t => t.i), contasFolhaDia: doDia.map(t => t.i), somaDia};
+      if (g.length > 1) add('alta', 'lote_2x', `Lote ${L.nome} lançado ${g.length}× no Sallamo`, `${brl(tot)} pago em ${g.map(t => dBRa(t.pagamento) + ' (cód. ' + t.codigo + ')').join(', ')}`, {titulos: g.map(t => t.i), valor: r2(tot * (g.length - 1))});
+      else if (g.length === 1) add('ok', 'lote_ok', `Lote ${L.nome} encontrado 1× no Sallamo`, `Cód. ${g[0].codigo} · ${g[0].fornecedor} · ${brl(g[0].valorPago)} pago em ${dBRa(g[0].pagamento)} · ${g[0].conta}`, {titulos: [g[0].i], valor: 0});
+      else add('info', 'lote_nao_achado', `Lote ${L.nome} (${brl(tot)}) não aparece com esse total no Sallamo`, doDia.length ? `Em contas de folha perto de ${dBRa(L.data)} o Sallamo tem ${doDia.length} título(s) somando ${brl(somaDia)} (diferença ${brl(r2(somaDia - tot))}). Pode estar lançado por loja/centro de custo.` : `Nenhum título de folha pago perto de ${dBRa(L.data)} — o lote pode não estar no Contas a Pagar ou estar em outra empresa/período.`, {titulos: doDia.map(t => t.i), valor: 0});
+    }
+    // 5) PESSOA a pessoa: quem recebeu pelo arquivo do banco e TAMBÉM tem pagamento no Sallamo no mesmo período
+    const porNome = agrupar(pagos, t => chaveNome(t.fornecedor));
+    const porPessoa = new Map();  // fica só o achado mais grave de cada pessoa × títulos do Sallamo
+    for (const {L} of unicosLotes) for (const x of L.itens) {
+      const k = chaveNome(x.nome); if (!k || k.length < 8) continue;
+      const g = (porNome.get(k) || []).filter(t => Math.abs(difDias(t.pagamento, L.data)) <= cfg.janelaPessoa);
+      if (!g.length) continue;
+      const id = k + '|' + g.map(t => t.i).join(',');
+      const igual = g.filter(t => Math.abs(t.valorPago - x.valor) <= 0.01), folhaS = g.filter(t => RX_FOLHA_PAGTO.test(t.conta));
+      const sev = igual.length ? 'alta' : folhaS.length ? 'media' : 'baixa';
+      const ant = porPessoa.get(id); if (ant && {alta: 0, media: 1, baixa: 2}[ant.sev] <= {alta: 0, media: 1, baixa: 2}[sev]) continue;
+      if (ant) achados.splice(achados.indexOf(ant), 1);
+      add(sev, igual.length ? 'pessoa_mesmo_valor' : folhaS.length ? 'pessoa_folha_sallamo' : 'pessoa_outro_pagto',
+        igual.length ? `${x.nome}: mesmo valor pago no arquivo e no Sallamo` : folhaS.length ? `${x.nome}: recebeu no arquivo e tem pagamento de folha no Sallamo` : `${x.nome}: recebeu no arquivo e tem outro pagamento no Sallamo`,
+        `Arquivo ${L.nome}: ${brl(x.valor)} em ${dBRa(x.data || L.data)} · Sallamo: ${g.map(t => `${brl(t.valorPago)} em ${dBRa(t.pagamento)} (${t.conta}, cód. ${t.codigo})`).join('; ')}`,
+        {itens: [x], titulos: g.map(t => t.i), valor: igual.length ? x.valor : 0});
+      porPessoa.set(id, achados[achados.length - 1]);
+    }
+    const P = {alta: 0, media: 1, baixa: 2, info: 3, ok: 4};
+    achados.sort((a, b) => P[a.sev] - P[b.sev] || (b.valor || 0) - (a.valor || 0));
+    return {resumo, achados};
+  }
+
   // 1º algarismo significativo de um valor (Benford)
   const primeiroDigito = v => Number(String(Math.abs(v)).replace(/^[0.]+/, '')[0]) || 0;
 
@@ -686,7 +800,7 @@
     return T.filter(t => termos.every(x => casaTitulo(t, x)));
   }
 
-  const api = {analisar, normalizar, benfordDe, primeiroDigito, avaliarDuplicidade, REGRAS, REGRAS_DUP, PADRAO, PESO, brl, dBR, dBRa, chaveNome, parecePessoa,
+  const api = {analisar, normalizar, benfordDe, primeiroDigito, avaliarDuplicidade, lerCNAB240, lerTextoBanco, cruzarArquivoBanco, REGRAS, REGRAS_DUP, PADRAO, PESO, brl, dBR, dBRa, chaveNome, parecePessoa,
     interpretarBusca, filtrarOcorrencias, filtrarTitulos, casaTitulo, numBR, despesas, CATEGORIAS, CAT_NOME, categoriaDe, tipoPorFornecedor};
   if (typeof module === 'object' && module.exports) module.exports = api; else raiz.FinAudit = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -64,6 +64,14 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
   (+25), mesmo nº de NF (+30, quando a API enviar), mesmo vencimento (+15), mesma competência (+10), mesmo centro (+10),
   cadastro com grafia diferente (+10), conta de pessoas (+10, +10 se mesmo mês); desconta rateio (máx. 20), preço por loja
   (−30/−45), lote de mercadoria (−35), cobrança recorrente (−25). Alta ≥ 70 · média ≥ 45 · abaixo de 30 não entra.
+- **📂 Conferir arquivo do banco / RH** (dentro da aba do Agente): carrega o que o RH manda ao banco — **CNAB 240**
+  (.txt/.rem) ou a **Relação para Depósito Bancário** em PDF — e a **Lista de Comprovantes** do Internet Banking (PDF,
+  lido com pdf.js). Lido só no navegador, nada é enviado nem gravado (tem CPF e conta dos funcionários). Confere:
+  total do arquivo × total informado; mesma pessoa/CPF/código/conta 2× no arquivo; conta bancária de pessoas diferentes;
+  arquivo × comprovante (sem comprovante, valor diferente, pago 2× pelo banco, comprovante de quem não está no arquivo);
+  adiantamento × folha (recebeu adiantamento e sumiu da folha — descontar na rescisão); o **lote** no Sallamo (total pago
+  1×, 2× ou não achado) e **pessoa a pessoa** (recebeu pelo arquivo e também tem título pago no Sallamo ±20 dias — alta se
+  mesmo valor). O mesmo lote em CNAB + relação + comprovante conta uma vez. Testes: `node financeiro/teste_arquivo_banco.js`.
 - **Ocorrências**: por padrão **uma linha por fornecedor** — todas as regras juntas (uma linha por regra, ex.: "R06 ×19"),
   valor envolvido contado uma vez só e a coluna **Duplicidade?** (só R01/R23 dizem que algo pode ter sido pago em dobro).
   Nas regras de padrão (Benford, conta sensível, classificação, pessoa física, fornecedor novo, redondos, conta errada) o

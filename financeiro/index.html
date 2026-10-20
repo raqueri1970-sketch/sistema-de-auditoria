@@ -6,7 +6,7 @@
 <title>Auditoria Financeira</title>
 <meta name="theme-color" content="#070b16">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="auditoria.js?v=20261020-1"></script>
+<script src="auditoria.js?v=20261020-2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -513,6 +513,90 @@ function cardDup(o) {
     <div class="row" style="margin-top:10px"><button class="btn b-pri" onclick="abrir(${o.n})">Analisar / registrar</button>${fx(ts[0].fornecedor) != null ? `<button class="btn" onclick="dossie(${fx(ts[0].fornecedor)})">Dossiê do fornecedor</button>` : ''}</div>
   </div>`;
 }
+// ---------- 📂 ARQUIVO DO BANCO / RH × SALLAMO ----------
+// Lê no navegador (nada é enviado nem gravado) o arquivo que o RH manda ao banco (CNAB 240 ou a "Relação para Depósito
+// Bancário" em PDF) e os comprovantes do Internet Banking, e cruza com o Contas a Pagar do Sallamo já carregado.
+let BANCO = {lotes: [], r: null, erro: ''};
+async function carregarPDFJS() {
+  if (window.pdfjsLib) return;
+  await new Promise((ok, erro) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'; s.onload = ok; s.onerror = erro; document.head.appendChild(s); });
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+// texto do PDF em linhas (agrupa os pedaços pela altura na página, da esquerda para a direita)
+async function linhasPDF(buf) {
+  await carregarPDFJS();
+  const pdf = await pdfjsLib.getDocument({data: buf}).promise, out = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const its = (await (await pdf.getPage(p)).getTextContent()).items.filter(i => i.str.trim());
+    const linhas = [];
+    for (const i of its) { const y = i.transform[5]; let l = linhas.find(l => Math.abs(l.y - y) < 2.5); if (!l) linhas.push(l = {y, it: []}); l.it.push(i); }
+    linhas.sort((a, b) => b.y - a.y).forEach(l => out.push(l.it.sort((a, b) => a.transform[4] - b.transform[4]).map(i => i.str.trim()).join(' ')));
+  }
+  return out;
+}
+window.lerArquivosBanco = async input => {
+  const fs = [...input.files]; if (!fs.length) return;
+  BANCO.erro = ''; toast('Lendo ' + fs.length + ' arquivo(s)…');
+  for (const f of fs) {
+    try {
+      const buf = await f.arrayBuffer();
+      const L = /\.pdf$/i.test(f.name) ? A.lerTextoBanco(await linhasPDF(buf)) : A.lerCNAB240(new TextDecoder('latin1').decode(buf));
+      if (!L.itens.length) { BANCO.erro += `"${f.name}": não reconheci pagamentos (aceito CNAB 240, Relação para Depósito Bancário e Lista de Comprovantes). `; continue; }
+      L.nome = f.name.replace(/\.[^.]+$/, '').replace(/_/g, ' ');
+      BANCO.lotes = BANCO.lotes.filter(x => x.nome !== L.nome).concat(L);
+    } catch (e) { BANCO.erro += `"${f.name}": ${e.message || e}. `; }
+  }
+  BANCO.r = A.cruzarArquivoBanco(BANCO.lotes, R.titulos);
+  input.value = ''; render();
+};
+window.limparBanco = () => { BANCO = {lotes: [], r: null, erro: ''}; render(); };
+const lotesDistintos = rs => rs.reduce((u, x) => u.some(y => y.data === x.data && Math.abs(y.total - x.total) < 0.01) ? u : u.concat(x), []);
+const SEVB = {alta: ['Alta', 'sv-alta'], media: ['Média', 'sv-media'], baixa: ['Baixa', 'sv-baixa'], info: ['Info', 'st-pendente'], ok: ['OK', 'ok-chip']};
+const TIPO_ORIGEM = {cnab: 'CNAB (remessa ao banco)', relacao: 'Relação para depósito', comprovante: 'Comprovantes do banco'};
+function painelBanco() {
+  const r = BANCO.r, ach = r ? r.achados : [], prob = ach.filter(a => a.sev === 'alta' || a.sev === 'media');
+  return `<div class="card" style="margin-top:12px;border-color:rgba(167,139,250,.4)">
+    <div class="row" style="justify-content:space-between"><div><b>📂 Conferir arquivo do banco / RH (folha, adiantamento, pensão…)</b>
+      <div class="small mut">Carregue o arquivo que vai para o banco (CNAB .txt/.rem ou a Relação em PDF) e os comprovantes do Internet Banking. O sistema confere os arquivos entre si e procura cada pagamento no Sallamo do período carregado. <b>Os arquivos são lidos só no seu navegador</b> — nada é enviado nem gravado.</div></div>
+      <div class="row"><label class="btn b-pri" style="cursor:pointer">＋ Carregar arquivos<input type="file" multiple accept=".txt,.rem,.ret,.pdf,.TXT,.REM,.PDF" style="display:none" onchange="lerArquivosBanco(this)"></label>
+      ${r ? `<button class="btn" onclick="relatorioBanco()">🖨 PDF</button><button class="btn" onclick="limparBanco()">Limpar</button>` : ''}</div></div>
+    ${BANCO.erro ? `<div class="aviso">${esc(BANCO.erro)}</div>` : ''}
+    ${r ? `<div class="tw" style="margin-top:10px"><table><tr><th>Arquivo</th><th>Tipo</th><th>Data do pagamento</th><th>Competência</th><th class="num">Pessoas</th><th class="num">Total</th><th>Confere?</th></tr>
+      ${r.resumo.map(x => `<tr><td class="small b">${esc(x.nome)}</td><td class="small">${TIPO_ORIGEM[x.tipo] || x.tipo}</td><td class="small">${dBRa(x.data)}</td><td class="small">${esc(x.competencia || '—')}</td><td class="num">${n0(x.n)}</td><td class="num">${brl(x.total)}</td>
+        <td class="small">${x.totalInformado == null ? '—' : Math.abs(x.totalInformado - x.total) < 0.01 ? '<span class="chip ok-chip">✓ fecha com o total</span>' : `<span class="chip sv-alta">≠ ${brl(x.totalInformado)}</span>`}</td></tr>`).join('')}
+      ${(() => { const u = lotesDistintos(r.resumo); return `<tr class="tot"><td colspan="4">TOTAL PAGO (${n0(u.length)} lote(s) · o mesmo pagamento em CNAB, relação e comprovante conta uma vez)</td><td class="num">${n0(u.reduce((s, x) => s + x.n, 0))}</td><td class="num">${brl(u.reduce((s, x) => s + x.total, 0))}</td><td></td></tr>`; })()}</table></div>
+      <div class="grid" style="margin-top:10px">
+        ${kpi('Problemas (alta + média)', n0(prob.length), brl(prob.reduce((s, a) => s + (a.valor || 0), 0)) + ' envolvidos', prob.length ? 'k-bad' : 'k-ok')}
+        ${kpi('Pago no arquivo E no Sallamo', n0(ach.filter(a => a.tipo === 'pessoa_mesmo_valor').length), 'mesma pessoa, mesmo valor', 'k-bad')}
+        ${kpi('Lote no Sallamo', ach.some(a => a.tipo === 'lote_2x') ? '⚠ lançado 2×' : ach.some(a => a.tipo === 'lote_ok') ? '✓ 1×' : 'não achado', 'total do arquivo × títulos pagos', ach.some(a => a.tipo === 'lote_2x') ? 'k-bad' : 'k-warn')}
+      </div>
+      <div class="tw" style="margin-top:10px"><table><tr><th>Grav.</th><th>O que foi encontrado</th><th class="num">Valor</th></tr>
+        ${ach.map((a, i) => `<tr class="clic" onclick="abrirAchadoBanco(${i})"><td><span class="chip ${SEVB[a.sev][1]}">${SEVB[a.sev][0]}</span></td><td class="small"><b>${esc(a.titulo)}</b><br><span class="mut">${esc(a.detalhe)}</span></td><td class="num">${a.valor ? brl(a.valor) : '—'}</td></tr>`).join('') || '<tr><td colspan="3" class="mut" style="text-align:center;padding:20px">Nada encontrado: arquivos conferem entre si e nenhum pagamento repetido no Sallamo. 🎉</td></tr>'}
+      </table></div>
+      ${ach.some(a => a.tipo === 'lote_nao_achado') ? '<div class="small mut" style="margin-top:6px">Lote não achado: confira se o período carregado (vencimento) cobre a data do pagamento e se a empresa do arquivo é a mesma do Sallamo.</div>' : ''}` : ''}
+  </div>`;
+}
+window.abrirAchadoBanco = i => {
+  const a = BANCO.r.achados[i];
+  const linhas = a.itens.slice(0, 300).map(x => `<tr><td class="small">${esc(TIPO_ORIGEM[x.origem] || x.origem)}</td><td class="small b">${esc(x.nome)}</td><td class="small">${esc(x.cpf || '—')}</td><td class="small">${esc(x.cod || '')}${x.npag ? ' · comp. ' + esc(x.npag) : ''}</td><td class="small">${esc(x.conta || '—')}</td><td class="small">${dBRa(x.data)}</td><td class="num">${brl(x.valor)}</td></tr>`).join('');
+  $('mBody').innerHTML = `<div class="x row"><button class="btn" onclick="fechar()">✕</button></div>
+    <div class="row" style="padding-right:60px"><span class="chip ${SEVB[a.sev][1]}">${SEVB[a.sev][0]}</span><b>${esc(a.titulo)}</b></div>
+    <div style="margin-top:8px">${esc(a.detalhe)}</div>
+    ${a.itens.length ? `<h2>No arquivo do banco / RH (${n0(a.itens.length)})</h2><div class="tw" style="max-height:380px;overflow:auto"><table><tr><th>Origem</th><th>Nome</th><th>CPF</th><th>Código</th><th>Conta</th><th>Data</th><th class="num">Valor</th></tr>${linhas}
+      <tr class="tot"><td colspan="6">TOTAL</td><td class="num">${brl(a.itens.reduce((s, x) => s + x.valor, 0))}</td></tr></table></div>` : ''}
+    ${a.titulos.length ? `<h2>No Sallamo (${n0(a.titulos.length)})</h2>${tabTitulos(a.titulos)}` : ''}`;
+  $('modal').classList.remove('hidden');
+};
+window.relatorioBanco = () => {
+  const r = BANCO.r;
+  imprimirHTML('Arquivo do banco / RH × Sallamo', `<h2>Arquivos conferidos</h2><table><tr><th>Arquivo</th><th>Tipo</th><th>Data</th><th>Competência</th><th class="n">Pessoas</th><th class="n">Total</th></tr>
+    ${r.resumo.map(x => `<tr><td>${esc(x.nome)}</td><td>${TIPO_ORIGEM[x.tipo] || x.tipo}</td><td>${dBRa(x.data)}</td><td>${esc(x.competencia || '')}</td><td class="n">${n0(x.n)}</td><td class="n">${brl(x.total)}</td></tr>`).join('')}
+    ${(() => { const u = lotesDistintos(r.resumo); return `<tr class="tot"><td colspan="4">TOTAL PAGO (${n0(u.length)} lote(s), cada pagamento contado uma vez)</td><td class="n">${n0(u.reduce((s, x) => s + x.n, 0))}</td><td class="n">${brl(u.reduce((s, x) => s + x.total, 0))}</td></tr>`; })()}</table>
+    <h2>Achados</h2><table><tr><th>Grav.</th><th>Achado</th><th>Detalhe</th><th class="n">Valor</th></tr>
+    ${r.achados.map(a => `<tr><td>${SEVB[a.sev][0]}</td><td><b>${esc(a.titulo)}</b></td><td>${esc(a.detalhe)}${a.tipo === 'adto_sem_folha' ? '<br>' + a.itens.map(x => `${esc(x.nome)} (${brl(x.valor)})`).join('; ') : ''}</td><td class="n">${a.valor ? brl(a.valor) : ''}</td></tr>`).join('')}
+    <tr class="tot"><td colspan="3">TOTAL (alta + média)</td><td class="n">${brl(r.achados.filter(a => a.sev === 'alta' || a.sev === 'media').reduce((s, a) => s + (a.valor || 0), 0))}</td></tr></table>`);
+};
+
 function duplicidadeAba() {
   const a = casosDup(), POR = 30, pags = Math.max(1, Math.ceil(a.length / POR));
   DP.pag = Math.min(DP.pag, pags - 1);
@@ -527,6 +611,7 @@ function duplicidadeAba() {
     no <b>mesmo dia</b>, em <b>até ${R.cfg.dupJanela} dias</b>, no <b>mesmo título</b>, em <b>centros de custo diferentes</b> e, na <b>folha</b> (pensão, salário, vale-transporte, Uber, reembolso, ajuda de custo…), na <b>mesma competência</b>.
     Cada caso ganha uma <b>nota de confiança (0–100)</b>: ✓ o que pesa a favor da duplicidade · ↓ o que pode explicar (rateio entre lojas, preço por loja, lote de mercadoria, cobrança recorrente).
     Títulos <b>em aberto</b> também entram — dá para segurar antes de pagar. Compare os eventos lado a lado: <span style="color:#86efac">verde = igual</span>, <span style="color:#fcd34d">amarelo = diferente</span>.</div>
+  ${painelBanco()}
   <div class="grid" style="margin-top:12px">
     ${kpi('Casos (média e alta confiança)', n0(todos.filter(o => o.dup.nota >= 45).length), `${n0(todos.length)} no total, contando os de baixa confiança`, 'k-warn')}
     ${kpi('Alta confiança', n0(alta.length), brl(soma(alta, 'excesso')) + ' podem ter saído a mais', 'k-bad')}
