@@ -49,7 +49,8 @@ assert(r23.some(o => o.detalhe.includes('24623') && o.sev === 'alta'), 'D. Guard
 assert(tem('ACME'), 'mesmo valor mesmo dia lojas diferentes');
 assert(tem('MARIA DA SILVA'), 'pensão 2× no mesmo mês');
 assert(tem('PEREIRA'), 'Uber 2× com cadastro diferente');
-assert(r23.some(o => o.fornecedor.includes('XYZ') && o.dup.abertos === 1), 'pago + em aberto (evitável)');
+assert(!r23.some(o => o.fornecedor.includes('XYZ')), 'pago + em aberto NÃO é duplicidade (só quando os dois foram pagos)');
+assert(r.ocorrencias.some(o => o.regra === 'R24' && o.fornecedor.includes('XYZ') && o.sev === 'alta' && o.prev.evitavel === 3200), 'pago + em aberto vai para a prevenção (R24), alta: não pagar de novo');
 assert(!tem('CONTABIL'), 'rateio não é duplicidade');
 assert(!tem('IMOBILIARIA') && !tem('MOVEIS'), 'mensal/parcelas não são duplicidade');
 assert(!r23.some(o => o.detalhe.includes('95001')), 'alarme por loja não é duplicidade');
@@ -66,3 +67,18 @@ assert(E.exatas.length === 1 && E.exatas[0].codigo === 1 && E.exatas[0].excesso 
 assert(E.rateios.length === 1 && E.rateios[0].codigo === 2, 'mesmo dia em lojas diferentes = rateio (à parte)');
 assert(E.diasDiferentes.length === 1 && E.diasDiferentes[0].codigo === 3, 'mesmo título pago de novo no dia seguinte');
 assert(!E.diasDiferentes.some(x => x.codigo === 4), 'parcela mensal não é duplicidade');
+
+// ---- caso da tela: o mesmo título Renegociado (com saldo) + Pago NÃO é duplicidade nem prevenção nem em aberto
+const reneg = (codigo, fornecedor, v, status, pag, venc, comp, cc) => ({codigo, status, fornecedor, valorParcela: v, valorPago: status === 'Pago' ? v : 0, saldo: status === 'Pago' ? 0 : v,
+  vencimento: venc, competencia: comp, dataPagamento: status === 'Pago' ? pag : null, contaContabil: '(-) Condomínio', centroCusto: cc});
+const RR = A.analisar([reneg(27972, 'COND DO SHOPPING CENTER GUARARAPES', 66013.39, 'Renegociado', null, '2026-09-21', '2026-08-27', '015 - SHOPPING GUARARAPES'),
+  reneg(27972, 'COND DO SHOPPING CENTER GUARARAPES', 66013.39, 'Pago', '2026-09-23', '2026-09-23', '2026-08-27', '015 - SHOPPING GUARARAPES'),
+  reneg(30726, 'SOUZA E SOUZA LTDA', 42326.25, 'Renegociado', null, '2026-09-21', '2026-08-08', '092 - AFOGADOS'),
+  reneg(30726, 'SOUZA E SOUZA LTDA', 42326.25, 'Pago', '2026-09-22', '2026-09-22', '2026-08-08', '092 - AFOGADOS')], {hoje: '2026-10-20'});
+assert(!RR.ocorrencias.some(o => ['R01', 'R02', 'R23', 'R24', 'R18'].includes(o.regra)), 'Renegociado + Pago: nenhuma duplicidade, prevenção, linha repetida ou vencido');
+assert(RR.indicadores.emAberto === 0, 'Renegociado não conta como em aberto no painel');
+const EX = A.duplicidadeExata(RR.titulos);
+assert(!EX.exatas.length && !EX.diasDiferentes.length, 'verificação exata ignora o renegociado');
+// dois pagos de verdade no mesmo título continuam sendo duplicidade
+const R2 = A.analisar([reneg(1, 'FORN X LTDA', 5000, 'Pago', '2026-09-21', '2026-09-21', '2026-08-01', 'LOJA'), reneg(1, 'FORN X LTDA', 5000, 'Pago', '2026-09-22', '2026-09-22', '2026-08-01', 'LOJA')], {hoje: '2026-10-20'});
+assert(R2.ocorrencias.some(o => o.regra === 'R23' && o.dup.pagos === 2), 'mesmo título pago nos dois = duplicidade');

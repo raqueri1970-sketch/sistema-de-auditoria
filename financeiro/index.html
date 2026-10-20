@@ -6,7 +6,7 @@
 <title>Auditoria Financeira</title>
 <meta name="theme-color" content="#070b16">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="auditoria.js?v=20261020-4"></script>
+<script src="auditoria.js?v=20261020-5"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -461,8 +461,9 @@ window.abrir = async n => {
     ${A.REGRAS[o.regra].volume && o.regra !== 'R10' ? `<div class="small mut" style="margin-top:6px">ℹ️ ${brl(o.impacto)} é o valor <b>analisado</b> por esta regra — não é valor pago em duplicidade nem perda. Para duplicidade veja a aba 🕵️ Agente de Duplicidade.</div>` : ''}
     ${o.benford ? `<div style="max-width:420px;margin-top:10px">${benfordSVG(o.benford)}</div><div class="leg"><span><i style="background:var(--pri)"></i>observado</span><span><i style="background:var(--warn)"></i>esperado (Benford)</span></div>${explicaBenford(o)}` : ''}
     ${o.dup ? `<h2>🕵️ Agente de Duplicidade · ${confChip(o.dup)}</h2>${sinaisHTML(o.dup)}
-      <div class="row" style="margin-top:8px">${o.dup.excesso ? `<span class="chip sv-alta">Pode ter saído a mais: ${brl(o.dup.excesso)}</span>` : ''}${o.dup.evitavel ? `<span class="chip sv-media">Em aberto, dá para evitar: ${brl(o.dup.evitavel)}</span>` : ''}</div>
+      <div class="row" style="margin-top:8px">${o.dup.excesso ? `<span class="chip sv-alta">Pago a mais: ${brl(o.dup.excesso)}</span>` : ''}</div>
       <h2>Comparativo lado a lado</h2>${comparativo(o.titulos)}` : ''}
+    ${o.prev ? `<h2>🛑 Prevenção · ${o.prev.pagos ? 'o outro já foi PAGO — não pague este' : 'lançado 2× em aberto — cancele um'}</h2><div class="row"><span class="chip ${o.prev.pagos ? 'sv-alta' : 'sv-media'}">Evitar pagar ${brl(o.prev.evitavel)}</span></div><h2>Comparativo lado a lado</h2>${comparativo(o.titulos)}` : ''}
     ${o.benford ? (() => { const sub = o.titulos.filter(i => A.primeiroDigito(R.titulos[i].valorPago) === o.benford.pior.d); return `<h2>Pagamentos que começam com ${o.benford.pior.d} (${n0(sub.length)})</h2>${tabTitulos(sub)}`; })() : ''}
     <h2>Títulos envolvidos (${n0(o.titulos.length)})</h2>${tabTitulos(o.titulos)}
     <h2>Análise do auditor</h2>
@@ -491,7 +492,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fechar(); })
 // Um card por caso suspeito (R01 + R23), com a nota de confiança, os motivos e os eventos lado a lado.
 let DP = {conf: 'am', marca: '', sit: '', q: '', pag: 0};
 const MARCAS = {mesmo_dia: 'Mesmo dia', dias_proximos: 'Dias próximos', mesmo_titulo: 'Mesmo título (código)', centros: 'Centros de custo diferentes',
-  folha: 'Folha, pensão, VT, Uber, reembolso', cadastro: 'Cadastro com grafia diferente', aberto: 'Ainda em aberto (evitável)'};
+  folha: 'Folha, pensão, VT, Uber, reembolso', cadastro: 'Cadastro com grafia diferente'};
 function casosDup() {
   let a = R.ocorrencias.filter(o => o.dup && A.REGRAS_DUP.includes(o.regra));
   if (DP.conf === 'alta') a = a.filter(o => o.dup.nota >= 70); else if (DP.conf === 'am') a = a.filter(o => o.dup.nota >= 45); else if (DP.conf === 'baixa') a = a.filter(o => o.dup.nota < 45);
@@ -506,8 +507,8 @@ function cardDup(o) {
   return `<div class="card dcard c-${conf}">
     <div class="row" style="justify-content:space-between"><div class="row">${sevChip(conf)}${confChip(d)}<span class="small mut b">${o.regra}</span></div>${sitChip(o.sit)}</div>
     <div class="b" style="margin-top:8px;font-size:15px">${esc(o.fornecedor)}</div>
-    <div class="vv">${brl(d.valor)} <span style="font-size:14px;font-weight:600;color:var(--txt2)">${d.pagos >= 2 ? `pago ${d.pagos}×` : `lançado ${d.n}×`} · ${datas.join(' e ')}</span></div>
-    <div class="row" style="margin-top:6px">${d.excesso ? `<span class="chip sv-alta">pode ter saído a mais ${brl(d.excesso)}</span>` : ''}${d.evitavel ? `<span class="chip sv-media">em aberto, dá para evitar ${brl(d.evitavel)}</span>` : ''}</div>
+    <div class="vv">${brl(d.valor)} <span style="font-size:14px;font-weight:600;color:var(--txt2)">pago ${d.pagos}× · ${datas.join(' e ')}</span></div>
+    <div class="row" style="margin-top:6px"><span class="chip sv-alta">pago a mais ${brl(d.excesso)}</span><span class="small mut">${ts.map(t => `${esc(t.codigo)}: ${esc(t.status)}`).join(' · ')}</span></div>
     ${sinaisHTML(d)}
     <div style="margin-top:10px">${comparativo(o.titulos, 4)}</div>
     <div class="row" style="margin-top:10px"><button class="btn b-pri" onclick="abrir(${o.n})">Analisar / registrar</button>${fx(ts[0].fornecedor) != null ? `<button class="btn" onclick="dossie(${fx(ts[0].fornecedor)})">Dossiê do fornecedor</button>` : ''}</div>
@@ -603,7 +604,7 @@ window.relatorioBanco = () => {
 
 // ---------- ❓ Já houve pagamento em duplicidade? (resposta direta) ----------
 function vereditoDup() {
-  const E = A.duplicidadeExata(R.titulos), evit = R.ocorrencias.filter(o => o.dup && o.dup.abertos && o.dup.nota >= 45);
+  const E = A.duplicidadeExata(R.titulos), evit = R.ocorrencias.filter(o => o.regra === 'R24');
   window._E = E; window._evit = evit;
   const soma = (a, k = 'excesso') => a.reduce((s, x) => s + (x[k] || 0), 0);
   const sim = E.exatas.length > 0;
@@ -616,16 +617,15 @@ function vereditoDup() {
     <div class="tw" style="margin-top:10px"><table><tr><th>Verificação</th><th class="num">Casos</th><th class="num">Valor</th><th></th></tr>
       ${linha('<b>Mesmo dia</b>: mesmo fornecedor, mesmo título, mesmo valor, mesma loja', E.exatas.length, soma(E.exatas), true, 'pagamento em dobro')}
       ${linha('<b>Dia diferente</b>: o mesmo título e valor pago de novo em até 7 dias', E.diasDiferentes.length, soma(E.diasDiferentes), true, 'ex.: pago dia 13 e de novo dia 14')}
-      ${linha('<b>Prevenção</b>: títulos em aberto que repetem um pagamento', evit.length, soma(evit.map(o => o.dup), 'evitavel'), false, 'ainda dá para segurar antes de pagar')}
+      ${linha('<b>Prevenção</b>: título a pagar que repete outro (ainda NÃO é duplicidade)', evit.length, soma(evit.map(o => o.prev), 'evitavel'), false, 'segure antes de pagar — lista abaixo')}
       ${linha('Mesmo título dividido entre lojas no mesmo dia (rateio)', E.rateios.length, 0, false, 'normalmente NÃO é duplicidade — conferir a nota')}
     </table></div>
-    ${casos.length || evit.length ? `<div class="tw" style="margin-top:10px;max-height:420px;overflow:auto"><table><tr><th>Tipo</th><th>Fornecedor</th><th>Título</th><th class="num">Valor</th><th>Pago em</th><th>Centro de custo</th><th class="num">Pago a mais</th></tr>
+    ${casos.length ? `<div class="tw" style="margin-top:10px;max-height:420px;overflow:auto"><table><tr><th>Tipo</th><th>Fornecedor</th><th>Título</th><th class="num">Valor</th><th>Pago em</th><th>Centro de custo</th><th class="num">Pago a mais</th></tr>
       ${casos.map((c, i) => `<tr class="clic" onclick="abrirExata(${i})"><td><span class="chip ${c.tipo === 'exata' ? 'sv-alta' : 'sv-media'}">${c.tipo === 'exata' ? 'mesmo dia' : 'dia diferente'}</span></td><td class="small b">${esc(c.fornecedor)}</td><td class="b">${esc(c.codigo)}</td><td class="num">${brl(c.valor)}</td><td class="small">${c.datas.map(dBRa).join(' e ')}</td><td class="small">${esc(c.ccs.join(' / '))}</td><td class="num b">${brl(c.excesso)}</td></tr>`).join('')}
-      ${evit.map(o => `<tr class="clic" onclick="abrir(${o.n})"><td><span class="chip sv-baixa">em aberto</span></td><td class="small b">${esc(o.fornecedor)}</td><td class="small">${esc([...new Set(o.titulos.map(i => R.titulos[i].codigo))].join(', '))}</td><td class="num">${brl(o.dup.valor)}</td><td class="small">${esc(o.detalhe.split(' · ')[1] || '')}</td><td class="small">${esc(o.cc || '')}</td><td class="num">evitável ${brl(o.dup.evitavel)}</td></tr>`).join('')}
     </table></div>` : ''}
     <div class="explica" style="margin-top:10px"><b>Como evitar que aconteça</b><br>
       1. <b>Antes de mandar a remessa ao banco</b>, carregue o arquivo em "📂 Conferir arquivo do banco" abaixo: o sistema avisa <b>"este valor já foi pago antes"</b>, boleto repetido e título pago 2×.<br>
-      2. <b>Toda semana</b>, confira a linha "Prevenção" acima: títulos em aberto que repetem um pagamento já feito — cancele antes do vencimento.<br>
+      2. <b>Toda semana</b>, confira a seção <b>🛑 Prevenção</b> desta aba: títulos a pagar que repetem um já pago (não pague) ou lançados 2× (cancele um) — antes do vencimento.<br>
       3. Peça ao Sallamo um <b>bloqueio no lançamento</b>: não aceitar título com o mesmo fornecedor + mesmo nº de nota/documento + mesmo valor (e alerta quando o mesmo título for baixado duas vezes).</div>
     ${casos.length ? `<div class="row" style="margin-top:10px"><button class="btn" onclick="relatorioExata()">🖨 PDF desta verificação</button></div>` : ''}
   </div>`;
@@ -655,20 +655,23 @@ function duplicidadeAba() {
   const todos = R.ocorrencias.filter(o => o.dup && A.REGRAS_DUP.includes(o.regra)), alta = todos.filter(o => o.dup.nota >= 70);
   const soma = (g, k) => g.reduce((s, o) => s + o.dup[k], 0);
   const folha = todos.filter(o => o.dup.marcas.includes('folha') && o.dup.nota >= 45);
+  const prev = R.ocorrencias.filter(o => o.regra === 'R24').sort((x, y) => A.PESO[y.sev] - A.PESO[x.sev] || y.impacto - x.impacto), prevA = prev.filter(o => o.sev === 'alta');
   window._dpCasos = a;
-  $('corpo').innerHTML = `${vereditoDup()}
-  <div class="explica"><b>🕵️ Como o Agente de Duplicidade trabalha</b><br>
-    Ele junta os pagamentos com o <b>mesmo valor exato</b> para o <b>mesmo fornecedor ou pessoa</b> (mesmo com grafia diferente no cadastro) e procura o mesmo dinheiro saindo de novo:
+  $('corpo').innerHTML = `<div class="aviso" style="border-color:var(--bad);background:rgba(239,68,68,.07)"><b>Regra:</b> só é <b>duplicidade</b> quando o mesmo dinheiro foi <b>PAGO</b> duas vezes (os dois eventos com pagamento).
+    Título <b>Renegociado</b> (substituído por outro), cancelado, estornado ou ainda em aberto <b>não</b> é duplicidade — os em aberto repetidos ficam na seção <b>🛑 Prevenção</b>, para segurar antes de pagar.</div>
+  ${vereditoDup()}
+  <details class="explica" style="margin-top:12px"><summary style="cursor:pointer"><b>🕵️ Como o Agente de Duplicidade trabalha</b> <span class="small mut">(clique para ver)</span></summary>
+    Ele junta os <b>pagamentos</b> com o <b>mesmo valor exato</b> para o <b>mesmo fornecedor ou pessoa</b> (mesmo com grafia diferente no cadastro) e procura o mesmo dinheiro saindo de novo:
     no <b>mesmo dia</b>, em <b>até ${R.cfg.dupJanela} dias</b>, no <b>mesmo título</b>, em <b>centros de custo diferentes</b> e, na <b>folha</b> (pensão, salário, vale-transporte, Uber, reembolso, ajuda de custo…), na <b>mesma competência</b>.
+    <b>Só entram títulos pagos</b> — renegociado, cancelado, estornado e em aberto ficam de fora (os em aberto repetidos vão para a 🛑 Prevenção).
     Cada caso ganha uma <b>nota de confiança (0–100)</b>: ✓ o que pesa a favor da duplicidade · ↓ o que pode explicar (rateio entre lojas, preço por loja, lote de mercadoria, cobrança recorrente).
-    Títulos <b>em aberto</b> também entram — dá para segurar antes de pagar. Compare os eventos lado a lado: <span style="color:#86efac">verde = igual</span>, <span style="color:#fcd34d">amarelo = diferente</span>.</div>
-  ${painelBanco()}
+    Compare os eventos lado a lado: <span style="color:#86efac">verde = igual</span>, <span style="color:#fcd34d">amarelo = diferente</span>.</details>
   <div class="grid" style="margin-top:12px">
-    ${kpi('Casos (média e alta confiança)', n0(todos.filter(o => o.dup.nota >= 45).length), `${n0(todos.length)} no total, contando os de baixa confiança`, 'k-warn')}
-    ${kpi('Alta confiança', n0(alta.length), brl(soma(alta, 'excesso')) + ' podem ter saído a mais', 'k-bad')}
-    ${kpi('Pode ter saído a mais', brl(soma(todos.filter(o => o.dup.nota >= 45), 'excesso')), 'média + alta confiança · confirmar com o banco', 'k-bad')}
-    ${kpi('Em aberto (dá para evitar)', brl(soma(todos.filter(o => o.dup.nota >= 45), 'evitavel')), 'lançado de novo e ainda não pago', 'k-ok')}
-    ${kpi('Folha, pensão, VT, Uber, reembolso', n0(folha.length), brl(soma(folha, 'excesso') + soma(folha, 'evitavel')), 'k-pur')}
+    ${kpi('Pagos em duplicidade (média + alta)', n0(todos.filter(o => o.dup.nota >= 45).length), `${n0(todos.length)} contando os de baixa confiança`, 'k-warn')}
+    ${kpi('Alta confiança', n0(alta.length), brl(soma(alta, 'excesso')) + ' pagos a mais', 'k-bad')}
+    ${kpi('Valor pago a mais', brl(soma(todos.filter(o => o.dup.nota >= 45), 'excesso')), 'média + alta · confirmar no extrato e cobrar devolução', 'k-bad')}
+    ${kpi('Folha, pensão, VT, Uber, reembolso', n0(folha.length), brl(soma(folha, 'excesso')) + ' pagos a mais', 'k-pur')}
+    ${kpi('🛑 Prevenção (a pagar repetido)', n0(prev.length), `${n0(prevA.length)} já pagos antes · evitar ${brl(prev.reduce((s, o) => s + o.prev.evitavel, 0))}`, prevA.length ? 'k-bad' : 'k-ok')}
   </div>
   <div class="filtros">
     <select onchange="DP.conf=this.value;DP.pag=0;render()">${[['am', 'Confiança: média e alta'], ['alta', 'Só alta confiança'], ['baixa', 'Só baixa confiança'], ['', 'Todas as confianças']].map(([v, t]) => `<option value="${v}" ${DP.conf === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
@@ -677,25 +680,37 @@ function duplicidadeAba() {
     <button class="btn" onclick="relatorioDuplicidade()" ${a.length ? '' : 'disabled'}>🖨 PDF / imprimir</button><button class="btn" onclick="excelDuplicidade()" ${a.length ? '' : 'disabled'}>⬇ Excel</button>
   </div>
   ${campoBusca('DP', DP.q)}
-  <div class="small mut" style="margin-top:8px">${n0(a.length)} caso(s) · pode ter saído a mais <b>${brl(soma(a, 'excesso'))}</b> · em aberto <b>${brl(soma(a, 'evitavel'))}</b></div>
+  <h2>💸 Pagos em duplicidade</h2>
+  <div class="small mut" style="margin-top:8px">${n0(a.length)} caso(s) · pago a mais <b>${brl(soma(a, 'excesso'))}</b></div>
   <div class="dgrid">${pg.map(cardDup).join('') || '<div class="carregando">Nenhum caso de duplicidade com esses filtros. 🎉</div>'}</div>
-  ${pags > 1 ? `<div class="pag"><button class="btn" ${DP.pag ? '' : 'disabled'} onclick="DP.pag--;render();window.scrollTo(0,0)">‹ Anterior</button><span class="small mut">página ${DP.pag + 1} de ${pags}</span><button class="btn" ${DP.pag < pags - 1 ? '' : 'disabled'} onclick="DP.pag++;render();window.scrollTo(0,0)">Próxima ›</button></div>` : ''}`;
+  ${pags > 1 ? `<div class="pag"><button class="btn" ${DP.pag ? '' : 'disabled'} onclick="DP.pag--;render();window.scrollTo(0,0)">‹ Anterior</button><span class="small mut">página ${DP.pag + 1} de ${pags}</span><button class="btn" ${DP.pag < pags - 1 ? '' : 'disabled'} onclick="DP.pag++;render();window.scrollTo(0,0)">Próxima ›</button></div>` : ''}
+  <h2>🛑 Prevenção — títulos a pagar repetidos (ainda não é duplicidade)</h2>
+  <div class="small mut">Título <b>em aberto</b> (a vencer, previsto, vencido) que repete outro do mesmo fornecedor e valor. <span class="chip sv-alta">Alta</span> = o outro <b>já foi pago</b>: não pague este. <span class="chip sv-media">Média</span> = lançado 2× em aberto: cancele um. Renegociado e cancelado não entram.</div>
+  <div class="tw" style="margin-top:8px;max-height:460px;overflow:auto"><table><tr><th>Grav.</th><th>Fornecedor</th><th>O que fazer</th><th>Títulos (situação)</th><th class="num">Evitar pagar</th><th>Análise</th></tr>
+    ${prev.map(o => `<tr class="clic" onclick="abrir(${o.n})"><td>${sevChip(o.sev)}</td><td class="small b">${esc(o.fornecedor)}<br><span class="mut" style="font-weight:400">${esc(o.cc || '')}</span></td>
+      <td class="small">${o.prev.pagos ? '<b style="color:#fca5a5">Não pagar — já foi pago</b>' : '<b style="color:#fcd34d">Cancelar o lançamento repetido</b>'}</td>
+      <td class="small">${o.titulos.map(i => { const t = R.titulos[i]; return `${esc(t.codigo)} · ${esc(t.status)} · ${t.pagamento ? 'pago ' + dBRa(t.pagamento) : 'venc. ' + dBRa(t.vencimento)}`; }).join('<br>')}</td>
+      <td class="num b">${brl(o.prev.evitavel)}</td><td>${sitChip(o.sit)}</td></tr>`).join('') || '<tr><td colspan="6" class="mut" style="text-align:center;padding:20px">✓ Nenhum título a pagar repetido no período.</td></tr>'}
+    ${prev.length ? `<tr class="tot"><td colspan="4">TOTAL (${n0(prev.length)})</td><td class="num">${brl(prev.reduce((s, o) => s + o.prev.evitavel, 0))}</td><td></td></tr>` : ''}
+  </table></div>
+  <h2>📂 Antes de pagar: conferir a remessa do banco</h2>
+  ${painelBanco()}`;
 }
 window.relatorioDuplicidade = () => {
   const a = window._dpCasos || [], soma = k => a.reduce((s, o) => s + o.dup[k], 0);
   imprimirHTML('Agente de Duplicidade · possíveis pagamentos em dobro', `<div class="desc">Mesmo valor exato para o mesmo fornecedor/pessoa saindo mais de uma vez. Cada caso com nota de confiança, motivos (✓ a favor · ↓ pode explicar) e os eventos lado a lado (verde = igual · amarelo = diferente).</div>
-    <div class="k"><div><b>${n0(a.length)}</b><span>casos</span></div><div><b>${brl(soma('excesso'))}</b><span>pode ter saído a mais</span></div><div><b>${brl(soma('evitavel'))}</b><span>em aberto (evitável)</span></div><div><b>${n0(a.filter(o => o.dup.nota >= 70).length)}</b><span>alta confiança</span></div></div>
+    <div class="k"><div><b>${n0(a.length)}</b><span>casos</span></div><div><b>${brl(soma('excesso'))}</b><span>pode ter saído a mais</span></div><div><b>${n0(a.filter(o => o.dup.nota >= 70).length)}</b><span>alta confiança</span></div></div>
     ${a.map((o, i) => `<div class="caso"><h3>${i + 1}. ${esc(o.fornecedor)} — ${brl(o.dup.valor)} ${o.dup.pagos >= 2 ? `pago ${o.dup.pagos}×` : `lançado ${o.dup.n}×`} · confiança ${o.dup.nota}/100 · ${o.regra} · ${SIT[o.sit]}</h3>
       ${sinaisRel(o.dup)}${comparativoRel(o.titulos)}${(ANAL[o.id] || {}).comentario ? `<div class="desc"><b>Análise:</b> ${esc(ANAL[o.id].comentario)}</div>` : ''}</div>`).join('')}
-    <table><tr class="tot"><td>TOTAL (${n0(a.length)} casos)</td><td class="n">pode ter saído a mais ${brl(soma('excesso'))}</td><td class="n">em aberto ${brl(soma('evitavel'))}</td></tr></table>`);
+    <table><tr class="tot"><td>TOTAL (${n0(a.length)} casos)</td><td class="n">pode ter saído a mais ${brl(soma('excesso'))}</td></tr></table>`);
 };
 window.excelDuplicidade = async () => {
   await carregarXLSX();
   const a = window._dpCasos || [], wb = XLSX.utils.book_new();
-  const casos = a.map((o, i) => ({Caso: i + 1, Regra: o.regra, Confiança: o.dup.nota, Fornecedor: o.fornecedor, Valor: o.dup.valor, Vezes: o.dup.n, Pagos: o.dup.pagos, 'Em aberto': o.dup.abertos,
-    'Pode ter saído a mais': o.dup.excesso, 'Evitável (em aberto)': o.dup.evitavel, 'Motivos (a favor)': o.dup.sinais.join(' | '), 'Pode explicar': o.dup.alivios.join(' | '),
+  const casos = a.map((o, i) => ({Caso: i + 1, Regra: o.regra, Confiança: o.dup.nota, Fornecedor: o.fornecedor, Valor: o.dup.valor, Vezes: o.dup.n, Pagos: o.dup.pagos,
+    'Pago a mais': o.dup.excesso, Situações: [...new Set(o.titulos.map(i => R.titulos[i].status))].join(', '), 'Motivos (a favor)': o.dup.sinais.join(' | '), 'Pode explicar': o.dup.alivios.join(' | '),
     Códigos: [...new Set(o.titulos.map(i => R.titulos[i].codigo))].join(', '), Análise: SIT[o.sit], Comentário: (ANAL[o.id] || {}).comentario || ''}));
-  casos.push({Caso: 'TOTAL', 'Pode ter saído a mais': r2(a.reduce((s, o) => s + o.dup.excesso, 0)), 'Evitável (em aberto)': r2(a.reduce((s, o) => s + o.dup.evitavel, 0))});
+  casos.push({Caso: 'TOTAL', 'Pago a mais': r2(a.reduce((s, o) => s + o.dup.excesso, 0))});
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(casos), 'Casos');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(a.flatMap((o, k) => [...new Set(o.titulos)].map((i, j) => ({Caso: k + 1, Evento: LETRA(j), ...linhaTitulo(R.titulos[i])})))), 'Eventos lado a lado');
   XLSX.writeFile(wb, `duplicidades_${$('fDe').value}_a_${$('fAte').value}.xlsx`);
@@ -720,7 +735,7 @@ window.dossie = k => {
   const oc = R.ocorrencias.filter(o => o.titulos.some(i => R.titulos[i].fornecedor === nome));
   const f = R.riscoFornecedor.find(x => x.nome === nome);
   const ts = T.map(i => R.titulos[i]);
-  const pago = ts.reduce((s, t) => s + t.valorPago, 0), aberto = ts.reduce((s, t) => s + (t.status !== 'Pago' ? t.saldo : 0), 0);
+  const pago = ts.reduce((s, t) => s + t.valorPago, 0), aberto = ts.reduce((s, t) => s + (A.emAberto(t) ? t.saldo : 0), 0);
   const contas = [...new Set(ts.map(t => t.conta))], ccs = [...new Set(ts.map(t => t.cc))];
   const dupOc = oc.filter(o => A.REGRAS_DUP.includes(o.regra) && o.sev !== 'baixa'), dupV = dupOc.reduce((s, o) => s + o.impacto, 0);
   $('mBody').innerHTML = `<div class="x row"><button class="btn" onclick="relatorioDossie(${k})">🖨 Imprimir dossiê</button><button class="btn" onclick="fechar()">✕</button></div>

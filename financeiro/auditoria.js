@@ -30,6 +30,12 @@
     dupAgenteNota: 30,         // R23: nota de confiança mínima (0–100) para virar ocorrência
   };
 
+  // Situação do título: só é dívida em aberto o que ainda vai ser pago. Renegociado (substituído por outro título),
+  // cancelado, estornado e agrupado NÃO são dívida nem pagamento — não entram em "em aberto" nem em duplicidade.
+  const RX_NAO_DIVIDA = /cancel|renegoc|substitu|estorn|agrupad|exclu/i;
+  const ehPago = t => t.valorPago > 0 && !!t.pagamento && !/cancel|estorn/i.test(t.status);
+  const emAberto = t => t.saldo > 0 && t.status !== 'Pago' && !RX_NAO_DIVIDA.test(t.status);
+
   // Contas onde certos padrões são normais
   const RX_MERCADORIA = /compras a prazo|compras a vista|frete de compra|adiantamentos? (a|à) fornecedores de mercadoria/i;
   const RX_ADIANTAMENTO = /adiantamento/i;
@@ -123,7 +129,8 @@
     R20: {nome: 'Pago a menor (desconto/abatimento)', sev: 'media', desc: 'Duplicata paga por valor menor que a parcela. Se a baixa foi total ("Pago"), a diferença é desconto ou abatimento e precisa de documento (acordo, devolução, nota de crédito); se não, é pagamento parcial com saldo devedor.'},
     R21: {nome: 'Despesa na conta errada', sev: 'media', volume: true, desc: 'O nome do fornecedor indica um tipo de despesa (hotel, posto, Uber, restaurante, companhia aérea…) mas o lançamento está em outra conta contábil. Despesa "escondida" em conta que não é dela.'},
     R22: {nome: 'Duplicata com observação/abatimento', sev: 'media', desc: 'Pagamento com observação, desconto, abatimento, juros ou multa informados no Sallamo. Ler a observação e conferir o documento que justifica a diferença. (Depende da API enviar esses campos.)'},
-    R23: {nome: 'Possível duplicidade (Agente)', sev: 'alta', desc: 'Agente de Duplicidade: o mesmo valor exato saindo mais de uma vez para o mesmo fornecedor/pessoa — no mesmo dia, em dias próximos, no mesmo título (código), em centros de custo diferentes ou, na folha (pensão, salário, vale-transporte, Uber, reembolso…), na mesma competência. Cada caso tem nota de confiança 0–100 e os eventos lado a lado para comparar. Impacto = o que pode ter saído a mais.'},
+    R23: {nome: 'Possível duplicidade (Agente)', sev: 'alta', desc: 'Agente de Duplicidade: o mesmo valor exato PAGO mais de uma vez para o mesmo fornecedor/pessoa — no mesmo dia, em dias próximos, no mesmo título (código), em centros de custo diferentes ou, na folha (pensão, salário, vale-transporte, Uber, reembolso…), na mesma competência. Só entram pagamentos: renegociado, cancelado e em aberto não são duplicidade. Cada caso tem nota de confiança 0–100 e os eventos lado a lado. Impacto = o que pode ter saído a mais.'},
+    R24: {nome: 'Título a pagar repetido (prevenção)', sev: 'media', desc: 'Ainda NÃO é duplicidade: título em aberto (a vencer/previsto/vencido) que repete outro do mesmo fornecedor e mesmo valor — o mesmo título, o mesmo vencimento ou a mesma competência no mesmo centro. Alta = o outro já foi pago (pagar este é pagar 2×); média = os dois em aberto (cancele um). Renegociado e cancelado não entram.'},
   };
   // Regras de duplicidade (o "impacto" delas é dinheiro que pode ter saído em dobro)
   const REGRAS_DUP = ['R01', 'R23'];
@@ -197,7 +204,7 @@
     // R01 — duplicidade: mesmo fornecedor + mesmo valor pago + mesmo vencimento + mesmo centro de custo, em códigos
     // (títulos) diferentes. Não entram: parcelas de contrato (vencimentos diferentes), cobrança por loja (centros de
     // custo diferentes) e lote de vários pedidos iguais de mercadoria (grade de calçado).
-    const porFV = agrupar(pagos.filter(t => t.valorPago >= cfg.dupMin && t.vencimento), t => [t.fornecedor, t.valorPago.toFixed(2), t.vencimento, t.cc].join('|'));
+    const porFV = agrupar(pagos.filter(t => ehPago(t) && t.valorPago >= cfg.dupMin && t.vencimento), t => [t.fornecedor, t.valorPago.toFixed(2), t.vencimento, t.cc].join('|'));
     for (const [k, g] of porFV) {
       const cods = unicos(g.map(t => t.codigo));
       if (cods.length < 2) continue;
@@ -217,7 +224,7 @@
     }
 
     // R02 — linhas idênticas dentro do mesmo código
-    const porLinha = agrupar(T, t => [t.codigo, t.valorParcela.toFixed(2), t.vencimento, t.conta, t.cc].join('|'));
+    const porLinha = agrupar(T.filter(t => !RX_NAO_DIVIDA.test(t.status)), t => [t.codigo, t.valorParcela.toFixed(2), t.vencimento, t.conta, t.cc].join('|'));
     for (const [k, g] of porLinha) {
       if (g.length < 2) continue;
       const x = g[0];
@@ -377,7 +384,7 @@
 
     // R18 — vencidos em aberto
     for (const t of T) {
-      if (t.saldo < cfg.vencidoMin || !t.vencimento || /cancel|pago/i.test(t.status)) continue;
+      if (t.saldo < cfg.vencidoMin || !t.vencimento || !emAberto(t)) continue;
       const atraso = difDias(hoje, t.vencimento);
       if (atraso < cfg.vencidoDias) continue;
       add('R18', t.id, {sev: atraso > 90 || t.saldo > 50000 ? 'alta' : 'media', fornecedor: t.fornecedor, conta: t.conta, cc: t.cc, impacto: t.saldo, titulos: [t.i],
@@ -425,17 +432,13 @@
 
     // R23 — Agente de Duplicidade: mesmo fornecedor (cadastro normalizado) + mesmo valor exato saindo mais de uma vez
     // em datas próximas (≤ dupJanela dias entre um e outro) — ou, nas contas de pessoas (folha, benefício, reembolso),
-    // na mesma competência. Entram também títulos em aberto (duplicidade que ainda dá para evitar).
-    // Casos já inteiros na R01 não se repetem aqui.
+    // na mesma competência. SÓ PAGAMENTOS DE VERDADE: duplicidade é quando os dois foram pagos (renegociado, cancelado e
+    // títulos em aberto não entram — os em aberto repetidos vão para a R24, prevenção). Casos já inteiros na R01 não se repetem.
     const naR01 = ocorrencias.filter(o => o.regra === 'R01').map(o => new Set(o.titulos));
     const linhasDup = [];
     for (const t of T) {
-      if (/cancel/i.test(t.status)) continue;
-      const pago = t.valorPago > 0 && !!t.pagamento;
-      const valor = pago ? t.valorPago : t.saldo;
-      if (!pago && !(t.saldo > 0 && t.vencimento && t.status !== 'Pago')) continue;
-      if (valor < cfg.dupAgenteMin || t.categoria === 'receita') continue;
-      linhasDup.push({t, valor, data: pago ? t.pagamento : t.vencimento, pago, chave: chaveNome(t.fornecedor) || t.fornecedor});
+      if (!ehPago(t) || t.valorPago < cfg.dupAgenteMin || t.categoria === 'receita') continue;
+      linhasDup.push({t, valor: t.valorPago, data: t.pagamento, pago: true, chave: chaveNome(t.fornecedor) || t.fornecedor});
     }
     const mesComp = t => (t.competencia || '').slice(0, 7);
     for (const [, g] of agrupar(linhasDup, x => x.chave + '|' + x.valor.toFixed(2))) {
@@ -457,10 +460,36 @@
         add('R23', [grupo[0].chave, d.valor.toFixed(2), cods.join('-'), grupo[0].data].join('|'), {
           sev: d.nota >= 70 ? 'alta' : d.nota >= 45 ? 'media' : 'baixa',
           fornecedor: unicos(ts.map(t => t.fornecedor)).join(' / '), conta: unicos(ts.map(t => t.conta)).join(' / '), cc: unicos(ts.map(t => t.cc)).join(' / '),
-          impacto: d.excesso + d.evitavel, titulos: ts.map(t => t.i), dup: d,
-          detalhe: `${brl(d.valor)} ${d.pagos >= 2 ? `pago ${d.pagos}×` : `lançado ${grupo.length}×`}${d.abertos ? ` (${d.abertos} em aberto)` : ''} · ` +
+          impacto: d.excesso, titulos: ts.map(t => t.i), dup: d,
+          detalhe: `${brl(d.valor)} pago ${d.pagos}× · ` +
             `${unicos(grupo.map(x => x.data)).map(dBRa).join(', ')} · cód. ${cods.join(', ')} · confiança ${d.nota}/100`,
         });
+      }
+    }
+
+    // R24 — PREVENÇÃO (ainda não é duplicidade): título realmente EM ABERTO (A vencer, Previsto, Vencido — renegociado e
+    // cancelado não contam) que repete outro do mesmo fornecedor e mesmo valor: o mesmo título com vencimento colado (≤3 dias),
+    // ou outro título com o mesmo vencimento no mesmo centro, ou a mesma competência + conta + centro. Se o outro já foi PAGO,
+    // pagar este é pagar 2× (alta); se os dois estão em aberto, foi lançado 2× (média) — cancele um antes de pagar.
+    const valorDe = t => ehPago(t) ? t.valorPago : t.saldo;
+    const vivosPrev = T.filter(t => (ehPago(t) || emAberto(t)) && t.categoria !== 'receita' && valorDe(t) >= cfg.dupAgenteMin);
+    const jaPrev = new Set();
+    for (const [, g] of agrupar(vivosPrev, t => (chaveNome(t.fornecedor) || t.fornecedor) + '|' + valorDe(t).toFixed(2))) {
+      if (g.length < 2 || !g.some(emAberto)) continue;
+      for (const a of g.filter(emAberto)) {
+        const par = g.filter(b => b !== a && (b.codigo === a.codigo
+          ? a.vencimento && b.vencimento && Math.abs(difDias(b.vencimento, a.vencimento)) <= 3
+          : !RX_MERCADORIA.test(a.conta) && b.cc === a.cc && ((a.vencimento && b.vencimento === a.vencimento) || (a.competencia && b.competencia === a.competencia && b.conta === a.conta))));
+        if (!par.length) continue;
+        const S = [a, ...par].sort((x, y) => x.i - y.i), chave = S.map(t => t.i).join(',');
+        if (jaPrev.has(chave)) continue; jaPrev.add(chave);
+        const pagosS = S.filter(ehPago), abertosS = S.filter(emAberto), valor = valorDe(a);
+        const evitavel = r2(valor * (pagosS.length ? abertosS.length : abertosS.length - 1));
+        add('R24', chave, {sev: pagosS.length ? 'alta' : 'media', fornecedor: a.fornecedor, conta: unicos(S.map(t => t.conta)).join(' / '), cc: unicos(S.map(t => t.cc)).join(' / '),
+          impacto: evitavel, titulos: S.map(t => t.i), prev: {valor, pagos: pagosS.length, abertos: abertosS.length, evitavel},
+          detalhe: pagosS.length
+            ? `Cód. ${abertosS.map(t => `${t.codigo} (${t.status}, venc. ${dBRa(t.vencimento)})`).join(', ')} de ${brl(valor)} repete o já PAGO cód. ${pagosS.map(t => `${t.codigo} em ${dBRa(t.pagamento)}`).join(', ')} — não pague de novo`
+            : `${brl(valor)} lançado ${abertosS.length}× em aberto: cód. ${abertosS.map(t => `${t.codigo} (${t.status}, venc. ${dBRa(t.vencimento)})`).join(', ')} — cancele o repetido antes de pagar`});
       }
     }
 
@@ -473,7 +502,7 @@
   // ---------- indicadores ----------
   function indicadores(T, pagos, hoje) {
     const soma = (a, f) => r2(a.reduce((s, t) => s + f(t), 0));
-    const abertos = T.filter(t => t.saldo > 0 && !/cancel/i.test(t.status) && t.status !== 'Pago');
+    const abertos = T.filter(emAberto);
     const vencidos = abertos.filter(t => t.vencimento && t.vencimento < hoje);
     const faixas = [['A vencer', -Infinity, 0], ['1–30 dias', 1, 30], ['31–60 dias', 31, 60], ['61–90 dias', 61, 90], ['+90 dias', 91, Infinity]];
     const aging = faixas.map(([nome, de, ate]) => { const g = abertos.filter(t => { const d = t.vencimento ? difDias(hoje, t.vencimento) : 0; return d >= de && d <= ate; }); return {nome, n: g.length, valor: soma(g, t => t.saldo)}; });
@@ -579,6 +608,7 @@
     if (datas.length >= 4 && cods.length > 1) { nota -= 25; alivios.push(`${datas.length} datas diferentes em sequência — parece cobrança recorrente`); }
     if (!pagos) { nota -= 10; alivios.push('nenhum foi pago ainda (lançamento repetido)'); }
     if (abertos) { marcas.push('aberto'); sinais.push(`${abertos} ainda em aberto — dá para segurar antes de pagar`); }
+    if (!abertos) sinais.unshift(`os ${n} foram PAGOS de verdade (status: ${unicos(ts.map(t => t.status)).join(', ')}) — saiu dinheiro ${n}×`);
     // rateio: vencimento e competência iguais são da própria nota dividida — não somam como indício
     nota = Math.max(0, Math.min(rateio ? 20 : 100, nota));
     return {nota, valor, n, pagos, abertos, sinais, alivios, marcas: unicos(marcas),
@@ -640,7 +670,7 @@
   function cruzarArquivoBanco(lotes, T, opcoes) {
     const cfg = Object.assign({janelaLote: 5, janelaPessoa: 20, jaPagoDias: 25}, opcoes || {});
     const achados = [], add = (sev, tipo, titulo, detalhe, extra) => achados.push(Object.assign({sev, tipo, titulo, detalhe, titulos: [], itens: []}, extra || {}));
-    const pagos = T.filter(t => t.valorPago > 0 && t.pagamento && !/cancel/i.test(t.status));
+    const pagos = T.filter(ehPago);
     const resumo = [];
     // 1) dentro de cada arquivo: mesma pessoa (CPF/código) ou mesma conta 2×, contas compartilhadas
     for (const L of lotes) {
@@ -703,7 +733,7 @@
     const semTitulo = [], conciliados = [];
     // Antes de pagar (prevenção): o mesmo valor ao mesmo fornecedor já pago poucos dias antes = vai pagar de novo.
     // Depois de pagar: o pagamento do banco deve ter UM título pago no Sallamo na mesma data (±janela).
-    const abertosS = T.filter(t => t.saldo > 0 && !/cancel|^pago$/i.test(t.status) && t.vencimento);
+    const abertosS = T.filter(t => emAberto(t) && t.vencimento);
     for (const {x, L} of forn) {
       const k = chaveNome(x.nome), dia = x.data || L.data; if (!dia) { semTitulo.push(x); continue; }
       const casa = t => nomeCasa(chaveNome(t.fornecedor), k);
@@ -744,7 +774,7 @@
   // EXATA = mesmo fornecedor + mesmo título (código) + mesmo valor pago + mesma data de pagamento, no mesmo centro de custo.
   // Mesmo título dividido entre lojas no mesmo dia é rateio (mostrado à parte). DIAS DIFERENTES = o mesmo, pago de novo até 7 dias depois.
   function duplicidadeExata(T, dias = 7) {
-    const pagos = T.filter(t => t.valorPago > 0 && t.pagamento && !/cancel/i.test(t.status));
+    const pagos = T.filter(ehPago);
     const chave = t => [chaveNome(t.fornecedor) || t.fornecedor, t.codigo, t.valorPago.toFixed(2)].join('|');
     const caso = (g, tipo) => ({tipo, fornecedor: g[0].fornecedor, codigo: g[0].codigo, valor: g[0].valorPago, datas: unicos(g.map(t => t.pagamento)).sort(), ccs: unicos(g.map(t => t.cc)),
       conta: g[0].conta, titulos: g.map(t => t.i), excesso: r2(g[0].valorPago * (g.length - 1))});
@@ -866,7 +896,7 @@
     return T.filter(t => termos.every(x => casaTitulo(t, x)));
   }
 
-  const api = {analisar, normalizar, benfordDe, primeiroDigito, avaliarDuplicidade, lerCNAB240, lerTextoBanco, cruzarArquivoBanco, duplicidadeExata, REGRAS, REGRAS_DUP, PADRAO, PESO, brl, dBR, dBRa, chaveNome, parecePessoa,
+  const api = {ehPago, emAberto, analisar, normalizar, benfordDe, primeiroDigito, avaliarDuplicidade, lerCNAB240, lerTextoBanco, cruzarArquivoBanco, duplicidadeExata, REGRAS, REGRAS_DUP, PADRAO, PESO, brl, dBR, dBRa, chaveNome, parecePessoa,
     interpretarBusca, filtrarOcorrencias, filtrarTitulos, casaTitulo, numBR, despesas, CATEGORIAS, CAT_NOME, categoriaDe, tipoPorFornecedor};
   if (typeof module === 'object' && module.exports) module.exports = api; else raiz.FinAudit = api;
 })(typeof self !== 'undefined' ? self : this);

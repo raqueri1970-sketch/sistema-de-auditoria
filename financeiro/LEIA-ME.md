@@ -26,7 +26,11 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
 3. Campos que a API do Sallamo pode passar a enviar e o módulo já lê sozinho: `observacao`, `valorDesconto`, `valorAbatimento`, `valorJuros`, `valorMulta`, `numeroDocumento` (NF/duplicata — reforça a duplicidade), `formaPagamento`, `usuarioBaixa` e `comprovante` (link do comprovante, aparece no comparativo lado a lado).
 4. Publicado no Portal: `portal-esposende-login` (pasta `financeiro/` + `financeiro-patch.js`), menu Financeiro → Auditoria Financeira.
 
-## As 23 regras de cruzamento
+## As 24 regras de cruzamento
+
+**Regra de ouro da duplicidade:** só é duplicidade quando o mesmo dinheiro foi **pago** duas vezes. Título **Renegociado**
+(substituído por outro), cancelado, estornado ou agrupado não é dívida nem pagamento — não entra em duplicidade, em
+"em aberto", no vencido (R18) nem na linha repetida (R02). Os em aberto repetidos vão para a R24 (prevenção).
 
 | Regra | O que pega | Por que importa |
 |---|---|---|
@@ -51,7 +55,8 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
 | R20 Pago a menor | duplicata paga abaixo da parcela (baixa "Pago" com diferença = desconto/abatimento ou baixa errada; ou pagamento parcial) | desconto sem documento, baixa indevida |
 | R21 Despesa na conta errada | nome do fornecedor indica hotel, posto, Uber, restaurante, aérea… e a conta é outra | despesa escondida em outra conta |
 | R22 Observação/abatimento | observação, desconto, abatimento, juros ou multa informados na baixa | **depende da API enviar `observacao`, `valorDesconto`, `valorAbatimento`, `valorJuros`, `valorMulta`** — lidos automaticamente quando vierem |
-| R23 Possível duplicidade (Agente) | mesmo fornecedor/pessoa + mesmo valor exato saindo mais de uma vez: mesmo dia, até 7 dias, mesmo título (código), centros de custo diferentes, ou mesma competência na folha (pensão, salário, VT, Uber, reembolso…) — inclui títulos em aberto | pagamento em dobro (e o que ainda dá para evitar) |
+| R23 Possível duplicidade (Agente) | mesmo fornecedor/pessoa + mesmo valor exato **pago** mais de uma vez: mesmo dia, até 7 dias, mesmo título (código), centros de custo diferentes, ou mesma competência na folha (pensão, salário, VT, Uber, reembolso…) | pagamento em dobro |
+| R24 Título a pagar repetido (prevenção) | título em aberto (a vencer/previsto/vencido) que repete outro do mesmo fornecedor e valor: mesmo título, mesmo vencimento ou mesma competência no mesmo centro. Alta = o outro já foi pago | ainda não é duplicidade — segurar antes de pagar |
 
 ## Abas de análise
 
