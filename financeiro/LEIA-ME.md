@@ -64,7 +64,11 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
   (+25), mesmo nº de NF (+30, quando a API enviar), mesmo vencimento (+15), mesma competência (+10), mesmo centro (+10),
   cadastro com grafia diferente (+10), conta de pessoas (+10, +10 se mesmo mês); desconta rateio (máx. 20), preço por loja
   (−30/−45), lote de mercadoria (−35), cobrança recorrente (−25). Alta ≥ 70 · média ≥ 45 · abaixo de 30 não entra.
-- **📂 Conferir arquivo do banco / RH** (dentro da aba do Agente): carrega o que o RH manda ao banco — **CNAB 240**
+- **📂 Conferir arquivo do banco** (dentro da aba do Agente) — vale para **qualquer remessa**: CNAB 240 de fornecedores
+  (segmento A/B = TED/PIX/crédito; J + J-52 = boleto com código de barras e CNPJ do beneficiário; O = contas de consumo e
+  tributos) e de salários (serviço 30). **Fornecedores**: cada pagamento do banco tem de casar com **um** título pago no
+  Sallamo (mesmo valor, nome compatível, ±5 dias) — 2 títulos para o mesmo pagamento (alta), mesmo boleto 2× no arquivo
+  ou em remessas diferentes (alta), pago no banco sem título (média). **Folha**: o que o RH manda ao banco — **CNAB 240**
   (.txt/.rem) ou a **Relação para Depósito Bancário** em PDF — e a **Lista de Comprovantes** do Internet Banking (PDF,
   lido com pdf.js). Lido só no navegador, nada é enviado nem gravado (tem CPF e conta dos funcionários). Confere:
   total do arquivo × total informado; mesma pessoa/CPF/código/conta 2× no arquivo; conta bancária de pessoas diferentes;

@@ -6,7 +6,7 @@
 <title>Auditoria Financeira</title>
 <meta name="theme-color" content="#070b16">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="auditoria.js?v=20261020-2"></script>
+<script src="auditoria.js?v=20261020-3"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -556,19 +556,23 @@ const TIPO_ORIGEM = {cnab: 'CNAB (remessa ao banco)', relacao: 'Relação para d
 function painelBanco() {
   const r = BANCO.r, ach = r ? r.achados : [], prob = ach.filter(a => a.sev === 'alta' || a.sev === 'media');
   return `<div class="card" style="margin-top:12px;border-color:rgba(167,139,250,.4)">
-    <div class="row" style="justify-content:space-between"><div><b>📂 Conferir arquivo do banco / RH (folha, adiantamento, pensão…)</b>
-      <div class="small mut">Carregue o arquivo que vai para o banco (CNAB .txt/.rem ou a Relação em PDF) e os comprovantes do Internet Banking. O sistema confere os arquivos entre si e procura cada pagamento no Sallamo do período carregado. <b>Os arquivos são lidos só no seu navegador</b> — nada é enviado nem gravado.</div></div>
+    <div class="row" style="justify-content:space-between"><div><b>📂 Conferir arquivo do banco (fornecedores, boletos, tributos, folha, adiantamento…)</b>
+      <div class="small mut">Carregue qualquer remessa que vai para o banco (CNAB 240 .txt/.rem — TED, PIX, boletos, contas de consumo, tributos, salários) e, para a folha, a Relação para Depósito e os comprovantes em PDF.
+      <b>Fornecedores:</b> cada pagamento do banco precisa casar com <b>um</b> título pago no Sallamo — dois títulos para o mesmo pagamento, o mesmo boleto 2× ou pagamento sem título são apontados.
+      <b>Folha:</b> confere o lote e quem recebeu também por título no Sallamo. <b>Os arquivos são lidos só no seu navegador</b> — nada é enviado nem gravado.</div></div>
       <div class="row"><label class="btn b-pri" style="cursor:pointer">＋ Carregar arquivos<input type="file" multiple accept=".txt,.rem,.ret,.pdf,.TXT,.REM,.PDF" style="display:none" onchange="lerArquivosBanco(this)"></label>
       ${r ? `<button class="btn" onclick="relatorioBanco()">🖨 PDF</button><button class="btn" onclick="limparBanco()">Limpar</button>` : ''}</div></div>
     ${BANCO.erro ? `<div class="aviso">${esc(BANCO.erro)}</div>` : ''}
-    ${r ? `<div class="tw" style="margin-top:10px"><table><tr><th>Arquivo</th><th>Tipo</th><th>Data do pagamento</th><th>Competência</th><th class="num">Pessoas</th><th class="num">Total</th><th>Confere?</th></tr>
+    ${r ? `<div class="tw" style="margin-top:10px"><table><tr><th>Arquivo</th><th>Tipo</th><th>Data do pagamento</th><th>Competência</th><th class="num">Pagamentos</th><th class="num">Total</th><th>Confere?</th></tr>
       ${r.resumo.map(x => `<tr><td class="small b">${esc(x.nome)}</td><td class="small">${TIPO_ORIGEM[x.tipo] || x.tipo}</td><td class="small">${dBRa(x.data)}</td><td class="small">${esc(x.competencia || '—')}</td><td class="num">${n0(x.n)}</td><td class="num">${brl(x.total)}</td>
         <td class="small">${x.totalInformado == null ? '—' : Math.abs(x.totalInformado - x.total) < 0.01 ? '<span class="chip ok-chip">✓ fecha com o total</span>' : `<span class="chip sv-alta">≠ ${brl(x.totalInformado)}</span>`}</td></tr>`).join('')}
       ${(() => { const u = lotesDistintos(r.resumo); return `<tr class="tot"><td colspan="4">TOTAL PAGO (${n0(u.length)} lote(s) · o mesmo pagamento em CNAB, relação e comprovante conta uma vez)</td><td class="num">${n0(u.reduce((s, x) => s + x.n, 0))}</td><td class="num">${brl(u.reduce((s, x) => s + x.total, 0))}</td><td></td></tr>`; })()}</table></div>
       <div class="grid" style="margin-top:10px">
         ${kpi('Problemas (alta + média)', n0(prob.length), brl(prob.reduce((s, a) => s + (a.valor || 0), 0)) + ' envolvidos', prob.length ? 'k-bad' : 'k-ok')}
         ${kpi('Pago no arquivo E no Sallamo', n0(ach.filter(a => a.tipo === 'pessoa_mesmo_valor').length), 'mesma pessoa, mesmo valor', 'k-bad')}
-        ${kpi('Lote no Sallamo', ach.some(a => a.tipo === 'lote_2x') ? '⚠ lançado 2×' : ach.some(a => a.tipo === 'lote_ok') ? '✓ 1×' : 'não achado', 'total do arquivo × títulos pagos', ach.some(a => a.tipo === 'lote_2x') ? 'k-bad' : 'k-warn')}
+        ${ach.some(a => /^lote_/.test(a.tipo)) ? kpi('Lote da folha no Sallamo', ach.some(a => a.tipo === 'lote_2x') ? '⚠ lançado 2×' : ach.some(a => a.tipo === 'lote_ok') ? '✓ 1×' : 'não achado', 'total do arquivo × títulos pagos', ach.some(a => a.tipo === 'lote_2x') ? 'k-bad' : 'k-warn') : ''}
+        ${(() => { const ok = ach.find(a => a.tipo === 'fornecedor_ok'), sem = ach.find(a => a.tipo === 'banco_sem_titulo'), dois = ach.filter(a => a.tipo === 'fornecedor_2x_sallamo' || a.tipo === 'boleto_2_arquivos');
+          return ok || sem || dois.length ? kpi('Fornecedores × Sallamo', `${n0(dois.length)} em dobro`, `${n0(ok ? ok.itens.length : 0)} conferem 1× · ${n0(sem ? sem.itens.length : 0)} sem título no Sallamo`, dois.length ? 'k-bad' : sem ? 'k-warn' : 'k-ok') : ''; })()}
       </div>
       <div class="tw" style="margin-top:10px"><table><tr><th>Grav.</th><th>O que foi encontrado</th><th class="num">Valor</th></tr>
         ${ach.map((a, i) => `<tr class="clic" onclick="abrirAchadoBanco(${i})"><td><span class="chip ${SEVB[a.sev][1]}">${SEVB[a.sev][0]}</span></td><td class="small"><b>${esc(a.titulo)}</b><br><span class="mut">${esc(a.detalhe)}</span></td><td class="num">${a.valor ? brl(a.valor) : '—'}</td></tr>`).join('') || '<tr><td colspan="3" class="mut" style="text-align:center;padding:20px">Nada encontrado: arquivos conferem entre si e nenhum pagamento repetido no Sallamo. 🎉</td></tr>'}
@@ -578,18 +582,18 @@ function painelBanco() {
 }
 window.abrirAchadoBanco = i => {
   const a = BANCO.r.achados[i];
-  const linhas = a.itens.slice(0, 300).map(x => `<tr><td class="small">${esc(TIPO_ORIGEM[x.origem] || x.origem)}</td><td class="small b">${esc(x.nome)}</td><td class="small">${esc(x.cpf || '—')}</td><td class="small">${esc(x.cod || '')}${x.npag ? ' · comp. ' + esc(x.npag) : ''}</td><td class="small">${esc(x.conta || '—')}</td><td class="small">${dBRa(x.data)}</td><td class="num">${brl(x.valor)}</td></tr>`).join('');
+  const linhas = a.itens.slice(0, 300).map(x => `<tr><td class="small">${esc(TIPO_ORIGEM[x.origem] || x.origem)}${x.forma ? '<br><span class="mut">' + esc(x.forma) + '</span>' : ''}${x.barras ? '<br><span class="mut" style="word-break:break-all">' + esc(x.barras) + '</span>' : ''}</td><td class="small b">${esc(x.nome)}</td><td class="small">${esc(x.cpf || '—')}</td><td class="small">${esc(x.cod || '')}${x.npag ? ' · comp. ' + esc(x.npag) : ''}</td><td class="small">${esc(x.conta || '—')}</td><td class="small">${dBRa(x.data)}</td><td class="num">${brl(x.valor)}</td></tr>`).join('');
   $('mBody').innerHTML = `<div class="x row"><button class="btn" onclick="fechar()">✕</button></div>
     <div class="row" style="padding-right:60px"><span class="chip ${SEVB[a.sev][1]}">${SEVB[a.sev][0]}</span><b>${esc(a.titulo)}</b></div>
     <div style="margin-top:8px">${esc(a.detalhe)}</div>
-    ${a.itens.length ? `<h2>No arquivo do banco / RH (${n0(a.itens.length)})</h2><div class="tw" style="max-height:380px;overflow:auto"><table><tr><th>Origem</th><th>Nome</th><th>CPF</th><th>Código</th><th>Conta</th><th>Data</th><th class="num">Valor</th></tr>${linhas}
+    ${a.itens.length ? `<h2>No arquivo do banco / RH (${n0(a.itens.length)})</h2><div class="tw" style="max-height:380px;overflow:auto"><table><tr><th>Origem</th><th>Nome</th><th>CPF/CNPJ</th><th>Código / documento</th><th>Conta</th><th>Data</th><th class="num">Valor</th></tr>${linhas}
       <tr class="tot"><td colspan="6">TOTAL</td><td class="num">${brl(a.itens.reduce((s, x) => s + x.valor, 0))}</td></tr></table></div>` : ''}
     ${a.titulos.length ? `<h2>No Sallamo (${n0(a.titulos.length)})</h2>${tabTitulos(a.titulos)}` : ''}`;
   $('modal').classList.remove('hidden');
 };
 window.relatorioBanco = () => {
   const r = BANCO.r;
-  imprimirHTML('Arquivo do banco / RH × Sallamo', `<h2>Arquivos conferidos</h2><table><tr><th>Arquivo</th><th>Tipo</th><th>Data</th><th>Competência</th><th class="n">Pessoas</th><th class="n">Total</th></tr>
+  imprimirHTML('Arquivo do banco / RH × Sallamo', `<h2>Arquivos conferidos</h2><table><tr><th>Arquivo</th><th>Tipo</th><th>Data</th><th>Competência</th><th class="n">Pagamentos</th><th class="n">Total</th></tr>
     ${r.resumo.map(x => `<tr><td>${esc(x.nome)}</td><td>${TIPO_ORIGEM[x.tipo] || x.tipo}</td><td>${dBRa(x.data)}</td><td>${esc(x.competencia || '')}</td><td class="n">${n0(x.n)}</td><td class="n">${brl(x.total)}</td></tr>`).join('')}
     ${(() => { const u = lotesDistintos(r.resumo); return `<tr class="tot"><td colspan="4">TOTAL PAGO (${n0(u.length)} lote(s), cada pagamento contado uma vez)</td><td class="n">${n0(u.reduce((s, x) => s + x.n, 0))}</td><td class="n">${brl(u.reduce((s, x) => s + x.total, 0))}</td></tr>`; })()}</table>
     <h2>Achados</h2><table><tr><th>Grav.</th><th>Achado</th><th>Detalhe</th><th class="n">Valor</th></tr>

@@ -4,7 +4,7 @@ const pad = (s, n, c = ' ', esq = false) => { s = String(s); return esq ? s.padS
 // CNAB 240: header, segmento A (nome, código, data, valor) e B (CPF)
 const linhaA = (seq, nome, cod, valor, conta) => ('0330001300' + pad(seq, 3, '0', true) + 'A000000' + '033' + '04048' + ' ' + pad(conta, 12, '0', true) + '3 ' + pad(nome, 30) + pad('R' + cod, 20) + '17092026' + 'BRL' + '0'.repeat(15) + pad(Math.round(valor * 100), 15, '0', true)).padEnd(240);
 const linhaB = (seq, cpf) => ('0330001300' + pad(seq, 3, '0', true) + 'B   1' + pad(cpf, 14, '0', true)).padEnd(240);
-const cnab = ['03300000         2' + ' '.repeat(54) + pad('EMPRESA TESTE', 30)].map(l => l.padEnd(240))
+const cnab = ['03300000         2' + ' '.repeat(54) + pad('EMPRESA TESTE', 30), '03300011C3001031'].map(l => l.padEnd(240))  // header de lote: serviço 30 = salários
   .concat(linhaA(1, 'FULANO DE TAL', '700001', 900, '10751703'), linhaB(2, '11111111111'), linhaA(3, 'BELTRANA SOUZA', '700002', 1200, '20000001'), linhaB(4, '22222222222'),
     linhaA(5, 'FULANO DE TAL', '700001', 900, '10751703'), linhaB(6, '11111111111')).join('\n');
 const c = A.lerCNAB240(cnab); c.nome = 'Adiantamento 09/26 (CNAB)';
@@ -26,3 +26,24 @@ ok(r.achados.some(a => a.tipo === 'pessoa_mesmo_valor' && /BELTRANA/.test(a.titu
 ok(tipos.includes('comprovante_fora'), 'comprovante de quem não está no arquivo');
 ok(tipos.includes('adto_sem_folha'), 'adiantamento sem folha');
 ok(tipos.includes('lote_ok'), 'lote da folha encontrado 1×');
+
+// ---- remessa a FORNECEDORES (serviço 20): boletos (segmento J + J-52) e TED (A/B), conferidos título a título no Sallamo
+const linhaJ = (seq, barras, nome, venc, valor, seu) => ('0330002300' + pad(seq, 3, '0', true) + 'J000' + pad(barras, 44) + pad(nome, 30) + venc + pad(Math.round(valor * 100), 15, '0', true) + '0'.repeat(30) + '20102026'
+  + pad(Math.round(valor * 100), 15, '0', true) + '0'.repeat(15) + pad(seu, 20)).padEnd(240);
+const linhaJ52 = (seq, cnpj, nome) => ('0330002300' + pad(seq, 3, '0', true) + 'J00052' + ' '.repeat(56) + '2' + pad(cnpj, 15, '0', true) + pad(nome, 40)).padEnd(240);
+const remessa = ['03300000         2' + ' '.repeat(54) + pad('EMPRESA TESTE', 30), '03300021C2001031'].map(l => l.padEnd(240)).concat(
+  linhaJ(1, '03399111111111111111111111111111111111111111', 'GUARDIAN SEG', '15102026', 1109.81, 'NF100'), linhaJ52(2, '11222333000144', 'D GUARDIAN SEGURANCA ELETRONICA LTDA'),
+  linhaJ(3, '03399111111111111111111111111111111111111111', 'GUARDIAN SEG', '15102026', 1109.81, 'NF100B'),
+  linhaJ(4, '03399222222222222222222222222222222222222222', 'ACME SERVICOS', '18102026', 2500, 'NF200'),
+  linhaJ(5, '03399333333333333333333333333333333333333333', 'XYZ MANUTENCAO', '19102026', 3200, 'NF300')).join('\n');
+const f = A.lerCNAB240(remessa); f.nome = 'Remessa fornecedores 20/10';
+const TF = A.normalizar([t(10, 'D. GUARDIAN SEGURANCA ELETRONICA LTDA', 1109.81, '2026-10-20', '(-) Serviço de Alarme'),
+  t(11, 'ACME SERVICOS LTDA', 2500, '2026-10-20', '(-) Consertos'), t(12, 'ACME SERVICOS LTDA', 2500, '2026-10-21', '(-) Consertos')]);
+const rf = A.cruzarArquivoBanco([f], TF), tf = rf.achados.map(a => a.tipo);
+ok(f.itens.length === 4 && f.itens[0].forma === 'Boleto' && f.itens[0].modo === 'fornecedor' && f.itens[0].cpf === '11222333000144' && f.itens[0].nome.startsWith('D GUARDIAN'), 'lê boleto (J + J-52) da remessa a fornecedores');
+ok(tf.includes('repetido_arquivo') && rf.achados.some(a => /código de barras/.test(a.titulo)), 'mesmo boleto 2× na remessa');
+ok(rf.achados.some(a => a.tipo === 'fornecedor_2x_sallamo' && /ACME/.test(a.titulo)), '1 pagamento no banco e 2 títulos pagos no Sallamo');
+ok(rf.achados.some(a => a.tipo === 'banco_sem_titulo' && a.itens.some(x => /XYZ/.test(x.nome))), 'pago no banco sem título no Sallamo');
+ok(!tf.includes('pessoa_mesmo_valor') && !tf.includes('lote_nao_achado'), 'fornecedor não é tratado como folha');
+const outro = A.lerCNAB240(remessa.split('\n').filter(l => l.includes('NF100 ') || l[7] !== '3').join('\n')); outro.nome = 'Remessa 21/10';
+ok(A.cruzarArquivoBanco([f, outro], TF).achados.some(a => a.tipo === 'boleto_2_arquivos'), 'mesmo boleto em duas remessas');

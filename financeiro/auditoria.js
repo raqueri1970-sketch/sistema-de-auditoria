@@ -589,18 +589,30 @@
   // o mesmo dinheiro não pode sair pelo arquivo do banco E por um título no Sallamo (nem o lote ser lançado 2×).
   const numBRv = s => Number(String(s).replace(/\./g, '').replace(',', '.'));
   const isoDe = s => { const m = String(s).match(/(\d{2})\/?(\d{2})\/?(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : null; };
-  // CNAB 240 (FEBRABAN) — pagamento a fornecedores/salários: segmento A (favorecido, data, valor) + B (CPF/CNPJ)
+  // CNAB 240 (FEBRABAN) — qualquer remessa de pagamento: segmento A (TED/crédito em conta/PIX) + B (CPF/CNPJ),
+  // J (boleto: código de barras, beneficiário, vencimento, valor) + J-52 (CNPJ do beneficiário) e O (contas de consumo e
+  // tributos com código de barras). O tipo de serviço do lote (posição 10-11 do header de lote) diz se é salário (30)
+  // ou pagamento a fornecedor/diversos — salário é conferido como folha; o resto, título a título no Sallamo.
+  const SERVICO_CNAB = {'20': 'Pagamento a fornecedor', '22': 'Tributos', '30': 'Salários', '98': 'Pagamentos diversos'};
   function lerCNAB240(texto) {
     const linhas = String(texto).split(/\r?\n/).filter(l => l.length >= 200);
-    const itens = []; let empresa = '', b = null;
+    const itens = []; let empresa = '', b = null, servico = '', ultJ = null;
     for (const l of linhas) {
       if (l[7] === '0') empresa = l.slice(72, 102).trim();
+      if (l[7] === '1') servico = l.slice(9, 11);
       if (l[7] !== '3') continue;
-      if (l[13] === 'A') { b = {origem: 'cnab', nome: l.slice(43, 73).trim(), cod: l.slice(73, 93).trim().replace(/^R/, ''), data: isoDe(l.slice(93, 101)), valor: Number(l.slice(119, 134)) / 100,
-        conta: `${l.slice(20, 23)}.${l.slice(24, 28)}-${l.slice(30, 41)}${l[41]}`, cpf: ''}; itens.push(b); }
-      else if (l[13] === 'B' && b) { b.cpf = l.slice(18, 32).replace(/^0+/, '').padStart(11, '0'); b = null; }
+      const modo = servico === '30' ? 'folha' : 'fornecedor', seg = l[13];
+      if (seg === 'A') { b = {origem: 'cnab', modo, servico: SERVICO_CNAB[servico] || 'serviço ' + servico, forma: 'Transferência/crédito', nome: l.slice(43, 73).trim(), cod: l.slice(73, 93).trim().replace(/^R/, ''),
+        data: isoDe(l.slice(93, 101)), valor: Number(l.slice(119, 134)) / 100, conta: `${l.slice(20, 23)}.${l.slice(24, 28)}-${l.slice(30, 41)}${l[41]}`, cpf: ''}; itens.push(b); }
+      else if (seg === 'B' && b) { b.cpf = l.slice(18, 32).replace(/^0+/, '').padStart(l[17] === '2' ? 14 : 11, '0'); b = null; }
+      else if (seg === 'J' && l.slice(17, 19) === '52' && ultJ) { const doc = l.slice(76, 91).replace(/^0+/, ''); if (doc) ultJ.cpf = doc.padStart(l[75] === '2' ? 14 : 11, '0'); const nm = l.slice(91, 131).trim(); if (nm) ultJ.nome = nm; ultJ = null; }
+      else if (seg === 'J') { ultJ = {origem: 'cnab', modo, servico: SERVICO_CNAB[servico] || 'serviço ' + servico, forma: 'Boleto', barras: l.slice(17, 61).trim(), nome: l.slice(61, 91).trim(), vencimento: isoDe(l.slice(91, 99)),
+        data: isoDe(l.slice(144, 152)), valor: Number(l.slice(152, 167)) / 100 || Number(l.slice(99, 114)) / 100, cod: l.slice(182, 202).trim(), cpf: ''}; itens.push(ultJ); b = null; }
+      else if (seg === 'O') { itens.push({origem: 'cnab', modo: 'fornecedor', servico: SERVICO_CNAB[servico] || 'serviço ' + servico, forma: 'Conta/tributo', barras: l.slice(17, 61).trim(), nome: l.slice(61, 91).trim(),
+        vencimento: isoDe(l.slice(91, 99)), data: isoDe(l.slice(99, 107)), valor: Number(l.slice(107, 122)) / 100, cod: l.slice(122, 142).trim(), cpf: ''}); b = null; }
     }
-    return {tipo: 'cnab', empresa, itens, data: itens[0] ? itens[0].data : null};
+    const datas = itens.map(x => x.data).filter(Boolean).sort();
+    return {tipo: 'cnab', empresa, itens, data: datas[0] || null};
   }
   // Texto de PDF (uma string por linha) — "Relação para Depósito Bancário" e "Lista de Comprovantes" do Internet Banking
   function lerTextoBanco(linhas) {
@@ -612,9 +624,9 @@
     for (let i = 0; i < L.length; i++) {
       let m;
       if (comprovante && (m = L[i].match(/^(9\d{8}) (\d{6,10}) ?(.*?) ?(\d{2}\/\d{2}\/\d{4}) (\S+) ([\d.]+,\d{2})$/)))
-        itens.push({origem: 'comprovante', npag: m[1], cod: m[2], nome: (m[3] || [L[i - 1], L[i + 1]].filter(x => x && /^[A-Z ]+$/.test(x)).join(' ')).trim(), data: isoDe(m[4]), valor: numBRv(m[6])});
+        itens.push({origem: 'comprovante', modo: 'folha', npag: m[1], cod: m[2], nome: (m[3] || [L[i - 1], L[i + 1]].filter(x => x && /^[A-Z ]+$/.test(x)).join(' ')).trim(), data: isoDe(m[4]), valor: numBRv(m[6])});
       else if (!comprovante && (m = L[i].match(/^(\d{3}\.\d{4}-\d{6,13}) ([\d.]+,\d{2}) (\d{6,10}) (.+?) (\d{11}) ([\d.]+)$/)))
-        itens.push({origem: 'relacao', conta: m[1], valor: numBRv(m[2]), cod: m[3], nome: m[4], cpf: m[5]});
+        itens.push({origem: 'relacao', modo: 'folha', conta: m[1], valor: numBRv(m[2]), cod: m[3], nome: m[4], cpf: m[5]});
     }
     const data = isoDe((txt.match(/Data de Pagamento:?\s*(\d{2}\/\d{2}\/\d{4})/i) || [])[1] || (itens[0] && itens[0].data ? itens[0].data.split('-').reverse().join('/') : ''));
     if (data) itens.forEach(x => { if (!x.data) x.data = data; });
@@ -635,11 +647,13 @@
       const tot = r2(L.itens.reduce((s, x) => s + x.valor, 0));
       resumo.push({nome: L.nome, tipo: L.tipo, data: L.data, competencia: L.competencia, n: L.itens.length, total: tot, totalInformado: L.totalInformado});
       if (L.totalInformado != null && Math.abs(L.totalInformado - tot) > 0.01) add('alta', 'total', `Total do arquivo não fecha: ${L.nome}`, `Soma das linhas ${brl(tot)} × total informado ${brl(L.totalInformado)} — linha faltando ou a mais.`);
-      for (const [campo, rot] of [['cpf', 'CPF'], ['cod', 'código do funcionário'], ['conta', 'conta bancária']]) {
-        for (const [k, g] of agrupar(L.itens.filter(x => x[campo]), x => x[campo])) if (g.length > 1)
+      // na folha a mesma pessoa só recebe uma vez; no pagamento a fornecedor o mesmo CNPJ/conta pode ter várias notas — lá vale o código de barras
+      const camposFolha = [['cpf', 'CPF'], ['cod', 'código do funcionário'], ['conta', 'conta bancária']], camposForn = [['barras', 'código de barras (mesmo boleto)'], ['cod', 'nº do documento (seu número)']];
+      for (const [modo, campos] of [['folha', camposFolha], ['fornecedor', camposForn]]) for (const [campo, rot] of campos) {
+        for (const [k, g] of agrupar(L.itens.filter(x => x.modo === modo && x[campo]), x => x[campo])) if (g.length > 1)
           add('alta', 'repetido_arquivo', `Mesmo ${rot} ${g.length}× no arquivo ${L.nome}`, `${unicos(g.map(x => x.nome)).join(' / ')} · ${g.map(x => brl(x.valor)).join(' + ')} = ${brl(g.reduce((s, x) => s + x.valor, 0))}`, {itens: g, valor: r2(g.slice(1).reduce((s, x) => s + x.valor, 0))});
       }
-      for (const [k, g] of agrupar(L.itens.filter(x => x.conta && x.cpf), x => x.conta)) if (unicos(g.map(x => x.cpf)).length > 1)
+      for (const [k, g] of agrupar(L.itens.filter(x => x.modo === 'folha' && x.conta && x.cpf), x => x.conta)) if (unicos(g.map(x => x.cpf)).length > 1)
         add('alta', 'conta_compartilhada', `Conta bancária ${k} recebe para pessoas diferentes`, unicos(g.map(x => x.nome)).join(' / '), {itens: g, valor: r2(g.reduce((s, x) => s + x.valor, 0))});
     }
     // 2) arquivo × comprovante do mesmo pagamento (mesma data): sem comprovante, comprovante a mais, valor diferente, pago 2×
@@ -655,7 +669,8 @@
     }
     // 3) adiantamento × folha do mesmo mês: recebeu adiantamento e sumiu da folha (desligado? o adiantamento precisa ser descontado na rescisão)
     const ehAdto = L => /adto|adiant/i.test(L.nome + ' ' + (L.competencia || ''));
-    const adto = rel.find(ehAdto), folha = rel.find(L => !ehAdto(L));
+    const temFolha = L => L.itens.some(x => x.modo === 'folha');
+    const adto = rel.filter(temFolha).find(ehAdto), folha = rel.filter(temFolha).find(L => !ehAdto(L));
     if (adto && folha) {
       const naFolha = new Set(folha.itens.map(x => x.cpf || x.cod));
       const fora = adto.itens.filter(x => !naFolha.has(x.cpf || x.cod));
@@ -664,8 +679,12 @@
     // o mesmo lote pode vir em dois formatos (CNAB + relação em PDF, ou só comprovante): conta uma vez só
     const unicosLotes = [];
     for (const L of rel.length ? rel : comp) { const tot = r2(L.itens.reduce((s, x) => s + x.valor, 0)); if (!unicosLotes.some(u => u.L.data === L.data && Math.abs(u.tot - tot) < 0.01)) unicosLotes.push({L, tot}); }
-    // 4) o LOTE no Sallamo: o total do arquivo deve aparecer pago uma vez (± dias). Duas vezes = lote pago em dobro.
-    for (const {L, tot} of unicosLotes) {
+    // mesmo boleto (código de barras) em arquivos diferentes = boleto mandado pagar 2×
+    for (const [k, g] of agrupar(unicosLotes.flatMap(({L}) => L.itens.filter(x => x.barras).map(x => Object.assign({lote: L.nome}, x))), x => x.barras))
+      if (unicos(g.map(x => x.lote)).length > 1) add('alta', 'boleto_2_arquivos', `Mesmo boleto em ${unicos(g.map(x => x.lote)).length} arquivos: ${g[0].nome}`, `Código de barras ${k} · ${g.map(x => `${x.lote}: ${brl(x.valor)} em ${dBRa(x.data)}`).join(' · ')}`, {itens: g, valor: r2(g.slice(1).reduce((s, x) => s + x.valor, 0))});
+    // 4) o LOTE DA FOLHA no Sallamo: o total do arquivo deve aparecer pago uma vez (± dias). Duas vezes = lote pago em dobro.
+    for (const {L} of unicosLotes) {
+      const tot = r2(L.itens.filter(x => x.modo === 'folha').reduce((s, x) => s + x.valor, 0));
       if (!L.data || !tot) continue;
       const g = pagos.filter(t => Math.abs(t.valorPago - tot) <= 0.01 && Math.abs(difDias(t.pagamento, L.data)) <= cfg.janelaLote);
       const doDia = pagos.filter(t => RX_FOLHA_PAGTO.test(t.conta) && Math.abs(difDias(t.pagamento, L.data)) <= 1);
@@ -678,7 +697,22 @@
     // 5) PESSOA a pessoa: quem recebeu pelo arquivo do banco e TAMBÉM tem pagamento no Sallamo no mesmo período
     const porNome = agrupar(pagos, t => chaveNome(t.fornecedor));
     const porPessoa = new Map();  // fica só o achado mais grave de cada pessoa × títulos do Sallamo
+    // 5a) FORNECEDORES: cada pagamento do arquivo deve casar com UM título pago no Sallamo (mesmo valor, nome compatível, ± dias)
+    const nomeCasa = (a, b) => a && b && (a.startsWith(b.slice(0, 10)) || b.startsWith(a.slice(0, 10)));
+    const forn = unicosLotes.flatMap(({L}) => L.itens.filter(x => x.modo === 'fornecedor').map(x => ({x, L})));
+    const semTitulo = [], conciliados = [];
+    for (const {x, L} of forn) {
+      const k = chaveNome(x.nome), dia = x.data || L.data;
+      const g = pagos.filter(t => Math.abs(t.valorPago - x.valor) <= 0.01 && dia && Math.abs(difDias(t.pagamento, dia)) <= cfg.janelaLote && nomeCasa(chaveNome(t.fornecedor), k));
+      if (g.length === 1) conciliados.push(x);
+      else if (g.length > 1) add('alta', 'fornecedor_2x_sallamo', `${x.nome}: 1 pagamento no banco e ${g.length} títulos pagos no Sallamo`, `Banco (${x.forma}): ${brl(x.valor)} em ${dBRa(dia)} · Sallamo: ${g.map(t => `cód. ${t.codigo} em ${dBRa(t.pagamento)} (${t.conta})`).join('; ')}`, {itens: [x], titulos: g.map(t => t.i), valor: r2(x.valor * (g.length - 1))});
+      else semTitulo.push(x);
+    }
+    if (semTitulo.length) add('media', 'banco_sem_titulo', `${semTitulo.length} pagamento(s) do arquivo sem título correspondente no Sallamo`, `Somam ${brl(semTitulo.reduce((s, x) => s + x.valor, 0))}. Saiu dinheiro pelo banco sem título igual (valor/fornecedor/data ±${cfg.janelaLote} dias) no Sallamo — confira o lançamento, o período carregado e a grafia do fornecedor.`, {itens: semTitulo, valor: r2(semTitulo.reduce((s, x) => s + x.valor, 0))});
+    if (conciliados.length) add('ok', 'fornecedor_ok', `${conciliados.length} pagamento(s) a fornecedores conferem 1× com o Sallamo`, `Somam ${brl(conciliados.reduce((s, x) => s + x.valor, 0))}.`, {itens: conciliados, valor: 0});
+    // 5b) FOLHA, pessoa a pessoa: quem recebeu pelo arquivo do banco e TAMBÉM tem pagamento no Sallamo no mesmo período
     for (const {L} of unicosLotes) for (const x of L.itens) {
+      if (x.modo !== 'folha') continue;
       const k = chaveNome(x.nome); if (!k || k.length < 8) continue;
       const g = (porNome.get(k) || []).filter(t => Math.abs(difDias(t.pagamento, L.data)) <= cfg.janelaPessoa);
       if (!g.length) continue;
