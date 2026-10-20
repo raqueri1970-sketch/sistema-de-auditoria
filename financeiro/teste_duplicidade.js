@@ -54,3 +54,15 @@ assert(!tem('CONTABIL'), 'rateio não é duplicidade');
 assert(!tem('IMOBILIARIA') && !tem('MOVEIS'), 'mensal/parcelas não são duplicidade');
 assert(!r23.some(o => o.detalhe.includes('95001')), 'alarme por loja não é duplicidade');
 assert(!tem('FORNEC R01') && r.ocorrencias.some(o => o.regra === 'R01' && o.dup), 'R01 não se repete na R23 e tem comparativo');
+
+// ---- verificação direta: mesmo fornecedor + mesmo título + mesmo valor + mesmo dia
+const E = A.duplicidadeExata(A.normalizar([
+  L(1, 'FORN A LTDA', 500, '2026-09-10', '2026-09-10', '2026-09-01', '(-) Manutenção', 'LOJA 1'), L(1, 'FORN A LTDA', 500, '2026-09-10', '2026-09-10', '2026-09-01', '(-) Manutenção', 'LOJA 1'),   // exata
+  L(2, 'FORN B LTDA', 300, '2026-09-10', '2026-09-10', '2026-09-01', '(-) Assessoria', 'LOJA 1'), L(2, 'FORN B LTDA', 300, '2026-09-10', '2026-09-10', '2026-09-01', '(-) Assessoria', 'LOJA 2'),     // rateio
+  L(3, 'FORN C LTDA', 700, '2026-09-13', '2026-09-13', '2026-09-01', '(-) Alarme', 'LOJA 3'), L(3, 'FORN C LTDA', 700, '2026-09-14', '2026-09-14', '2026-09-01', '(-) Alarme', 'LOJA 3'),             // dia seguinte
+  L(4, 'FORN D LTDA', 900, '2026-08-10', '2026-08-10', '2026-08-01', '(-) Aluguel', 'LOJA 4'), L(4, 'FORN D LTDA', 900, '2026-09-10', '2026-09-10', '2026-08-01', '(-) Aluguel', 'LOJA 4'),            // parcela mensal
+]));
+assert(E.exatas.length === 1 && E.exatas[0].codigo === 1 && E.exatas[0].excesso === 500, 'exata: mesmo fornecedor, título, valor e dia');
+assert(E.rateios.length === 1 && E.rateios[0].codigo === 2, 'mesmo dia em lojas diferentes = rateio (à parte)');
+assert(E.diasDiferentes.length === 1 && E.diasDiferentes[0].codigo === 3, 'mesmo título pago de novo no dia seguinte');
+assert(!E.diasDiferentes.some(x => x.codigo === 4), 'parcela mensal não é duplicidade');

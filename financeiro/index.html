@@ -6,7 +6,7 @@
 <title>Auditoria Financeira</title>
 <meta name="theme-color" content="#070b16">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="auditoria.js?v=20261020-3"></script>
+<script src="auditoria.js?v=20261020-4"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -601,6 +601,53 @@ window.relatorioBanco = () => {
     <tr class="tot"><td colspan="3">TOTAL (alta + média)</td><td class="n">${brl(r.achados.filter(a => a.sev === 'alta' || a.sev === 'media').reduce((s, a) => s + (a.valor || 0), 0))}</td></tr></table>`);
 };
 
+// ---------- ❓ Já houve pagamento em duplicidade? (resposta direta) ----------
+function vereditoDup() {
+  const E = A.duplicidadeExata(R.titulos), evit = R.ocorrencias.filter(o => o.dup && o.dup.abertos && o.dup.nota >= 45);
+  window._E = E; window._evit = evit;
+  const soma = (a, k = 'excesso') => a.reduce((s, x) => s + (x[k] || 0), 0);
+  const sim = E.exatas.length > 0;
+  const linha = (rot, n, valor, ruim, extra) => `<tr><td class="small">${rot}</td><td class="num b" style="color:${n ? (ruim ? '#fca5a5' : '#fcd34d') : '#86efac'}">${n ? n0(n) : '✓ nenhum'}</td><td class="num">${n && valor ? brl(valor) : '—'}</td><td class="small mut">${extra || ''}</td></tr>`;
+  const casos = E.exatas.concat(E.diasDiferentes);
+  return `<div class="card" style="margin-top:12px;border-color:${sim ? 'rgba(239,68,68,.55)' : 'rgba(34,197,94,.45)'}">
+    <div class="b" style="font-size:15px">❓ Já houve pagamento em duplicidade? <span class="small mut" style="font-weight:500">— mesmo fornecedor + mesmo título + mesmo valor + mesmo dia de pagamento</span></div>
+    <div style="font-size:22px;font-weight:800;margin-top:8px;color:${sim ? '#fca5a5' : '#86efac'}">${sim ? `⚠ SIM — ${n0(E.exatas.length)} caso(s), ${brl(soma(E.exatas))} pagos a mais` : '✅ NÃO — nenhum caso no período analisado'}</div>
+    <div class="small mut">Período carregado: ${esc($('info').textContent.split(' · ')[0])} · ${n0(E.pagos)} pagamentos conferidos. Para ver o histórico todo, escolha <b>Tudo (2024 → 2027)</b> e clique em Analisar.</div>
+    <div class="tw" style="margin-top:10px"><table><tr><th>Verificação</th><th class="num">Casos</th><th class="num">Valor</th><th></th></tr>
+      ${linha('<b>Mesmo dia</b>: mesmo fornecedor, mesmo título, mesmo valor, mesma loja', E.exatas.length, soma(E.exatas), true, 'pagamento em dobro')}
+      ${linha('<b>Dia diferente</b>: o mesmo título e valor pago de novo em até 7 dias', E.diasDiferentes.length, soma(E.diasDiferentes), true, 'ex.: pago dia 13 e de novo dia 14')}
+      ${linha('<b>Prevenção</b>: títulos em aberto que repetem um pagamento', evit.length, soma(evit.map(o => o.dup), 'evitavel'), false, 'ainda dá para segurar antes de pagar')}
+      ${linha('Mesmo título dividido entre lojas no mesmo dia (rateio)', E.rateios.length, 0, false, 'normalmente NÃO é duplicidade — conferir a nota')}
+    </table></div>
+    ${casos.length || evit.length ? `<div class="tw" style="margin-top:10px;max-height:420px;overflow:auto"><table><tr><th>Tipo</th><th>Fornecedor</th><th>Título</th><th class="num">Valor</th><th>Pago em</th><th>Centro de custo</th><th class="num">Pago a mais</th></tr>
+      ${casos.map((c, i) => `<tr class="clic" onclick="abrirExata(${i})"><td><span class="chip ${c.tipo === 'exata' ? 'sv-alta' : 'sv-media'}">${c.tipo === 'exata' ? 'mesmo dia' : 'dia diferente'}</span></td><td class="small b">${esc(c.fornecedor)}</td><td class="b">${esc(c.codigo)}</td><td class="num">${brl(c.valor)}</td><td class="small">${c.datas.map(dBRa).join(' e ')}</td><td class="small">${esc(c.ccs.join(' / '))}</td><td class="num b">${brl(c.excesso)}</td></tr>`).join('')}
+      ${evit.map(o => `<tr class="clic" onclick="abrir(${o.n})"><td><span class="chip sv-baixa">em aberto</span></td><td class="small b">${esc(o.fornecedor)}</td><td class="small">${esc([...new Set(o.titulos.map(i => R.titulos[i].codigo))].join(', '))}</td><td class="num">${brl(o.dup.valor)}</td><td class="small">${esc(o.detalhe.split(' · ')[1] || '')}</td><td class="small">${esc(o.cc || '')}</td><td class="num">evitável ${brl(o.dup.evitavel)}</td></tr>`).join('')}
+    </table></div>` : ''}
+    <div class="explica" style="margin-top:10px"><b>Como evitar que aconteça</b><br>
+      1. <b>Antes de mandar a remessa ao banco</b>, carregue o arquivo em "📂 Conferir arquivo do banco" abaixo: o sistema avisa <b>"este valor já foi pago antes"</b>, boleto repetido e título pago 2×.<br>
+      2. <b>Toda semana</b>, confira a linha "Prevenção" acima: títulos em aberto que repetem um pagamento já feito — cancele antes do vencimento.<br>
+      3. Peça ao Sallamo um <b>bloqueio no lançamento</b>: não aceitar título com o mesmo fornecedor + mesmo nº de nota/documento + mesmo valor (e alerta quando o mesmo título for baixado duas vezes).</div>
+    ${casos.length ? `<div class="row" style="margin-top:10px"><button class="btn" onclick="relatorioExata()">🖨 PDF desta verificação</button></div>` : ''}
+  </div>`;
+}
+window.abrirExata = i => {
+  const c = window._E.exatas.concat(window._E.diasDiferentes)[i];
+  const o = R.ocorrencias.find(o => A.REGRAS_DUP.concat('R02').includes(o.regra) && c.titulos.every(t => o.titulos.includes(t)));
+  $('mBody').innerHTML = `<div class="x row">${o ? `<button class="btn b-pri" onclick="abrir(${o.n})">Analisar / registrar</button>` : ''}<button class="btn" onclick="fechar()">✕</button></div>
+    <div class="row" style="padding-right:220px"><span class="chip ${c.tipo === 'exata' ? 'sv-alta' : 'sv-media'}">${c.tipo === 'exata' ? 'Mesmo dia' : 'Dia diferente'}</span><b>Pagamento em duplicidade · título ${esc(c.codigo)}</b></div>
+    <h1 style="font-size:19px;margin-top:10px">${esc(c.fornecedor)}</h1>
+    <div>${brl(c.valor)} pago ${n0(c.titulos.length)}× em ${c.datas.map(dBRa).join(' e ')} · ${esc(c.ccs.join(' / '))} · ${esc(c.conta)} · <b>pago a mais ${brl(c.excesso)}</b></div>
+    <h2>Comparativo lado a lado</h2>${comparativo(c.titulos)}<h2>Títulos</h2>${tabTitulos(c.titulos)}
+    <div class="small mut" style="margin-top:8px">O que fazer: confirme no extrato do banco se saíram os dois pagamentos e peça ao fornecedor a devolução ou o abatimento na próxima nota.${o ? '' : ' Registre a análise pela ocorrência correspondente na aba Ocorrências.'}</div>`;
+  $('modal').classList.remove('hidden');
+};
+window.relatorioExata = () => {
+  const E = window._E, casos = E.exatas.concat(E.diasDiferentes), soma = a => a.reduce((s, x) => s + x.excesso, 0);
+  imprimirHTML('Pagamentos em duplicidade (mesmo fornecedor, título e valor)', `<div class="k"><div><b>${n0(E.exatas.length)} · ${brl(soma(E.exatas))}</b><span>mesmo dia</span></div><div><b>${n0(E.diasDiferentes.length)} · ${brl(soma(E.diasDiferentes))}</b><span>dia diferente (até 7 dias)</span></div><div><b>${n0(E.pagos)}</b><span>pagamentos conferidos</span></div></div>
+    ${casos.map((c, i) => `<div class="caso"><h3>${i + 1}. ${esc(c.fornecedor)} — título ${esc(c.codigo)} · ${brl(c.valor)} pago ${c.titulos.length}× em ${c.datas.map(dBRa).join(' e ')} · ${c.tipo === 'exata' ? 'mesmo dia' : 'dia diferente'} · pago a mais ${brl(c.excesso)}</h3>${comparativoRel(c.titulos)}</div>`).join('')}
+    <table><tr class="tot"><td>TOTAL (${n0(casos.length)} casos)</td><td class="n">pago a mais ${brl(soma(casos))}</td></tr></table>`);
+};
+
 function duplicidadeAba() {
   const a = casosDup(), POR = 30, pags = Math.max(1, Math.ceil(a.length / POR));
   DP.pag = Math.min(DP.pag, pags - 1);
@@ -609,7 +656,7 @@ function duplicidadeAba() {
   const soma = (g, k) => g.reduce((s, o) => s + o.dup[k], 0);
   const folha = todos.filter(o => o.dup.marcas.includes('folha') && o.dup.nota >= 45);
   window._dpCasos = a;
-  $('corpo').innerHTML = `
+  $('corpo').innerHTML = `${vereditoDup()}
   <div class="explica"><b>🕵️ Como o Agente de Duplicidade trabalha</b><br>
     Ele junta os pagamentos com o <b>mesmo valor exato</b> para o <b>mesmo fornecedor ou pessoa</b> (mesmo com grafia diferente no cadastro) e procura o mesmo dinheiro saindo de novo:
     no <b>mesmo dia</b>, em <b>até ${R.cfg.dupJanela} dias</b>, no <b>mesmo título</b>, em <b>centros de custo diferentes</b> e, na <b>folha</b> (pensão, salário, vale-transporte, Uber, reembolso, ajuda de custo…), na <b>mesma competência</b>.

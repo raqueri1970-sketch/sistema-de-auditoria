@@ -47,3 +47,6 @@ ok(rf.achados.some(a => a.tipo === 'banco_sem_titulo' && a.itens.some(x => /XYZ/
 ok(!tf.includes('pessoa_mesmo_valor') && !tf.includes('lote_nao_achado'), 'fornecedor não é tratado como folha');
 const outro = A.lerCNAB240(remessa.split('\n').filter(l => l.includes('NF100 ') || l[7] !== '3').join('\n')); outro.nome = 'Remessa 21/10';
 ok(A.cruzarArquivoBanco([f, outro], TF).achados.some(a => a.tipo === 'boleto_2_arquivos'), 'mesmo boleto em duas remessas');
+// prevenção: a remessa vai pagar algo que já saiu dias antes
+const TP = A.normalizar([t(20, 'XYZ MANUTENCAO LTDA', 3200, '2026-10-12', '(-) Manutenção')]);
+ok(A.cruzarArquivoBanco([f], TP).achados.some(a => a.tipo === 'ja_pago_antes' && /XYZ/.test(a.titulo)), 'remessa: valor já pago antes ao mesmo fornecedor (evita pagar 2×)');

@@ -638,7 +638,7 @@
   const RX_FOLHA_PAGTO = /sal[aá]ri|folha|adiantamento salarial|adiantamento de sal|f[eé]rias|rescis|re[cs]+is|13º|d[eé]cimo|pr[oó].?labore|l[ií]quido/i;
   // lotes: [{nome, tipo, data, itens}] · T: títulos normalizados do Sallamo
   function cruzarArquivoBanco(lotes, T, opcoes) {
-    const cfg = Object.assign({janelaLote: 5, janelaPessoa: 20}, opcoes || {});
+    const cfg = Object.assign({janelaLote: 5, janelaPessoa: 20, jaPagoDias: 25}, opcoes || {});
     const achados = [], add = (sev, tipo, titulo, detalhe, extra) => achados.push(Object.assign({sev, tipo, titulo, detalhe, titulos: [], itens: []}, extra || {}));
     const pagos = T.filter(t => t.valorPago > 0 && t.pagamento && !/cancel/i.test(t.status));
     const resumo = [];
@@ -701,15 +701,23 @@
     const nomeCasa = (a, b) => a && b && (a.startsWith(b.slice(0, 10)) || b.startsWith(a.slice(0, 10)));
     const forn = unicosLotes.flatMap(({L}) => L.itens.filter(x => x.modo === 'fornecedor').map(x => ({x, L})));
     const semTitulo = [], conciliados = [];
+    // Antes de pagar (prevenção): o mesmo valor ao mesmo fornecedor já pago poucos dias antes = vai pagar de novo.
+    // Depois de pagar: o pagamento do banco deve ter UM título pago no Sallamo na mesma data (±janela).
+    const abertosS = T.filter(t => t.saldo > 0 && !/cancel|^pago$/i.test(t.status) && t.vencimento);
     for (const {x, L} of forn) {
-      const k = chaveNome(x.nome), dia = x.data || L.data;
-      const g = pagos.filter(t => Math.abs(t.valorPago - x.valor) <= 0.01 && dia && Math.abs(difDias(t.pagamento, dia)) <= cfg.janelaLote && nomeCasa(chaveNome(t.fornecedor), k));
-      if (g.length === 1) conciliados.push(x);
-      else if (g.length > 1) add('alta', 'fornecedor_2x_sallamo', `${x.nome}: 1 pagamento no banco e ${g.length} títulos pagos no Sallamo`, `Banco (${x.forma}): ${brl(x.valor)} em ${dBRa(dia)} · Sallamo: ${g.map(t => `cód. ${t.codigo} em ${dBRa(t.pagamento)} (${t.conta})`).join('; ')}`, {itens: [x], titulos: g.map(t => t.i), valor: r2(x.valor * (g.length - 1))});
+      const k = chaveNome(x.nome), dia = x.data || L.data; if (!dia) { semTitulo.push(x); continue; }
+      const casa = t => nomeCasa(chaveNome(t.fornecedor), k);
+      const mesmo = pagos.filter(t => Math.abs(t.valorPago - x.valor) <= 0.01 && Math.abs(difDias(t.pagamento, dia)) <= 1 && casa(t));
+      const antes = pagos.filter(t => Math.abs(t.valorPago - x.valor) <= 0.01 && difDias(dia, t.pagamento) >= 2 && difDias(dia, t.pagamento) <= cfg.jaPagoDias && casa(t));
+      const perto = pagos.filter(t => Math.abs(t.valorPago - x.valor) <= 0.01 && Math.abs(difDias(t.pagamento, dia)) <= cfg.janelaLote && casa(t));
+      const aberto = abertosS.filter(t => Math.abs(t.saldo - x.valor) <= 0.01 && Math.abs(difDias(t.vencimento, dia)) <= 15 && casa(t));
+      if (antes.length) add('alta', 'ja_pago_antes', `${x.nome}: este valor já foi pago antes — pagar de novo é duplicidade`, `Banco (${x.forma}): ${brl(x.valor)} em ${dBRa(dia)}${x.barras ? ' · boleto ' + x.barras : ''} · já pago no Sallamo: ${antes.map(t => `cód. ${t.codigo} em ${dBRa(t.pagamento)} (${t.conta})`).join('; ')}. Se for outra nota/parcela de mesmo valor, confira o documento antes de pagar.`, {itens: [x], titulos: antes.concat(mesmo).map(t => t.i), valor: x.valor});
+      else if (mesmo.length > 1 || (!mesmo.length && perto.length > 1)) { const g = mesmo.length > 1 ? mesmo : perto; add('alta', 'fornecedor_2x_sallamo', `${x.nome}: 1 pagamento no banco e ${g.length} títulos pagos no Sallamo`, `Banco (${x.forma}): ${brl(x.valor)} em ${dBRa(dia)} · Sallamo: ${g.map(t => `cód. ${t.codigo} em ${dBRa(t.pagamento)} (${t.conta})`).join('; ')}`, {itens: [x], titulos: g.map(t => t.i), valor: r2(x.valor * (g.length - 1))}); }
+      else if (mesmo.length || perto.length || aberto.length) conciliados.push(x);
       else semTitulo.push(x);
     }
     if (semTitulo.length) add('media', 'banco_sem_titulo', `${semTitulo.length} pagamento(s) do arquivo sem título correspondente no Sallamo`, `Somam ${brl(semTitulo.reduce((s, x) => s + x.valor, 0))}. Saiu dinheiro pelo banco sem título igual (valor/fornecedor/data ±${cfg.janelaLote} dias) no Sallamo — confira o lançamento, o período carregado e a grafia do fornecedor.`, {itens: semTitulo, valor: r2(semTitulo.reduce((s, x) => s + x.valor, 0))});
-    if (conciliados.length) add('ok', 'fornecedor_ok', `${conciliados.length} pagamento(s) a fornecedores conferem 1× com o Sallamo`, `Somam ${brl(conciliados.reduce((s, x) => s + x.valor, 0))}.`, {itens: conciliados, valor: 0});
+    if (conciliados.length) add('ok', 'fornecedor_ok', `${conciliados.length} pagamento(s) a fornecedores conferem com o Sallamo (1 título pago ou a pagar)`, `Somam ${brl(conciliados.reduce((s, x) => s + x.valor, 0))}.`, {itens: conciliados, valor: 0});
     // 5b) FOLHA, pessoa a pessoa: quem recebeu pelo arquivo do banco e TAMBÉM tem pagamento no Sallamo no mesmo período
     for (const {L} of unicosLotes) for (const x of L.itens) {
       if (x.modo !== 'folha') continue;
@@ -730,6 +738,30 @@
     const P = {alta: 0, media: 1, baixa: 2, info: 3, ok: 4};
     achados.sort((a, b) => P[a.sev] - P[b.sev] || (b.valor || 0) - (a.valor || 0));
     return {resumo, achados};
+  }
+
+  // ---------- Verificação direta: já houve pagamento em duplicidade? ----------
+  // EXATA = mesmo fornecedor + mesmo título (código) + mesmo valor pago + mesma data de pagamento, no mesmo centro de custo.
+  // Mesmo título dividido entre lojas no mesmo dia é rateio (mostrado à parte). DIAS DIFERENTES = o mesmo, pago de novo até 7 dias depois.
+  function duplicidadeExata(T, dias = 7) {
+    const pagos = T.filter(t => t.valorPago > 0 && t.pagamento && !/cancel/i.test(t.status));
+    const chave = t => [chaveNome(t.fornecedor) || t.fornecedor, t.codigo, t.valorPago.toFixed(2)].join('|');
+    const caso = (g, tipo) => ({tipo, fornecedor: g[0].fornecedor, codigo: g[0].codigo, valor: g[0].valorPago, datas: unicos(g.map(t => t.pagamento)).sort(), ccs: unicos(g.map(t => t.cc)),
+      conta: g[0].conta, titulos: g.map(t => t.i), excesso: r2(g[0].valorPago * (g.length - 1))});
+    const exatas = [], rateios = [], diasDiferentes = [];
+    for (const [, g] of agrupar(pagos, chave)) {
+      if (g.length < 2) continue;
+      for (const [, d] of agrupar(g, t => t.pagamento)) if (d.length > 1) {
+        const porCC = [...agrupar(d, t => t.cc).values()].filter(x => x.length > 1);
+        if (porCC.length) porCC.forEach(x => exatas.push(caso(x, 'exata'))); else rateios.push(caso(d, 'rateio'));
+      }
+      for (const [, c] of agrupar(g, t => t.cc)) {
+        const ds = c.slice().sort((a, b) => a.pagamento.localeCompare(b.pagamento));
+        for (let n = 1; n < ds.length; n++) { const gap = difDias(ds[n].pagamento, ds[n - 1].pagamento); if (gap >= 1 && gap <= dias) diasDiferentes.push(caso([ds[n - 1], ds[n]], 'dias')); }
+      }
+    }
+    const ord = a => a.sort((x, y) => y.excesso - x.excesso || y.valor - x.valor);
+    return {exatas: ord(exatas), rateios: ord(rateios), diasDiferentes: ord(diasDiferentes), pagos: pagos.length};
   }
 
   // 1º algarismo significativo de um valor (Benford)
@@ -834,7 +866,7 @@
     return T.filter(t => termos.every(x => casaTitulo(t, x)));
   }
 
-  const api = {analisar, normalizar, benfordDe, primeiroDigito, avaliarDuplicidade, lerCNAB240, lerTextoBanco, cruzarArquivoBanco, REGRAS, REGRAS_DUP, PADRAO, PESO, brl, dBR, dBRa, chaveNome, parecePessoa,
+  const api = {analisar, normalizar, benfordDe, primeiroDigito, avaliarDuplicidade, lerCNAB240, lerTextoBanco, cruzarArquivoBanco, duplicidadeExata, REGRAS, REGRAS_DUP, PADRAO, PESO, brl, dBR, dBRa, chaveNome, parecePessoa,
     interpretarBusca, filtrarOcorrencias, filtrarTitulos, casaTitulo, numBR, despesas, CATEGORIAS, CAT_NOME, categoriaDe, tipoPorFornecedor};
   if (typeof module === 'object' && module.exports) module.exports = api; else raiz.FinAudit = api;
 })(typeof self !== 'undefined' ? self : this);

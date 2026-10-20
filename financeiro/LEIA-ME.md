@@ -55,6 +55,11 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
 
 ## Abas de análise
 
+- **❓ Já houve pagamento em duplicidade?** (topo da aba do Agente): resposta direta SIM/NÃO para mesmo fornecedor +
+  mesmo título + mesmo valor + mesmo dia de pagamento na mesma loja, mais o mesmo título pago de novo em até 7 dias, os
+  títulos em aberto que repetem um pagamento (prevenção) e, à parte, o rateio entre lojas. Lista clicável com comparativo
+  e PDF. Na remessa ao banco, o aviso **"este valor já foi pago antes"** (mesmo fornecedor e valor pago 2 a 25 dias antes)
+  impede pagar de novo.
 - **🕵️ Agente de Duplicidade**: um card por caso suspeito (R01 + R23) com nota de confiança 0–100, os motivos
   (✓ a favor · ↓ o que pode explicar: rateio entre lojas, preço por loja, lote de mercadoria, cobrança recorrente) e os
   eventos **lado a lado** (verde = igual, amarelo = diferente). Mostra quanto pode ter saído a mais e quanto ainda está em
