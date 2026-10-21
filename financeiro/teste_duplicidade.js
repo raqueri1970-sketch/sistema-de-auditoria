@@ -8,7 +8,7 @@ const d = [
   L(24623, G, 1109.81, '2026-09-13', '2026-09-13', '2026-08-06', '(-) Serviço de Alarme e Monitoramento', '038 - BEBERIBE'),
   L(24623, G, 1109.81, '2026-09-14', '2026-09-14', '2026-08-06', '(-) Serviço de Alarme e Monitoramento', '038 - BEBERIBE'),
   L(24624, G, 435.83, '2026-09-14', '2026-09-14', '2026-08-06', '(-) Serviço de Alarme e Monitoramento', '007 - CASA'),
-  // 2) mesmo fornecedor, mesmo valor, mesmo dia, códigos e lojas diferentes (pedido do usuário)
+  // 2) mesmo fornecedor, mesmo valor, mesmo dia, códigos e lojas diferentes: cobrança por loja — NÃO é duplicidade (só na mesma loja)
   L(30001, 'ACME SERVICOS LTDA', 2500, '2026-09-20', '2026-09-20', '2026-09-01', '(-) Consertos e Reparos', '010 - LOJA A'),
   L(30002, 'ACME SERVICOS LTDA', 2500, '2026-09-20', '2026-09-22', '2026-09-03', '(-) Consertos e Reparos', '011 - LOJA B'),
   // 3) pensão paga 2× no mesmo mês (dias distantes)
@@ -46,7 +46,7 @@ const r23 = r.ocorrencias.filter(o => o.regra === 'R23');
 const tem = s => r23.some(o => o.fornecedor.includes(s));
 const assert = (c, m) => { if (!c) { console.error('FALHOU:', m); process.exitCode = 1; } else console.log('ok:', m); };
 assert(r23.some(o => o.detalhe.includes('24623') && o.sev === 'media'), 'D. Guardian 24623: 2 parcelas iguais coladas = média (conferir na nota), não alta');
-assert(tem('ACME'), 'mesmo valor mesmo dia lojas diferentes');
+assert(!tem('ACME'), 'mesmo valor mesmo dia em lojas diferentes = cobrança por loja, não é duplicidade');
 assert(tem('MARIA DA SILVA'), 'pensão 2× no mesmo mês');
 assert(tem('PEREIRA'), 'Uber 2× com cadastro diferente');
 assert(!r23.some(o => o.fornecedor.includes('XYZ')), 'pago + em aberto NÃO é duplicidade (só quando os dois foram pagos)');
@@ -119,3 +119,20 @@ const RP = A.analisar([
 ], {hoje: '2026-10-18'});
 assert(!RP.ocorrencias.some(o => o.regra === 'R24' && o.fornecedor.includes('BEIRA')), 'prevenção: parcelas diárias em aberto não repetem a já paga');
 assert(RP.ocorrencias.some(o => o.regra === 'R24' && o.fornecedor.includes('FORN Z') && o.sev === 'alta'), 'prevenção: a mesma parcela já paga e de novo em aberto = alta');
+// pagamento semanal igual (vencimentos diferentes, 7 dias) não é duplicidade; mesmo documento na mesma loja em dias próximos, sim
+const RW = A.analisar([
+  Object.assign(P(61001, 'RL NORDESTE LTDA', 10000, '2026-09-01', '2026-09-01', '(-) Fretes', 'LOGÍSTICA'), {competencia: '2026-08-29'}),
+  Object.assign(P(61002, 'RL NORDESTE LTDA', 10000, '2026-09-08', '2026-09-08', '(-) Fretes', 'LOGÍSTICA'), {competencia: '2026-09-05'}),
+  P(62001, 'KARLA LTDA', 45000, '2026-08-26', '2026-08-26', '(-) Serviços PJ', 'CEO'), P(62002, 'KARLA LTDA', 45000, '2026-08-28', '2026-08-26', '(-) Serviços PJ', 'CEO'),
+], {hoje: '2026-10-20'});
+assert(!RW.ocorrencias.some(o => A.REGRAS_DUP.includes(o.regra) && o.fornecedor.includes('RL NORDESTE')), 'frete semanal igual não é duplicidade');
+assert(RW.ocorrencias.some(o => A.REGRAS_DUP.includes(o.regra) && o.sev !== 'baixa' && o.fornecedor.includes('KARLA')), 'mesmo vencimento, mesma loja, pagos 26/08 e 28/08 = suspeita');
+// R25: maquininhas da rede lançadas numa loja só = centro de custo, não duplicidade; R08 compara o título inteiro com a alçada
+const lojas = ['001', '002', '003', '004'].map(c => P(70000 + Number(c), 'GETNET TEC EM CAPTURA E PROC TR SA', 137.9, '2026-06-20', '2026-06-20', '(-) Taxas Administrativas', c));
+const RC = A.analisar([...lojas, ...Array.from({length: 20}, () => P(38504, 'GETNET TEC EM CAPTURA E PROC TR SA', 141.17, '2026-10-13', '2026-10-13', '(-) Taxas Administrativas', '057 - SÃO LOURENÇO DA MATA')),
+  ...Array.from({length: 10}, () => P(38505, 'GETNET TEC EM CAPTURA E PROC TR SA', 137.9, '2026-10-13', '2026-10-13', '(-) Taxas Administrativas', '036 - NATAL SHOPPING')),
+  ...Array.from({length: 10}, () => P(38507, 'GETNET TEC EM CAPTURA E PROC TR SA', 140, '2026-10-13', '2026-10-13', '(-) Taxas Administrativas', '026 - MACAIBA'))], {hoje: '2026-10-20'});
+assert(RC.ocorrencias.some(o => o.regra === 'R25' && o.detalhe.includes('38504') && o.impacto === 2823.4), 'R25: 20 maquininhas numa loja só = centro de custo');
+assert(!RC.ocorrencias.some(o => A.REGRAS_DUP.includes(o.regra)), 'maquininhas: nenhuma duplicidade');
+assert(RC.ocorrencias.some(o => o.regra === 'R08' && o.impacto === 5602.4 && o.detalhe.startsWith('3 títulos')), 'R08 soma por TÍTULO (3 títulos de até R$ 2.823 somando R$ 5.602), não por item');
+assert(!A.analisar(Array.from({length: 40}, () => P(1, 'FORN ITENS LTDA', 141.17, '2026-10-13', '2026-10-13', '(-) Manutenção', 'LOJA')), {hoje: '2026-10-20'}).ocorrencias.some(o => o.regra === 'R08'), 'R08: 40 itens de um título só não é fracionamento');

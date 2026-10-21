@@ -6,7 +6,7 @@
 <title>Auditoria Financeira</title>
 <meta name="theme-color" content="#070b16">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="auditoria.js?v=20261021-1"></script>
+<script src="auditoria.js?v=20261021-2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -262,7 +262,7 @@ window.aba = k => { ABA = k; render(); window.scrollTo(0, 0); };
 function painel() {
   const I = R.indicadores, oc = R.ocorrencias;
   const alta = oc.filter(o => o.sev === 'alta');
-  const risco = oc.filter(o => ['R01', 'R23', 'R03', 'R08'].includes(o.regra) && (o.regra !== 'R23' || o.sev !== 'baixa')).reduce((s, o) => s + o.impacto, 0);
+  const risco = oc.filter(o => ['R01', 'R23', 'R03', 'R08'].includes(o.regra) && !(A.REGRAS_DUP.includes(o.regra) && o.sev === 'baixa')).reduce((s, o) => s + o.impacto, 0);
   const irreg = oc.filter(o => o.sit === 'irregular');
   const porRegra = Object.keys(A.REGRAS).map(k => { const g = oc.filter(o => o.regra === k); return {k, n: g.length, alta: g.filter(o => o.sev === 'alta').length, v: g.reduce((s, o) => s + o.impacto, 0), pend: g.filter(o => o.sit === 'pendente').length}; });
   const maxMes = Math.max(...I.porMes.map(m => m.v), 1), maxAg = Math.max(...I.aging.map(a => a.valor), 1);
@@ -680,7 +680,7 @@ window.relatorioBanco = () => {
 const TIPO_EXATA = {parcela: ['mesma parcela 2×', 'sv-alta'], titulos: ['títulos diferentes', 'sv-alta'], mercadoria: ['notas de mercadoria', 'sv-media'], itens: ['itens iguais', 'sv-baixa']};
 function vereditoDup() {
   const E = A.duplicidadeExata(R.titulos, R.cfg), evit = R.ocorrencias.filter(o => o.regra === 'R24');
-  const fortes = E.mesmaParcela.concat(E.titulosDiferentes), casos = fortes.concat(E.mercadoria, E.itensIguais);
+  const fortes = E.mesmaParcela.concat(E.titulosDiferentes), casos = fortes;   // só duplicidade: o resto é informativo
   window._E = E; window._evit = evit; window._casosE = casos;
   const soma = (a, k = 'excesso') => a.reduce((s, x) => s + (x[k] || 0), 0);
   const sim = fortes.length > 0;
@@ -692,11 +692,13 @@ function vereditoDup() {
     <div class="tw" style="margin-top:10px"><table><tr><th>Verificação</th><th class="num">Casos</th><th class="num">Valor</th><th></th></tr>
       ${linha('<b>Mesma parcela paga 2×</b>: mesmo título e mesmo vencimento baixados em datas diferentes, somando mais que a parcela', E.mesmaParcela.length, soma(E.mesmaParcela), true, 'suspeita forte')}
       ${linha('<b>Títulos diferentes</b>: mesmo fornecedor, valor, vencimento e loja, os dois pagos', E.titulosDiferentes.length, soma(E.titulosDiferentes), true, 'nota lançada 2×? — conferir NF e comprovantes')}
-      ${linha('Notas de <b>mercadoria</b> iguais (mesmo valor e vencimento)', E.mercadoria.length, soma(E.mercadoria), false, 'pedidos iguais da mesma grade são comuns — conferir o nº das NFs')}
-      ${linha('Itens iguais dentro do mesmo título (mesmo dia)', E.itensIguais.length, soma(E.itensIguais, 'aConferir'), false, 'uma linha por maquininha/funcionário/loja — conferir na nota, não é prova de pagamento 2×')}
-      ${linha('<b>Prevenção</b>: título a pagar que repete outro (ainda NÃO é duplicidade)', evit.length, soma(evit.map(o => o.prev), 'evitavel'), false, 'segure antes de pagar — lista abaixo')}
-      ${linha('Mesmo título dividido entre lojas no mesmo dia (rateio)', E.rateios.length, 0, false, 'normalmente NÃO é duplicidade')}
-      <tr><td class="small mut">Parcelas diferentes do mesmo título pagas no mesmo dia (ex.: adiantamento diário)</td><td class="num mut">${n0(E.parcelasMesmoDia)}</td><td class="num mut">${E.parcelasMesmoDia ? brl(E.parcelasMesmoDiaValor) : '—'}</td><td class="small mut">✓ normal — vencimentos diferentes, NÃO é duplicidade</td></tr>
+      ${linha('<b>Prevenção</b>: título a pagar que repete um já pago ou outro em aberto (segurar antes de pagar)', evit.length, soma(evit.map(o => o.prev), 'evitavel'), false, 'lista abaixo')}
+      <tr><td colspan="4" class="small mut" style="padding-top:10px"><b>Conferido e descartado — NÃO é duplicidade</b> (não entra na conta):</td></tr>
+      ${[['Parcelas diferentes do mesmo título pagas no mesmo dia (ex.: adiantamento diário)', E.parcelasMesmoDia, E.parcelasMesmoDiaValor, 'vencimentos diferentes'],
+        ['Itens iguais dentro do mesmo título (uma linha por maquininha, funcionário, loja…)', E.itensIguais.length, soma(E.itensIguais, 'aConferir'), 'mesma nota, uma baixa — se estiverem numa loja só, veja R25 (centro de custo)'],
+        ['Notas de mercadoria com o mesmo valor e vencimento', E.mercadoria.length, soma(E.mercadoria), 'pedidos iguais da mesma grade — conferir o nº das NFs na entrada'],
+        ['Mesmo título dividido entre lojas no mesmo dia (rateio)', E.rateios.length, 0, 'rateio']]
+        .map(([r, n, v, x]) => `<tr><td class="small mut">${r}</td><td class="num mut">${n ? n0(n) : '—'}</td><td class="num mut">${n && v ? brl(v) : '—'}</td><td class="small mut">✓ ${x}</td></tr>`).join('')}
     </table></div>
     ${casos.length ? `<div class="tw" style="margin-top:10px;max-height:460px;overflow:auto"><table><tr><th>Tipo</th><th>Fornecedor</th><th>Título(s)</th><th class="num">Valor</th><th>Vencimento</th><th>Pago em</th><th>Centro de custo</th><th class="num">Pode ter saído a mais</th></tr>
       ${casos.map((c, i) => `<tr class="clic" onclick="abrirExata(${i})"><td><span class="chip ${TIPO_EXATA[c.tipo][1]}">${TIPO_EXATA[c.tipo][0]}</span></td><td class="small b">${esc(c.fornecedor)}<br><span class="mut" style="font-weight:400">${esc(c.conta)}</span></td><td class="b">${esc(c.codigo)}</td><td class="num">${brl(c.valor)}${c.linhas ? `<div class="small mut">${c.linhas} linhas</div>` : ''}</td><td class="small">${c.vencimentos.map(dBRa).join(', ')}</td><td class="small">${c.datas.map(dBRa).join(' e ')}</td><td class="small">${esc(c.ccs.join(' / '))}</td><td class="num b">${c.excesso ? brl(c.excesso) : '<span class="mut" style="font-weight:400">conferir</span>'}</td></tr>`).join('')}
@@ -749,7 +751,8 @@ function duplicidadeAba() {
   ${vereditoDup()}
   <details class="explica" style="margin-top:12px"><summary style="cursor:pointer"><b>🕵️ Como o Agente de Duplicidade trabalha</b> <span class="small mut">(clique para ver)</span></summary>
     Ele junta os <b>pagamentos</b> com o <b>mesmo valor exato</b> para o <b>mesmo fornecedor ou pessoa</b> (mesmo com grafia diferente no cadastro) e procura o mesmo dinheiro saindo de novo:
-    no <b>mesmo dia</b>, em <b>até ${R.cfg.dupJanela} dias</b>, no <b>mesmo título</b>, em <b>centros de custo diferentes</b> e, na <b>folha</b> (pensão, salário, vale-transporte, Uber, reembolso, ajuda de custo…), na <b>mesma competência</b>.
+    em <b>títulos diferentes da mesma loja</b> repetindo o documento (mesmo vencimento, ou mesma competência na mesma conta) em <b>até ${R.cfg.dupJanela} dias</b>, na <b>mesma parcela</b> baixada de novo e, na <b>folha</b> (pensão, salário, vale-transporte, Uber, reembolso, ajuda de custo…), na <b>mesma competência</b>.
+    <b>Não conta:</b> parcelas diferentes do mesmo título, itens da mesma nota, cobrança por loja (alarme, internet, maquininha) e pagamento semanal igual.
     <b>Só entram títulos pagos</b> — renegociado, cancelado, estornado e em aberto ficam de fora (os em aberto repetidos vão para a 🛑 Prevenção).
     Cada caso ganha uma <b>nota de confiança (0–100)</b>: ✓ o que pesa a favor da duplicidade · ↓ o que pode explicar (rateio entre lojas, preço por loja, lote de mercadoria, cobrança recorrente).
     Compare os eventos lado a lado: <span style="color:#86efac">verde = igual</span>, <span style="color:#fcd34d">amarelo = diferente</span>.</details>

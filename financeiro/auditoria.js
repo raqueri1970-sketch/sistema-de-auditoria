@@ -27,7 +27,8 @@
     benfordMAD: 0.015,         // R10: MAD acima disso = não conformidade (Nigrini)
     dupJanela: 7,              // R23: dias entre um pagamento e outro de mesmo valor para ser "o mesmo dinheiro saindo de novo"
     dupAgenteMin: 50,          // R23: valor mínimo (pega reembolso de Uber, vale-transporte, pensão…)
-    dupAgenteNota: 30,         // R23: nota de confiança mínima (0–100) para virar ocorrência
+    dupAgenteNota: 45,         // R23: nota de confiança mínima (0–100) para virar ocorrência (abaixo disso é ruído, não duplicidade)
+    concMin: 5,                // R25: itens de um título lançados numa loja só (fornecedor que costuma ter 1 por loja)
   };
 
   // Situação do título: só é dívida em aberto o que ainda vai ser pago. Renegociado (substituído por outro título),
@@ -115,7 +116,7 @@
     R04: {nome: 'Status incoerente', sev: 'media', desc: 'Situação do título não bate com os valores: cancelado com pagamento, vencido/renegociado já pago por inteiro, "A vencer" já vencido, pago sem data. (Pago a menor fica na R20.)'},
     R05: {nome: 'Pagamento antecipado', sev: 'media', desc: 'Pago muito antes do vencimento ou antes da própria competência, fora de conta de adiantamento. Antecipar sem desconto é perda financeira e pode indicar favorecimento.'},
     R06: {nome: 'Pagamento em fim de semana/feriado', sev: 'media', desc: 'Baixa registrada em sábado, domingo ou feriado nacional — fora do expediente bancário normal.'},
-    R08: {nome: 'Possível fracionamento', sev: 'alta', desc: 'Vários títulos do mesmo fornecedor pagos no mesmo dia, cada um abaixo da alçada de aprovação, mas que somados passam dela.'},
+    R08: {nome: 'Possível fracionamento', sev: 'alta', desc: 'Vários títulos do mesmo fornecedor pagos no mesmo dia, cada título (somando seus itens) abaixo da alçada de aprovação, mas que somados passam dela.'},
     R09: {nome: 'Valor atípico', sev: 'media', desc: 'Valor muito acima do padrão histórico do mesmo fornecedor na mesma conta contábil.'},
     R10: {nome: 'Lei de Benford', sev: 'baixa', volume: true, desc: 'Teste estatístico, NÃO é duplicidade. Em valores naturais cerca de 30% começam com 1 e só 5% com 9. Quando um fornecedor tem muito mais valores começando por um mesmo número do que o normal, pode haver valores combinados ou ajustados — ou só preço fixo que se repete. O valor mostrado é o total pago ao fornecedor (referência), não perda.'},
     R11: {nome: 'Cadastro de fornecedor duplicado', sev: 'media', volume: true, desc: 'Nomes de fornecedor quase iguais (grafia, espaços, sufixos). Cadastro duplicado facilita pagamento em dobro e desvio.'},
@@ -130,8 +131,9 @@
     R20: {nome: 'Pago a menor (desconto/abatimento)', sev: 'media', desc: 'Duplicata paga por valor menor que a parcela. Se a baixa foi total ("Pago"), a diferença é desconto ou abatimento e precisa de documento (acordo, devolução, nota de crédito); se não, é pagamento parcial com saldo devedor.'},
     R21: {nome: 'Despesa na conta errada', sev: 'media', volume: true, desc: 'O nome do fornecedor indica um tipo de despesa (hotel, posto, Uber, restaurante, companhia aérea…) mas o lançamento está em outra conta contábil. Despesa "escondida" em conta que não é dela.'},
     R22: {nome: 'Duplicata com observação/abatimento', sev: 'media', desc: 'Pagamento com observação, desconto, abatimento, juros ou multa informados no Sallamo. Ler a observação e conferir o documento que justifica a diferença. (Depende da API enviar esses campos.)'},
-    R23: {nome: 'Possível duplicidade (Agente)', sev: 'alta', desc: 'Agente de Duplicidade: o mesmo valor exato PAGO mais de uma vez para o mesmo fornecedor/pessoa — em títulos diferentes (no mesmo dia, em dias próximos, em centros de custo diferentes ou, na folha, na mesma competência) ou a MESMA parcela (mesmo título + mesmo vencimento) baixada de novo. Parcelas diferentes do mesmo título (vencimentos diferentes) e itens da mesma baixa NÃO contam. Só entram pagamentos: renegociado, cancelado e em aberto não são duplicidade. Cada caso tem nota de confiança 0–100 e os eventos lado a lado. Impacto = o que pode ter saído a mais.'},
+    R23: {nome: 'Possível duplicidade (Agente)', sev: 'alta', desc: 'Agente de Duplicidade: o mesmo valor exato PAGO mais de uma vez para o mesmo fornecedor/pessoa — em títulos diferentes da MESMA loja repetindo o documento (mesmo vencimento, ou mesma competência na mesma conta, em até 7 dias; na folha, a mesma competência) ou a MESMA parcela (mesmo título + mesmo vencimento) baixada de novo. Parcelas diferentes do mesmo título, itens da mesma baixa, cobrança por loja e pagamento semanal igual NÃO contam. Só vira ocorrência com confiança ≥ 45. Só entram pagamentos: renegociado, cancelado e em aberto não são duplicidade. Cada caso tem nota de confiança 0–100 e os eventos lado a lado. Impacto = o que pode ter saído a mais.'},
     R24: {nome: 'Título a pagar repetido (prevenção)', sev: 'media', desc: 'Ainda NÃO é duplicidade: título em aberto (a vencer/previsto/vencido) que repete outro do mesmo fornecedor e mesmo valor — o mesmo título, o mesmo vencimento ou a mesma competência no mesmo centro. Alta = o outro já foi pago (pagar este é pagar 2×); média = os dois em aberto (cancele um). Renegociado e cancelado não entram.'},
+    R25: {nome: 'Centro de custo concentrado (rateio)', sev: 'media', volume: true, desc: 'NÃO é duplicidade. O fornecedor costuma lançar 1 a 2 itens por loja em cada título, mas um título trouxe muitos itens numa loja só (ex.: as maquininhas da rede inteira lançadas em uma loja). O título foi pago uma vez; o problema é o rateio/centro de custo, que distorce o resultado por loja. O valor é o analisado, não perda.'},
   };
   // Regras de duplicidade (o "impacto" delas é dinheiro que pode ter saído em dobro)
   const REGRAS_DUP = ['R01', 'R23'];
@@ -275,12 +277,14 @@
         detalhe: `Cód. ${t.codigo}: ${brl(t.valorPago)} pago em ${dBR(t.pagamento)} (${fer ? 'feriado nacional' : ds === 0 ? 'domingo' : 'sábado'})`});
     }
 
-    // R08 — fracionamento
-    const porFD = agrupar(pagos.filter(t => !RX_MERCADORIA.test(t.conta) && t.valorPago < cfg.alcada), t => t.fornecedor + '|' + t.pagamento);
+    // R08 — fracionamento: compara o TÍTULO inteiro com a alçada (a API manda uma linha por item; somar itens de um mesmo título
+    // não é fracionar). Pega ≥ fracMin títulos do mesmo fornecedor no mesmo dia, cada um abaixo da alçada, somando acima dela.
+    const porFD = agrupar(pagos.filter(t => !RX_MERCADORIA.test(t.conta)), t => t.fornecedor + '|' + t.pagamento);
     for (const [k, g] of porFD) {
+      const porTit = [...agrupar(g, t => t.codigo).values()].map(x => r2(x.reduce((s, t) => s + t.valorPago, 0)));
       const cods = new Set(g.map(t => t.codigo));
-      const soma = r2(g.reduce((s, t) => s + t.valorPago, 0));
-      if (cods.size < cfg.fracMin || soma < cfg.alcada) continue;
+      const soma = r2(porTit.reduce((s, v) => s + v, 0));
+      if (cods.size < cfg.fracMin || soma < cfg.alcada || Math.max(...porTit) >= cfg.alcada) continue;
       add('R08', k, {sev: soma >= cfg.alcada * 2 ? 'alta' : 'media', fornecedor: g[0].fornecedor, conta: unicos(g.map(t => t.conta)).join(' / '), cc: unicos(g.map(t => t.cc)).join(' / '),
         impacto: soma, titulos: g.map(t => t.i),
         detalhe: `${cods.size} títulos pagos em ${dBR(g[0].pagamento)}, todos abaixo de ${brl(cfg.alcada)}, somando ${brl(soma)}`});
@@ -431,11 +435,29 @@
         detalhe: `Cód. ${t.codigo}: ${partes.join(' · ') || 'observação no pagamento'}${t.obs ? ` · obs.: "${t.obs.slice(0, 200)}"` : ''}`});
     }
 
+    // R25 — centro de custo concentrado: o fornecedor costuma ter 1–2 itens por loja em cada título (ex.: mensalidade da
+    // maquininha), mas um título trouxe muitos itens numa loja só (ex.: 20 maquininhas da rede em São Lourenço da Mata).
+    // NÃO é duplicidade (o título foi pago uma vez): é rateio/centro de custo errado, que distorce o resultado por loja.
+    // Folha, sindicato e benefício ficam fora (um item por funcionário é normal).
+    for (const [f, g] of agrupar(T.filter(t => !RX_NAO_DIVIDA.test(t.status) && t.categoria !== 'receita' && !RX_MERCADORIA.test(t.conta) &&
+        !RX_FOLHA_DUP.test(t.conta) && !/sindicato|contribui|benef/i.test(t.conta)), t => t.fornecedor)) {
+      const porTitCC = [...agrupar(g, t => t.codigo + '|' + t.cc).values()];
+      const normais = porTitCC.filter(x => x.length <= 2), lojas = unicos(normais.map(x => x[0].cc)).length;
+      if (lojas < 3 || normais.length < 3) continue;
+      for (const x of porTitCC) {
+        if (x.length < cfg.concMin) continue;
+        const tot = r2(x.reduce((s, t) => s + (t.valorPago || t.valorParcela), 0));
+        add('R25', x[0].codigo + '|' + x[0].cc, {sev: tot >= 1000 ? 'media' : 'baixa', fornecedor: f, conta: x[0].conta, cc: x[0].cc, impacto: tot, titulos: x.map(t => t.i),
+          detalhe: `Cód. ${x[0].codigo}: ${x.length} itens (${brl(tot)}) lançados só em ${x[0].cc} — nos outros títulos este fornecedor tem 1 a 2 itens por loja em ${lojas} lojas: confira o rateio (centro de custo). Não é pagamento em dobro.`});
+      }
+    }
+
     // R23 — Agente de Duplicidade: mesmo fornecedor (cadastro normalizado) + mesmo valor exato PAGO mais de uma vez.
     // A API manda UMA LINHA POR ITEM/PARCELA (sem nº do item nem da parcela). Por isso o agente compara PAGAMENTOS, não linhas:
     //  · linhas do mesmo título + mesmo vencimento + mesma data de pagamento = a MESMA baixa (itens da nota, rateio) → um evento só;
     //  · parcelas diferentes do mesmo título (vencimentos diferentes) NÃO são duplicidade (ex.: adiantamento diário de R$ 202 mil);
-    //  · liga dois eventos quando são títulos diferentes (≤ dupJanela dias, ou na folha a mesma competência), quando é a MESMA
+    //  · liga dois eventos quando são títulos diferentes da mesma loja com o mesmo vencimento/competência (≤ dupJanela dias, ou na
+    //    folha a mesma competência), quando é a MESMA
     //    parcela (título + vencimento) baixada de novo em outra data, ou — fraco — título com só 2 parcelas iguais coladas (≤3 dias).
     // SÓ PAGAMENTOS: renegociado, cancelado e em aberto não entram (os em aberto repetidos vão para a R24). Casos já na R01 não se repetem.
     const naR01 = ocorrencias.filter(o => o.regra === 'R01').map(o => new Set(o.titulos));
@@ -457,8 +479,12 @@
       const liga = (a, b) => {
         const ta = a.rep.t, tb = b.rep.t;
         const perto = Math.abs(difDias(b.rep.data, a.rep.data)) <= cfg.dupJanela;
-        const mesmaFolha = RX_FOLHA_DUP.test(tb.conta) && mesComp(tb) && ta.conta === tb.conta && mesComp(ta) === mesComp(tb);
-        if (ta.codigo !== tb.codigo) return perto || mesmaFolha;
+        const mesmaFolha = RX_FOLHA_DUP.test(tb.conta) && RX_FOLHA_DUP.test(ta.conta) && mesComp(tb) && mesComp(ta) === mesComp(tb);   // mesma pessoa, mesma competência (mesmo em contas de pessoal diferentes)
+        // títulos diferentes: só na MESMA loja e repetindo o documento (mesmo vencimento, ou mesma competência na mesma conta).
+        // Mesmo valor em lojas diferentes é cobrança por loja (alarme, dedetização, internet, maquininha) e pagamento semanal
+        // igual tem vencimentos diferentes — nenhum dos dois é duplicidade. Pessoa (folha, pensão, reembolso): mesma competência.
+        if (ta.codigo !== tb.codigo) return mesmaFolha || (perto && ta.cc === tb.cc &&
+          (ta.vencimento && ta.vencimento === tb.vencimento || ta.competencia && ta.competencia === tb.competencia && ta.conta === tb.conta));
         if (ta.vencimento === tb.vencimento) return true;   // mesma parcela baixada em outra data
         return perto && vencsCod.get(ta.codigo).size === 2 && !RX_MERCADORIA.test(ta.conta) && ta.vencimento && tb.vencimento &&
           Math.abs(difDias(tb.vencimento, ta.vencimento)) <= 3;   // fraco: só 2 parcelas iguais coladas (entrada + saldo?)

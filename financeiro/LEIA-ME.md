@@ -26,7 +26,7 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
 3. Campos que a API do Sallamo pode passar a enviar e o módulo já lê sozinho: `observacao`, `valorDesconto`, `valorAbatimento`, `valorJuros`, `valorMulta`, `numeroDocumento` (NF/duplicata — reforça a duplicidade), `formaPagamento`, `usuarioBaixa` e `comprovante` (link do comprovante, aparece no comparativo lado a lado).
 4. Publicado no Portal: `portal-esposende-login` (pasta `financeiro/` + `financeiro-patch.js`), menu Financeiro → Auditoria Financeira.
 
-## As 24 regras de cruzamento
+## As 25 regras de cruzamento
 
 **Como a API manda os dados (conferido em 21/10/2026):** o endpoint de BI devolve **uma linha por item/parcela**, sem nº do
 item, da parcela, da NF, sem o id do pagamento e sem comprovante. Consequências para a duplicidade:
@@ -61,7 +61,7 @@ a duplicidade sem foto. (As listas completas `/despesas/titulos/{empresa}` e `/d
 | R04 Status incoerente | "Pago" com saldo, cancelado com pagamento, "A vencer" já vencido | baixa errada no sistema |
 | R05 Antecipado | pago antes da competência ou ≥15 dias antes do vencimento | perda financeira / favorecimento |
 | R06 Fim de semana/feriado | baixa em sábado, domingo ou feriado nacional | fora do expediente bancário |
-| R08 Fracionamento | ≥3 títulos do mesmo fornecedor no mesmo dia, cada um abaixo da alçada, somando acima | fuga de aprovação |
+| R08 Fracionamento | ≥3 títulos do mesmo fornecedor no mesmo dia, cada **título** (somando seus itens) abaixo da alçada, somando acima | fuga de aprovação |
 | R09 Valor atípico | valor muito acima da mediana do fornecedor/conta | desvio de padrão |
 | R10 Benford | 1º dígito dos valores foge da Lei de Benford (MAD de Nigrini). Explicação em linguagem simples na tela, com a lista dos pagamentos do dígito fora do padrão | valores "inventados" — **não** é duplicidade; o valor é o total pago ao fornecedor |
 | R11 Cadastro duplicado | nomes de fornecedor quase iguais | porta para pagamento em dobro |
@@ -76,8 +76,9 @@ a duplicidade sem foto. (As listas completas `/despesas/titulos/{empresa}` e `/d
 | R20 Pago a menor | duplicata paga abaixo da parcela (baixa "Pago" com diferença = desconto/abatimento ou baixa errada; ou pagamento parcial) | desconto sem documento, baixa indevida |
 | R21 Despesa na conta errada | nome do fornecedor indica hotel, posto, Uber, restaurante, aérea… e a conta é outra | despesa escondida em outra conta |
 | R22 Observação/abatimento | observação, desconto, abatimento, juros ou multa informados na baixa | **depende da API enviar `observacao`, `valorDesconto`, `valorAbatimento`, `valorJuros`, `valorMulta`** — lidos automaticamente quando vierem |
-| R23 Possível duplicidade (Agente) | mesmo fornecedor/pessoa + mesmo valor exato **pago** mais de uma vez, comparando **pagamentos** (itens da mesma baixa = 1): títulos diferentes no mesmo dia/até 7 dias/centros diferentes/mesma competência na folha, ou a **mesma parcela** (título + vencimento) baixada de novo. Parcelas diferentes do mesmo título não contam | pagamento em dobro |
+| R23 Possível duplicidade (Agente) | mesmo fornecedor/pessoa + mesmo valor exato **pago** mais de uma vez, comparando **pagamentos** (itens da mesma baixa = 1): títulos diferentes no mesmo dia/até 7 dias/centros diferentes/mesma competência na folha, ou a **mesma parcela** (título + vencimento) baixada de novo. Títulos diferentes só na **mesma loja** e repetindo o documento (mesmo vencimento, ou mesma competência na mesma conta). Não contam: parcelas diferentes, itens da mesma nota, cobrança por loja (alarme, internet, maquininha, dedetização) e pagamento semanal igual. Só vira ocorrência com confiança ≥ 45 | pagamento em dobro |
 | R24 Título a pagar repetido (prevenção) | título em aberto (a vencer/previsto/vencido) que repete outro do mesmo fornecedor e valor: mesmo título, mesmo vencimento ou mesma competência no mesmo centro. Alta = o outro já foi pago | ainda não é duplicidade — segurar antes de pagar |
+| R25 Centro de custo concentrado | fornecedor que costuma ter 1–2 itens por loja em cada título traz ≥5 itens numa loja só (ex.: GETNET 38504, 20 maquininhas da rede em São Lourenço da Mata, R$ 2.823,40) | **não é duplicidade**: rateio errado distorce o resultado por loja |
 
 ## Abas de análise
 
