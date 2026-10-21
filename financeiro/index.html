@@ -35,7 +35,7 @@ h2::after{content:"";flex:1;height:1px;background:var(--line)}
 .kpi .n{font-size:12px;color:var(--mut);margin-top:3px}
 .k-bad .v{color:#fca5a5}.k-warn .v{color:#fcd34d}.k-ok .v{color:#86efac}.k-pur .v{color:#c4b5fd}
 .btn{appearance:none;border-radius:10px;padding:8px 13px;font:600 13.5px 'Inter',sans-serif;color:var(--txt);background:var(--card2);border:1px solid var(--line2);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
-.btn:hover{background:var(--card3)}.btn:disabled{opacity:.45;cursor:default}
+.btn:hover{background:var(--card3)}.btn:disabled{opacity:.45;cursor:default}.btn.on{background:var(--pri);border-color:var(--pri);color:#fff}
 .b-pri{background:var(--pri2);border-color:var(--pri);color:#fff}.b-pri:hover{background:#1d4ed8}
 .b-ok{background:#15803d;border-color:#16a34a;color:#fff}.b-bad{background:#991b1b;border-color:#dc2626;color:#fff}.b-warn{background:#a16207;border-color:#ca8a04;color:#fff}
 input,select,textarea{font:500 14px 'Inter',sans-serif;color:var(--txt);background:#0a1222;border:1px solid var(--line2);border-radius:9px;padding:8px 10px;max-width:100%}
@@ -251,12 +251,80 @@ function analisar() {
 function render() {
   const pend = R.ocorrencias.filter(o => o.sit === 'pendente' || o.sit === 'em_analise').length;
   const dup = R.ocorrencias.filter(o => o.dup && (o.sit === 'pendente' || o.sit === 'em_analise') && o.sev !== 'baixa').length;
-  const abas = [['painel', 'Painel'], ['duplicidade', '🕵️ Agente de Duplicidade', dup], ['ocorrencias', 'Ocorrências', pend], ['fornecedores', 'Risco por fornecedor', R.riscoFornecedor.length], ['despesas', '💸 Despesas'], ['descontos', '🏷 Descontos e observações', R.ocorrencias.filter(o => o.regra === 'R20' || o.regra === 'R22').length], ['centros', 'Centros de custo'], ['busca', '🔎 Busca de títulos'], ['regras', 'Regras e parâmetros']];
+  const abas = [['painel', 'Painel'], ['duplicidade', '🕵️ Agente de Duplicidade', dup], ['comprovantes', '🧾 Duplicidade nos comprovantes', DC ? DC.filter(c => c.nivel === 'PAGO_A_MAIS' && c.situacao === 'a conferir no extrato').length : null], ['ocorrencias', 'Ocorrências', pend], ['fornecedores', 'Risco por fornecedor', R.riscoFornecedor.length], ['despesas', '💸 Despesas'], ['descontos', '🏷 Descontos e observações', R.ocorrencias.filter(o => o.regra === 'R20' || o.regra === 'R22').length], ['centros', 'Centros de custo'], ['busca', '🔎 Busca de títulos'], ['regras', 'Regras e parâmetros']];
   $('tabs').innerHTML = abas.map(([k, t, c]) => `<button class="${ABA === k ? 'on' : ''}" onclick="aba('${k}')">${t}${c != null ? `<span class="cnt">${n0(c)}</span>` : ''}</button>`).join('');
-  ({painel, duplicidade: duplicidadeAba, ocorrencias, fornecedores, despesas: despesasAba, descontos: descontosAba, centros, busca, regras})[ABA]();
+  ({painel, duplicidade: duplicidadeAba, comprovantes: comprovantesAba, ocorrencias, fornecedores, despesas: despesasAba, descontos: descontosAba, centros, busca, regras})[ABA]();
   hidratarFotos();
 }
 window.aba = k => { ABA = k; render(); window.scrollTo(0, 0); };
+
+// ---------- 🧾 DUPLICIDADE NOS COMPROVANTES (pasta S:\2026) ----------
+// Casos achados lendo os comprovantes do banco (PDF/print) da pasta de comprovantes de 2026 e cruzando com o Sallamo
+// (tabela fin_duplicidade_comprovantes, gravada pela auditoria de 21/10/2026). PAGO_A_MAIS = mesmo código de barras pago de novo
+// ou mais pagamentos no banco do que títulos no Sallamo; SUSPEITA = mesmo favorecido/valor/dia sem documento que diferencie;
+// EXPLICADO = um título distinto no Sallamo para cada pagamento. As fotos vêm de fin_comprovantes (achadas pela autenticação).
+let DC = null, DCN = 'PAGO_A_MAIS';
+const DC_NIVEL = {PAGO_A_MAIS: 'Pago mais de uma vez', SUSPEITA: 'Suspeitas', EXPLICADO: 'Explicadas pelo Sallamo'};
+const DC_SIT = ['a conferir no extrato', 'confirmado: pago em duplicidade', 'devolvido pelo fornecedor/banco', 'descartado: pagamentos distintos'];
+async function carregarDC() {
+  const {data, error} = await sb.from('fin_duplicidade_comprovantes').select('*').order('valor_a_mais', {ascending: false});
+  if (error) { toast('Erro ao ler os casos: ' + error.message); DC = []; return; }
+  DC = data || [];
+}
+async function comprovantesAba() {
+  if (!DC) { $('corpo').innerHTML = '<div class="card">Carregando os casos dos comprovantes…</div>'; await carregarDC(); return render(); }
+  const tot = k => DC.filter(c => c.nivel === k).reduce((s, c) => s + Number(c.valor_a_mais || 0), 0);
+  const n = k => DC.filter(c => c.nivel === k).length;
+  const cs = DC.filter(c => c.nivel === DCN);
+  $('corpo').innerHTML = `
+  <h2>Duplicidade nos comprovantes de pagamento · pasta S:\\2026</h2>
+  <p class="small mut">Todos os comprovantes de jan–out/2026 foram lidos (18.978 páginas) e comparados entre si: mesmo fornecedor, mesmo valor, mesmo dia, comprovantes diferentes. De junho em diante, cada caso também foi conferido contra os títulos do Sallamo. Confirme cada caso no extrato do Santander e registre a situação.</p>
+  <div class="grid">
+    ${kpi('Pago mais de uma vez', brl(tot('PAGO_A_MAIS')), `${n('PAGO_A_MAIS')} casos com prova`, 'k-bad')}
+    ${kpi('Suspeitas', brl(tot('SUSPEITA')), `${n('SUSPEITA')} casos sem documento que diferencie`, 'k-warn')}
+    ${kpi('Explicadas pelo Sallamo', n0(n('EXPLICADO')), 'um título diferente para cada pagamento', 'k-ok')}
+  </div>
+  <div class="row" style="gap:8px;margin:12px 0">${Object.keys(DC_NIVEL).map(k => `<button class="btn ${DCN === k ? 'on' : ''}" onclick="dcNivel('${k}')">${DC_NIVEL[k]} (${n(k)})</button>`).join('')}</div>
+  ${cs.map((c, i) => `<div class="card" style="margin-bottom:10px">
+    <div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div><b>${esc(c.fornecedor || '(favorecido não lido)')}</b> <span class="small mut">${esc(c.documento || '')}</span><br>
+      <span class="small">${brl(c.valor)} × ${c.qtd} · ${(c.datas || []).map(dBRa).join(', ')}</span></div>
+      ${c.nivel !== 'EXPLICADO' ? `<div class="num" style="color:var(--${c.nivel === 'PAGO_A_MAIS' ? 'bad' : 'warn'});font-weight:700">${brl(c.valor_a_mais)} a mais</div>` : ''}
+    </div>
+    <div class="small" style="margin-top:6px">${esc(c.prova || '')}</div>
+    <div class="tw" style="margin-top:6px"><table><tr><th>Data</th><th class="num">Valor</th><th>Autenticação / ID</th><th>Comprovante (arquivo · página)</th></tr>
+    ${(c.pagamentos || []).map(p => `<tr><td>${dBRa(p.data)}</td><td class="num">${brl(p.valor)}</td><td class="small" style="word-break:break-all">${esc((p.autenticacoes || []).join(', ') || p.id_pix || '-')}</td><td class="small">${esc(String(p.arquivo || '').replace('S:\\2026\\', ''))} · pág. ${p.pagina}</td></tr>`).join('')}</table></div>
+    ${c.titulos_sallamo ? `<div class="small mut" style="margin-top:4px">Títulos no Sallamo: ${c.titulos_sallamo.map(t => `${esc(t.codigo)} (${dBRa(t.pagamento)})`).join(', ')}</div>` : ''}
+    <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
+      <label class="small">Situação <select onchange="dcSituacao(${c.id}, this.value)">${DC_SIT.map(s => `<option ${s === c.situacao ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
+      <button class="btn" onclick="dcFotos(${c.id}, this)">📎 Ver fotos anexadas</button>
+    </div>
+    <div class="fotos" id="dcf${c.id}"></div>
+  </div>`).join('') || '<div class="card">Nenhum caso nesta situação.</div>'}`;
+}
+window.dcNivel = k => { DCN = k; render(); };
+window.dcSituacao = async (id, s) => {
+  const {error} = await sb.from('fin_duplicidade_comprovantes').update({situacao: s}).eq('id', id);
+  if (error) return toast('Erro ao salvar: ' + error.message);
+  const c = DC.find(x => x.id === id); if (c) c.situacao = s;
+  toast('Situação salva.');
+};
+// As fotos foram anexadas aos títulos do Sallamo com a autenticação na observação; acha-se por ela.
+window.dcFotos = async (id, btn) => {
+  const c = DC.find(x => x.id === id), el = $('dcf' + id);
+  const auths = [...new Set((c.pagamentos || []).flatMap(p => p.autenticacoes || []))].filter(a => a.length >= 12);
+  if (!auths.length) { el.innerHTML = '<span class="vazio">Sem autenticação para procurar a foto.</span>'; return; }
+  btn.disabled = true; el.innerHTML = '<span class="vazio">procurando…</span>';
+  const {data} = await sb.from('fin_comprovantes').select('*').or(auths.map(a => `observacao.ilike.%${a}%`).join(',')).eq('substituido', false).limit(20);
+  const vistos = new Set(), cards = [];
+  for (const f of data || []) {
+    const k = (f.observacao || '').match(/autenticação ([0-9A-Z, ]+)/); if (vistos.has(f.arquivo_nome + (k ? k[1] : ''))) continue;
+    vistos.add(f.arquivo_nome + (k ? k[1] : ''));
+    cards.push(await cardFoto('fin-comprovantes', f.arquivo_path, f.tipo, `Título ${esc(f.codigo)} · pago ${dBRa(f.pagamento)}`, esc(f.arquivo_nome || '')));
+  }
+  el.innerHTML = cards.join('') || '<span class="vazio">Nenhuma foto anexada (jan–mai não tem títulos do Sallamo no sistema; veja o arquivo e a página na tabela acima).</span>';
+  btn.disabled = false;
+};
 
 // ---------- PAINEL ----------
 function painel() {

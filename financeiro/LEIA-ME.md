@@ -82,6 +82,14 @@ a duplicidade sem foto. (As listas completas `/despesas/titulos/{empresa}` e `/d
 
 ## Abas de análise
 
+- **🧾 Duplicidade nos comprovantes**: casos achados lendo os comprovantes do banco da pasta `S:\2026` (jan–out/2026, 1.017 PDFs,
+  18.978 páginas; prints lidos por OCR) e cruzando com o Sallamo (tabela `fin_duplicidade_comprovantes`, auditoria de 21/10/2026).
+  **Pago mais de uma vez** = mesmo código de barras pago com autenticações diferentes, ou mais pagamentos no banco que títulos no
+  Sallamo; **Suspeitas** = mesmo favorecido, valor e dia sem documento que diferencie; **Explicadas** = um título diferente no
+  Sallamo para cada pagamento. Cada caso mostra os pagamentos (data, valor, autenticação, arquivo e página do PDF), os títulos do
+  Sallamo, as fotos anexadas (📎, achadas pela autenticação) e a **situação** que o auditor registra após conferir o extrato.
+  Os comprovantes conciliados (jun–out) foram anexados aos títulos em `fin_comprovantes`; o texto de cada página fica em
+  `fin_comprovantes_ocr`.
 - **❓ Já houve pagamento em duplicidade?** (topo da aba do Agente): conferência por fornecedor + nº do título + **vencimento** +
   valor: mesma parcela paga 2×, títulos diferentes iguais (suspeitas fortes), notas de mercadoria iguais e itens iguais (conferir),
   prevenção, rateio e — só contadas — as parcelas diferentes pagas no mesmo dia. Cada caso abre o comparativo e os 📎 comprovantes. Lista clicável com comparativo
