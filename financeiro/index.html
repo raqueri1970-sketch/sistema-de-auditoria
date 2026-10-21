@@ -6,7 +6,7 @@
 <title>Auditoria Financeira</title>
 <meta name="theme-color" content="#070b16">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="auditoria.js?v=20261020-5"></script>
+<script src="auditoria.js?v=20261021-1"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -98,6 +98,9 @@ svg text{fill:var(--mut);font:11px 'Inter',sans-serif}
 ul.sin{margin:8px 0 0;padding-left:2px;list-style:none;font-size:12.5px}ul.sin li{margin:2px 0}ul.sin li.a{color:#86efac}ul.sin li.b{color:#fcd34d}
 table.cmp td,table.cmp th{font-size:12px;padding:6px 8px}table.cmp td.eq{background:rgba(34,197,94,.08)}table.cmp td.df{background:rgba(245,179,1,.11);color:#fde68a}
 table.cmp td.k{color:var(--mut);font-weight:600;white-space:nowrap}
+.fotos{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}.fotos .ft{width:150px;border:1px solid var(--bd,#334155);border-radius:8px;padding:6px;font-size:11px;background:rgba(148,163,184,.06)}
+.fotos .ft img{width:100%;height:150px;object-fit:cover;border-radius:6px;cursor:zoom-in;display:block;background:#0b1220}.fotos .ft .pdf{display:flex;align-items:center;justify-content:center;height:150px;font-size:34px;border-radius:6px;background:#0b1220;text-decoration:none}
+.fotos .vazio{font-size:12px;color:var(--mut)}
 .explica{border-left:3px solid var(--pri);padding:12px 14px;background:rgba(59,130,246,.07);border-radius:8px;font-size:13px;margin-top:12px}
 .explica b{color:#fff}
 .ok-chip{background:rgba(34,197,94,.13);color:#86efac;border-color:rgba(34,197,94,.3)}
@@ -251,6 +254,7 @@ function render() {
   const abas = [['painel', 'Painel'], ['duplicidade', '🕵️ Agente de Duplicidade', dup], ['ocorrencias', 'Ocorrências', pend], ['fornecedores', 'Risco por fornecedor', R.riscoFornecedor.length], ['despesas', '💸 Despesas'], ['descontos', '🏷 Descontos e observações', R.ocorrencias.filter(o => o.regra === 'R20' || o.regra === 'R22').length], ['centros', 'Centros de custo'], ['busca', '🔎 Busca de títulos'], ['regras', 'Regras e parâmetros']];
   $('tabs').innerHTML = abas.map(([k, t, c]) => `<button class="${ABA === k ? 'on' : ''}" onclick="aba('${k}')">${t}${c != null ? `<span class="cnt">${n0(c)}</span>` : ''}</button>`).join('');
   ({painel, duplicidade: duplicidadeAba, ocorrencias, fornecedores, despesas: despesasAba, descontos: descontosAba, centros, busca, regras})[ABA]();
+  hidratarFotos();
 }
 window.aba = k => { ABA = k; render(); window.scrollTo(0, 0); };
 
@@ -429,8 +433,73 @@ function comparativo(idx, max = 6) {
     ${campos.map(([r, f, link]) => { const v = ts.map(f), igual = new Set(v.map(String)).size === 1;
       return `<tr><td class="k">${r}</td>${v.map(x => `<td class="${igual ? 'eq' : 'df'}">${link && x !== '—' ? linkSeguro(x) : esc(x)}</td>`).join('')}<td class="small ${igual ? '' : 'b'}" style="color:${igual ? '#86efac' : '#fcd34d'}">${igual ? '= igual' : '≠ diferente'}</td></tr>`; }).join('')}
   </table></div>${[...new Set(idx)].length > max ? `<div class="small mut">Mostrando ${max} de ${n0([...new Set(idx)].length)} eventos — a lista completa está em "Títulos envolvidos".</div>` : ''}
-  ${ts.some(t => t.comprovante || t.documento) ? '' : '<div class="small mut" style="margin-top:6px">O Sallamo ainda não envia o nº da NF nem o comprovante bancário pela API — a comparação usa os dados do título. Quando vierem, aparecem aqui sozinhos.</div>'}`;
+  ${ts.some(t => t.comprovante || t.documento) ? '' : '<div class="small mut" style="margin-top:6px">A API de BI do Sallamo não envia o nº da NF, o nº da parcela nem o vínculo com o extrato (o Sallamo tem esses dados no título, mas não guarda foto da duplicata) — a comparação usa os dados do título. Anexe a foto/PDF dos comprovantes abaixo: só com os dois comprovantes (ou o extrato) a duplicidade fica confirmada.</div>'}`;
 }
+
+// ---------- 📎 comprovantes (foto/PDF) ----------
+// O Sallamo NÃO guarda foto da duplicata/comprovante (conferido na API em 21/10/2026: o título traz nº da NF, parcela, código de barras
+// e o vínculo da baixa com o extrato, mas nenhum anexo). Fontes: 1) foto/PDF anexado pelo auditor aqui (fin_comprovantes, por código
+// do título); 2) link "comprovante" se a API do Sallamo passar a enviar.
+// A tela desenha um marcador <div class="fotos" data-idx="…"> e hidratarFotos() busca e preenche depois (sem travar a tela).
+const FOTOS = {porCod: new Map(), urls: new Map()};
+function fotosComp(idx, upload = true) {
+  const ts = [...new Set(idx)].map(i => R.titulos[i]).filter(t => t.pagamento || t.vencimento).slice(0, 8);
+  return `<div class="fotos" data-idx="${ts.map(t => t.i).join(',')}" data-up="${upload ? 1 : 0}"><span class="vazio">📎 procurando comprovantes…</span></div>`;
+}
+async function urlAssinada(bucket, path) {
+  const k = bucket + '/' + path; if (FOTOS.urls.has(k)) return FOTOS.urls.get(k);
+  const {data} = await sb.storage.from(bucket).createSignedUrl(path, 3600);
+  const u = data && data.signedUrl || ''; FOTOS.urls.set(k, u); return u;
+}
+async function hidratarFotos() {
+  const alvos = [...document.querySelectorAll('.fotos[data-idx]')];
+  if (!alvos.length || !R) return;
+  const ts = [...new Set(alvos.flatMap(el => el.dataset.idx.split(',').filter(Boolean).map(Number)))].map(i => R.titulos[i]);
+  const cods = [...new Set(ts.map(t => String(t.codigo)))].filter(c => !FOTOS.porCod.has(c));
+  if (cods.length) {
+    cods.forEach(c => FOTOS.porCod.set(c, []));
+    for (let k = 0; k < cods.length; k += 200) {
+      const {data} = await sb.from('fin_comprovantes').select('*').in('codigo', cods.slice(k, k + 200)).eq('substituido', false).order('enviado_em');
+      (data || []).forEach(c => FOTOS.porCod.get(c.codigo).push(c));
+    }
+  }
+  for (const el of alvos) {
+    const idx = el.dataset.idx.split(',').filter(Boolean).map(Number), up = el.dataset.up === '1';
+    const cards = [];
+    for (const i of idx) {
+      const t = R.titulos[i], ev = `${esc(t.codigo)} · ${t.pagamento ? 'pago ' + dBRa(t.pagamento) : 'venc. ' + dBRa(t.vencimento)}`;
+      for (const c of FOTOS.porCod.get(String(t.codigo)) || []) {
+        if (c.pagamento && t.pagamento && c.pagamento !== t.pagamento) continue;
+        cards.push(await cardFoto('fin-comprovantes', c.arquivo_path, c.tipo, `Título ${ev}`, `${esc(c.arquivo_nome || '')}${c.observacao ? ' · ' + esc(c.observacao) : ''}<br><span class="mut">anexado por ${esc(c.enviado_por || '')}</span>`));
+      }
+      if (t.comprovante && /^https?:\/\//i.test(t.comprovante)) cards.push(`<div class="ft"><a class="pdf" href="${esc(t.comprovante)}" target="_blank" rel="noopener">🧾</a><b>Título ${ev}</b><br><span class="mut">comprovante do Sallamo</span></div>`);
+    }
+    const envio = up ? `<label class="btn" style="cursor:pointer;align-self:flex-start">📷 Anexar comprovante<input type="file" accept="image/*,application/pdf" style="display:none" onchange="anexarComprovante(this,'${el.dataset.idx}')"></label>` : '';
+    el.innerHTML = cards.length ? cards.join('') + envio : `<span class="vazio">📎 Nenhum comprovante anexado${up ? ' — fotografe ou anexe o comprovante/extrato de cada pagamento para confirmar ou descartar' : ''}.</span>${envio}`;
+  }
+}
+async function cardFoto(bucket, path, tipo, titulo, sub) {
+  const u = await urlAssinada(bucket, path); if (!u) return '';
+  const pdf = /pdf/i.test(tipo || '') || /\.pdf$/i.test(path);
+  return `<div class="ft">${pdf ? `<a class="pdf" href="${esc(u)}" target="_blank" rel="noopener">📄</a>` : `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="comprovante" loading="lazy"></a>`}<b>${titulo}</b><br>${sub}</div>`;
+}
+window.anexarComprovante = async (input, idxTxt) => {
+  const f = input.files[0]; if (!f) return;
+  if (f.size > 10 * 1024 * 1024) return toast('Arquivo acima de 10 MB.');
+  const idx = idxTxt.split(',').map(Number), ts = idx.map(i => R.titulos[i]);
+  const opc = ts.map((t, k) => `${k + 1}) título ${t.codigo} · ${t.pagamento ? 'pago ' + dBRa(t.pagamento) : 'venc. ' + dBRa(t.vencimento)} · ${brl(t.valorPago || t.saldo)}`).join('\n');
+  const esc1 = ts.length === 1 ? '1' : prompt('Este comprovante é de qual pagamento?\n' + opc, '1');
+  const t = ts[Number(esc1) - 1]; if (!t) return toast('Anexo cancelado.');
+  const obs = prompt('Observação (opcional) — ex.: "extrato Itaú 13/09, saiu 1×"', '') || null;
+  const nome = f.name.replace(/[^\w.\-]+/g, '_').slice(-80), path = `${t.codigo}/${Date.now()}_${nome}`;
+  toast('Enviando comprovante…');
+  const up = await sb.storage.from('fin-comprovantes').upload(path, f, {contentType: f.type || undefined});
+  if (up.error) return toast('Erro ao enviar: ' + up.error.message);
+  const {error} = await sb.from('fin_comprovantes').insert({codigo: String(t.codigo), vencimento: t.vencimento || null, pagamento: t.pagamento || null, valor: t.valorPago || t.saldo || null,
+    fornecedor: (t.fornecedorBruto || t.fornecedor).slice(0, 300), arquivo_path: path, arquivo_nome: f.name.slice(0, 200), tipo: f.type || null, observacao: obs});
+  if (error) return toast('Erro ao registrar: ' + error.message);
+  FOTOS.porCod.delete(String(t.codigo)); toast('Comprovante anexado.'); hidratarFotos();
+};
 const sinaisHTML = d => `<ul class="sin">${d.sinais.map(x => `<li class="a">✓ ${esc(x)}</li>`).join('')}${d.alivios.map(x => `<li class="b">↓ ${esc(x)}</li>`).join('')}</ul>`;
 const confChip = d => `<span class="nota" style="color:${d.nota >= 70 ? '#fca5a5' : d.nota >= 45 ? '#fcd34d' : '#93c5fd'}">confiança ${d.nota}/100</span>`;
 const pct1 = v => (v * 100).toFixed(1).replace('.', ',') + '%';
@@ -462,8 +531,9 @@ window.abrir = async n => {
     ${o.benford ? `<div style="max-width:420px;margin-top:10px">${benfordSVG(o.benford)}</div><div class="leg"><span><i style="background:var(--pri)"></i>observado</span><span><i style="background:var(--warn)"></i>esperado (Benford)</span></div>${explicaBenford(o)}` : ''}
     ${o.dup ? `<h2>🕵️ Agente de Duplicidade · ${confChip(o.dup)}</h2>${sinaisHTML(o.dup)}
       <div class="row" style="margin-top:8px">${o.dup.excesso ? `<span class="chip sv-alta">Pago a mais: ${brl(o.dup.excesso)}</span>` : ''}</div>
-      <h2>Comparativo lado a lado</h2>${comparativo(o.titulos)}` : ''}
-    ${o.prev ? `<h2>🛑 Prevenção · ${o.prev.pagos ? 'o outro já foi PAGO — não pague este' : 'lançado 2× em aberto — cancele um'}</h2><div class="row"><span class="chip ${o.prev.pagos ? 'sv-alta' : 'sv-media'}">Evitar pagar ${brl(o.prev.evitavel)}</span></div><h2>Comparativo lado a lado</h2>${comparativo(o.titulos)}` : ''}
+      <h2>Comparativo lado a lado</h2>${comparativo(o.titulos)}<h2>📎 Comprovantes</h2>${fotosComp(o.titulos)}` : ''}
+    ${o.prev ? `<h2>🛑 Prevenção · ${o.prev.pagos ? 'o outro já foi PAGO — não pague este' : 'lançado 2× em aberto — cancele um'}</h2><div class="row"><span class="chip ${o.prev.pagos ? 'sv-alta' : 'sv-media'}">Evitar pagar ${brl(o.prev.evitavel)}</span></div><h2>Comparativo lado a lado</h2>${comparativo(o.titulos)}<h2>📎 Comprovantes</h2>${fotosComp(o.titulos)}` : ''}
+    ${!o.dup && !o.prev && o.regra === 'R02' ? `<h2>📎 Comprovantes / nota</h2>${fotosComp(o.titulos)}` : ''}
     ${o.benford ? (() => { const sub = o.titulos.filter(i => A.primeiroDigito(R.titulos[i].valorPago) === o.benford.pior.d); return `<h2>Pagamentos que começam com ${o.benford.pior.d} (${n0(sub.length)})</h2>${tabTitulos(sub)}`; })() : ''}
     <h2>Títulos envolvidos (${n0(o.titulos.length)})</h2>${tabTitulos(o.titulos)}
     <h2>Análise do auditor</h2>
@@ -473,6 +543,7 @@ window.abrir = async n => {
     ${a.atualizado_por ? `<div class="small mut">Última análise: ${esc(a.atualizado_por)} em ${new Date(a.atualizado_em).toLocaleString('pt-BR')}</div>` : ''}
     <div class="hist" id="aHist"></div>`;
   $('modal').classList.remove('hidden');
+  hidratarFotos();
   const {data} = await sb.from('fin_analises_historico').select('situacao,comentario,usuario,em').eq('ocorrencia_id', id).order('em', {ascending: false}).limit(30);
   if (data && data.length) $('aHist').innerHTML = '<b>Histórico</b><br>' + data.map(h => `${new Date(h.em).toLocaleString('pt-BR')} · ${esc(h.usuario || '')} · ${SIT[h.situacao] || h.situacao}${h.comentario ? ' — ' + esc(h.comentario) : ''}`).join('<br>');
 };
@@ -508,9 +579,10 @@ function cardDup(o) {
     <div class="row" style="justify-content:space-between"><div class="row">${sevChip(conf)}${confChip(d)}<span class="small mut b">${o.regra}</span></div>${sitChip(o.sit)}</div>
     <div class="b" style="margin-top:8px;font-size:15px">${esc(o.fornecedor)}</div>
     <div class="vv">${brl(d.valor)} <span style="font-size:14px;font-weight:600;color:var(--txt2)">pago ${d.pagos}× · ${datas.join(' e ')}</span></div>
-    <div class="row" style="margin-top:6px"><span class="chip sv-alta">pago a mais ${brl(d.excesso)}</span><span class="small mut">${ts.map(t => `${esc(t.codigo)}: ${esc(t.status)}`).join(' · ')}</span></div>
+    <div class="row" style="margin-top:6px"><span class="chip sv-alta">pode ter saído a mais ${brl(d.excesso)}</span><span class="small mut">${ts.map(t => `${esc(t.codigo)}: ${esc(t.status)}`).join(' · ')}</span></div>
     ${sinaisHTML(d)}
     <div style="margin-top:10px">${comparativo(o.titulos, 4)}</div>
+    ${fotosComp(o.titulos, false)}
     <div class="row" style="margin-top:10px"><button class="btn b-pri" onclick="abrir(${o.n})">Analisar / registrar</button>${fx(ts[0].fornecedor) != null ? `<button class="btn" onclick="dossie(${fx(ts[0].fornecedor)})">Dossiê do fornecedor</button>` : ''}</div>
   </div>`;
 }
@@ -603,49 +675,64 @@ window.relatorioBanco = () => {
 };
 
 // ---------- ❓ Já houve pagamento em duplicidade? (resposta direta) ----------
+// Conferência: mesmo fornecedor + mesmo TÍTULO + mesmo VENCIMENTO (a parcela) + mesmo valor. Parcelas diferentes pagas no mesmo dia
+// não são duplicidade. A API não manda nº da NF/parcela nem comprovante: o que aparece aqui é SUSPEITA a conferir com o comprovante.
+const TIPO_EXATA = {parcela: ['mesma parcela 2×', 'sv-alta'], titulos: ['títulos diferentes', 'sv-alta'], mercadoria: ['notas de mercadoria', 'sv-media'], itens: ['itens iguais', 'sv-baixa']};
 function vereditoDup() {
-  const E = A.duplicidadeExata(R.titulos), evit = R.ocorrencias.filter(o => o.regra === 'R24');
-  window._E = E; window._evit = evit;
+  const E = A.duplicidadeExata(R.titulos, R.cfg), evit = R.ocorrencias.filter(o => o.regra === 'R24');
+  const fortes = E.mesmaParcela.concat(E.titulosDiferentes), casos = fortes.concat(E.mercadoria, E.itensIguais);
+  window._E = E; window._evit = evit; window._casosE = casos;
   const soma = (a, k = 'excesso') => a.reduce((s, x) => s + (x[k] || 0), 0);
-  const sim = E.exatas.length > 0;
+  const sim = fortes.length > 0;
   const linha = (rot, n, valor, ruim, extra) => `<tr><td class="small">${rot}</td><td class="num b" style="color:${n ? (ruim ? '#fca5a5' : '#fcd34d') : '#86efac'}">${n ? n0(n) : '✓ nenhum'}</td><td class="num">${n && valor ? brl(valor) : '—'}</td><td class="small mut">${extra || ''}</td></tr>`;
-  const casos = E.exatas.concat(E.diasDiferentes);
   return `<div class="card" style="margin-top:12px;border-color:${sim ? 'rgba(239,68,68,.55)' : 'rgba(34,197,94,.45)'}">
-    <div class="b" style="font-size:15px">❓ Já houve pagamento em duplicidade? <span class="small mut" style="font-weight:500">— mesmo fornecedor + mesmo título + mesmo valor + mesmo dia de pagamento</span></div>
-    <div style="font-size:22px;font-weight:800;margin-top:8px;color:${sim ? '#fca5a5' : '#86efac'}">${sim ? `⚠ SIM — ${n0(E.exatas.length)} caso(s), ${brl(soma(E.exatas))} pagos a mais` : '✅ NÃO — nenhum caso no período analisado'}</div>
-    <div class="small mut">Período carregado: ${esc($('info').textContent.split(' · ')[0])} · ${n0(E.pagos)} pagamentos conferidos. Para ver o histórico todo, escolha <b>Tudo (2024 → 2027)</b> e clique em Analisar.</div>
+    <div class="b" style="font-size:15px">❓ Já houve pagamento em duplicidade? <span class="small mut" style="font-weight:500">— mesmo fornecedor + mesmo nº do título + mesmo vencimento + mesmo valor, os dois PAGOS</span></div>
+    <div style="font-size:22px;font-weight:800;margin-top:8px;color:${sim ? '#fca5a5' : '#86efac'}">${sim ? `⚠ ${n0(fortes.length)} suspeita(s) para conferir com o comprovante — até ${brl(soma(fortes))} podem ter saído a mais` : '✅ Nenhuma suspeita forte no período analisado'}</div>
+    <div class="small mut">Período carregado: ${esc($('info').textContent.split(' · ')[0])} · ${n0(E.pagos)} pagamentos conferidos. <b>Confirmado só com os dois comprovantes (ou o extrato)</b>: anexe as fotos no caso e marque <b>Irregular</b>. Para ver o histórico todo, escolha <b>Tudo (2024 → 2027)</b> e clique em Analisar.</div>
     <div class="tw" style="margin-top:10px"><table><tr><th>Verificação</th><th class="num">Casos</th><th class="num">Valor</th><th></th></tr>
-      ${linha('<b>Mesmo dia</b>: mesmo fornecedor, mesmo título, mesmo valor, mesma loja', E.exatas.length, soma(E.exatas), true, 'pagamento em dobro')}
-      ${linha('<b>Dia diferente</b>: o mesmo título e valor pago de novo em até 7 dias', E.diasDiferentes.length, soma(E.diasDiferentes), true, 'ex.: pago dia 13 e de novo dia 14')}
+      ${linha('<b>Mesma parcela paga 2×</b>: mesmo título e mesmo vencimento baixados em datas diferentes, somando mais que a parcela', E.mesmaParcela.length, soma(E.mesmaParcela), true, 'suspeita forte')}
+      ${linha('<b>Títulos diferentes</b>: mesmo fornecedor, valor, vencimento e loja, os dois pagos', E.titulosDiferentes.length, soma(E.titulosDiferentes), true, 'nota lançada 2×? — conferir NF e comprovantes')}
+      ${linha('Notas de <b>mercadoria</b> iguais (mesmo valor e vencimento)', E.mercadoria.length, soma(E.mercadoria), false, 'pedidos iguais da mesma grade são comuns — conferir o nº das NFs')}
+      ${linha('Itens iguais dentro do mesmo título (mesmo dia)', E.itensIguais.length, soma(E.itensIguais, 'aConferir'), false, 'uma linha por maquininha/funcionário/loja — conferir na nota, não é prova de pagamento 2×')}
       ${linha('<b>Prevenção</b>: título a pagar que repete outro (ainda NÃO é duplicidade)', evit.length, soma(evit.map(o => o.prev), 'evitavel'), false, 'segure antes de pagar — lista abaixo')}
-      ${linha('Mesmo título dividido entre lojas no mesmo dia (rateio)', E.rateios.length, 0, false, 'normalmente NÃO é duplicidade — conferir a nota')}
+      ${linha('Mesmo título dividido entre lojas no mesmo dia (rateio)', E.rateios.length, 0, false, 'normalmente NÃO é duplicidade')}
+      <tr><td class="small mut">Parcelas diferentes do mesmo título pagas no mesmo dia (ex.: adiantamento diário)</td><td class="num mut">${n0(E.parcelasMesmoDia)}</td><td class="num mut">${E.parcelasMesmoDia ? brl(E.parcelasMesmoDiaValor) : '—'}</td><td class="small mut">✓ normal — vencimentos diferentes, NÃO é duplicidade</td></tr>
     </table></div>
-    ${casos.length ? `<div class="tw" style="margin-top:10px;max-height:420px;overflow:auto"><table><tr><th>Tipo</th><th>Fornecedor</th><th>Título</th><th class="num">Valor</th><th>Pago em</th><th>Centro de custo</th><th class="num">Pago a mais</th></tr>
-      ${casos.map((c, i) => `<tr class="clic" onclick="abrirExata(${i})"><td><span class="chip ${c.tipo === 'exata' ? 'sv-alta' : 'sv-media'}">${c.tipo === 'exata' ? 'mesmo dia' : 'dia diferente'}</span></td><td class="small b">${esc(c.fornecedor)}</td><td class="b">${esc(c.codigo)}</td><td class="num">${brl(c.valor)}</td><td class="small">${c.datas.map(dBRa).join(' e ')}</td><td class="small">${esc(c.ccs.join(' / '))}</td><td class="num b">${brl(c.excesso)}</td></tr>`).join('')}
+    ${casos.length ? `<div class="tw" style="margin-top:10px;max-height:460px;overflow:auto"><table><tr><th>Tipo</th><th>Fornecedor</th><th>Título(s)</th><th class="num">Valor</th><th>Vencimento</th><th>Pago em</th><th>Centro de custo</th><th class="num">Pode ter saído a mais</th></tr>
+      ${casos.map((c, i) => `<tr class="clic" onclick="abrirExata(${i})"><td><span class="chip ${TIPO_EXATA[c.tipo][1]}">${TIPO_EXATA[c.tipo][0]}</span></td><td class="small b">${esc(c.fornecedor)}<br><span class="mut" style="font-weight:400">${esc(c.conta)}</span></td><td class="b">${esc(c.codigo)}</td><td class="num">${brl(c.valor)}${c.linhas ? `<div class="small mut">${c.linhas} linhas</div>` : ''}</td><td class="small">${c.vencimentos.map(dBRa).join(', ')}</td><td class="small">${c.datas.map(dBRa).join(' e ')}</td><td class="small">${esc(c.ccs.join(' / '))}</td><td class="num b">${c.excesso ? brl(c.excesso) : '<span class="mut" style="font-weight:400">conferir</span>'}</td></tr>`).join('')}
     </table></div>` : ''}
-    <div class="explica" style="margin-top:10px"><b>Como evitar que aconteça</b><br>
-      1. <b>Antes de mandar a remessa ao banco</b>, carregue o arquivo em "📂 Conferir arquivo do banco" abaixo: o sistema avisa <b>"este valor já foi pago antes"</b>, boleto repetido e título pago 2×.<br>
-      2. <b>Toda semana</b>, confira a seção <b>🛑 Prevenção</b> desta aba: títulos a pagar que repetem um já pago (não pague) ou lançados 2× (cancele um) — antes do vencimento.<br>
-      3. Peça ao Sallamo um <b>bloqueio no lançamento</b>: não aceitar título com o mesmo fornecedor + mesmo nº de nota/documento + mesmo valor (e alerta quando o mesmo título for baixado duas vezes).</div>
+    <div class="explica" style="margin-top:10px"><b>Como conferir um caso</b><br>
+      1. Abra o caso e compare <b>nº do título, vencimento, valor, competência e loja</b> lado a lado (verde = igual, amarelo = diferente).<br>
+      2. Anexe a <b>foto/PDF dos dois comprovantes</b> (ou o extrato): se o banco mostra <b>duas saídas</b>, marque <b>Irregular</b> e peça devolução/abatimento; se é uma saída só, ou são duas notas de verdade, marque <b>Justificada</b> com o motivo.<br>
+      3. <b>Antes de mandar a remessa ao banco</b>, carregue o arquivo em "📂 Conferir arquivo do banco" abaixo e veja a seção <b>🛑 Prevenção</b> toda semana.<br>
+      4. Peça ao Sallamo para a API de BI mandar <b>nº da NF, nº da parcela, id do pagamento, conta bancária e link do comprovante</b> — aí a conferência fica automática.</div>
     ${casos.length ? `<div class="row" style="margin-top:10px"><button class="btn" onclick="relatorioExata()">🖨 PDF desta verificação</button></div>` : ''}
   </div>`;
 }
 window.abrirExata = i => {
-  const c = window._E.exatas.concat(window._E.diasDiferentes)[i];
+  const c = window._casosE[i];
   const o = R.ocorrencias.find(o => A.REGRAS_DUP.concat('R02').includes(o.regra) && c.titulos.every(t => o.titulos.includes(t)));
+  const [rot, cls] = TIPO_EXATA[c.tipo];
+  const oque = {parcela: 'A mesma parcela (mesmo título e vencimento) foi baixada em datas diferentes e a soma passa do valor da parcela. Confira no extrato se saíram os dois pagamentos.',
+    titulos: 'Dois (ou mais) títulos do mesmo fornecedor com o mesmo valor, vencimento e loja, todos pagos. Confira se são notas diferentes (nº da NF) e se saíram dois pagamentos no extrato.',
+    mercadoria: 'Duas notas de mercadoria iguais. Pedidos iguais da mesma grade são comuns: confira o nº das NFs e a entrada no estoque.',
+    itens: `${c.linhas} linhas iguais no mesmo título, mesmo vencimento e mesmo dia: a API manda uma linha por item da nota. Confira na nota se são ${c.linhas} itens (ex.: uma maquininha/funcionário/loja por linha) ou um item lançado ${c.linhas}×.`}[c.tipo];
   $('mBody').innerHTML = `<div class="x row">${o ? `<button class="btn b-pri" onclick="abrir(${o.n})">Analisar / registrar</button>` : ''}<button class="btn" onclick="fechar()">✕</button></div>
-    <div class="row" style="padding-right:220px"><span class="chip ${c.tipo === 'exata' ? 'sv-alta' : 'sv-media'}">${c.tipo === 'exata' ? 'Mesmo dia' : 'Dia diferente'}</span><b>Pagamento em duplicidade · título ${esc(c.codigo)}</b></div>
+    <div class="row" style="padding-right:220px"><span class="chip ${cls}">${rot}</span><b>Título(s) ${esc(c.codigo)}</b></div>
     <h1 style="font-size:19px;margin-top:10px">${esc(c.fornecedor)}</h1>
-    <div>${brl(c.valor)} pago ${n0(c.titulos.length)}× em ${c.datas.map(dBRa).join(' e ')} · ${esc(c.ccs.join(' / '))} · ${esc(c.conta)} · <b>pago a mais ${brl(c.excesso)}</b></div>
-    <h2>Comparativo lado a lado</h2>${comparativo(c.titulos)}<h2>Títulos</h2>${tabTitulos(c.titulos)}
-    <div class="small mut" style="margin-top:8px">O que fazer: confirme no extrato do banco se saíram os dois pagamentos e peça ao fornecedor a devolução ou o abatimento na próxima nota.${o ? '' : ' Registre a análise pela ocorrência correspondente na aba Ocorrências.'}</div>`;
+    <div>${brl(c.valor)} · venc. ${c.vencimentos.map(dBRa).join(', ')} · pago em ${c.datas.map(dBRa).join(' e ')} · ${esc(c.ccs.join(' / '))} · ${esc(c.conta)}${c.excesso ? ` · <b>pode ter saído a mais ${brl(c.excesso)}</b>` : ''}</div>
+    <div class="small mut" style="margin-top:6px">${oque}</div>
+    <h2>Comparativo lado a lado</h2>${comparativo(c.titulos)}<h2>📎 Comprovantes</h2>${fotosComp(c.titulos)}<h2>Títulos</h2>${tabTitulos(c.titulos)}
+    <div class="small mut" style="margin-top:8px">${o ? '' : 'Registre a análise pela ocorrência correspondente na aba Ocorrências.'}</div>`;
   $('modal').classList.remove('hidden');
+  hidratarFotos();
 };
 window.relatorioExata = () => {
-  const E = window._E, casos = E.exatas.concat(E.diasDiferentes), soma = a => a.reduce((s, x) => s + x.excesso, 0);
-  imprimirHTML('Pagamentos em duplicidade (mesmo fornecedor, título e valor)', `<div class="k"><div><b>${n0(E.exatas.length)} · ${brl(soma(E.exatas))}</b><span>mesmo dia</span></div><div><b>${n0(E.diasDiferentes.length)} · ${brl(soma(E.diasDiferentes))}</b><span>dia diferente (até 7 dias)</span></div><div><b>${n0(E.pagos)}</b><span>pagamentos conferidos</span></div></div>
-    ${casos.map((c, i) => `<div class="caso"><h3>${i + 1}. ${esc(c.fornecedor)} — título ${esc(c.codigo)} · ${brl(c.valor)} pago ${c.titulos.length}× em ${c.datas.map(dBRa).join(' e ')} · ${c.tipo === 'exata' ? 'mesmo dia' : 'dia diferente'} · pago a mais ${brl(c.excesso)}</h3>${comparativoRel(c.titulos)}</div>`).join('')}
-    <table><tr class="tot"><td>TOTAL (${n0(casos.length)} casos)</td><td class="n">pago a mais ${brl(soma(casos))}</td></tr></table>`);
+  const E = window._E, casos = window._casosE, soma = (a, k = 'excesso') => a.reduce((s, x) => s + (x[k] || 0), 0), fortes = E.mesmaParcela.concat(E.titulosDiferentes);
+  imprimirHTML('Conferência de duplicidade (fornecedor, título, vencimento e valor)', `<div class="desc">Suspeitas a conferir com o comprovante/extrato. Parcelas diferentes do mesmo título pagas no mesmo dia (${n0(E.parcelasMesmoDia)}) não entram — não são duplicidade.</div>
+    <div class="k"><div><b>${n0(E.mesmaParcela.length)} · ${brl(soma(E.mesmaParcela))}</b><span>mesma parcela paga 2×</span></div><div><b>${n0(E.titulosDiferentes.length)} · ${brl(soma(E.titulosDiferentes))}</b><span>títulos diferentes</span></div><div><b>${n0(E.mercadoria.length)}</b><span>notas de mercadoria iguais</span></div><div><b>${n0(E.itensIguais.length)}</b><span>itens iguais no mesmo título</span></div><div><b>${n0(E.pagos)}</b><span>pagamentos conferidos</span></div></div>
+    ${casos.map((c, i) => `<div class="caso"><h3>${i + 1}. ${esc(c.fornecedor)} — título(s) ${esc(c.codigo)} · ${brl(c.valor)} · venc. ${c.vencimentos.map(dBRa).join(', ')} · pago em ${c.datas.map(dBRa).join(' e ')} · ${TIPO_EXATA[c.tipo][0]}${c.excesso ? ` · pode ter saído a mais ${brl(c.excesso)}` : ''}</h3>${comparativoRel(c.titulos)}</div>`).join('')}
+    <table><tr class="tot"><td>TOTAL suspeitas fortes (${n0(fortes.length)})</td><td class="n">pode ter saído a mais ${brl(soma(fortes))}</td></tr></table>`);
 };
 
 function duplicidadeAba() {
@@ -667,10 +754,10 @@ function duplicidadeAba() {
     Cada caso ganha uma <b>nota de confiança (0–100)</b>: ✓ o que pesa a favor da duplicidade · ↓ o que pode explicar (rateio entre lojas, preço por loja, lote de mercadoria, cobrança recorrente).
     Compare os eventos lado a lado: <span style="color:#86efac">verde = igual</span>, <span style="color:#fcd34d">amarelo = diferente</span>.</details>
   <div class="grid" style="margin-top:12px">
-    ${kpi('Pagos em duplicidade (média + alta)', n0(todos.filter(o => o.dup.nota >= 45).length), `${n0(todos.length)} contando os de baixa confiança`, 'k-warn')}
-    ${kpi('Alta confiança', n0(alta.length), brl(soma(alta, 'excesso')) + ' pagos a mais', 'k-bad')}
-    ${kpi('Valor pago a mais', brl(soma(todos.filter(o => o.dup.nota >= 45), 'excesso')), 'média + alta · confirmar no extrato e cobrar devolução', 'k-bad')}
-    ${kpi('Folha, pensão, VT, Uber, reembolso', n0(folha.length), brl(soma(folha, 'excesso')) + ' pagos a mais', 'k-pur')}
+    ${kpi('Suspeitas de duplicidade (média + alta)', n0(todos.filter(o => o.dup.nota >= 45).length), `${n0(todos.length)} contando os de baixa confiança`, 'k-warn')}
+    ${kpi('Alta confiança', n0(alta.length), brl(soma(alta, 'excesso')) + ' podem ter saído a mais', 'k-bad')}
+    ${kpi('Pode ter saído a mais', brl(soma(todos.filter(o => o.dup.nota >= 45), 'excesso')), 'média + alta · confirmar no extrato e cobrar devolução', 'k-bad')}
+    ${kpi('Folha, pensão, VT, Uber, reembolso', n0(folha.length), brl(soma(folha, 'excesso')) + ' podem ter saído a mais', 'k-pur')}
     ${kpi('🛑 Prevenção (a pagar repetido)', n0(prev.length), `${n0(prevA.length)} já pagos antes · evitar ${brl(prev.reduce((s, o) => s + o.prev.evitavel, 0))}`, prevA.length ? 'k-bad' : 'k-ok')}
   </div>
   <div class="filtros">
@@ -680,7 +767,7 @@ function duplicidadeAba() {
     <button class="btn" onclick="relatorioDuplicidade()" ${a.length ? '' : 'disabled'}>🖨 PDF / imprimir</button><button class="btn" onclick="excelDuplicidade()" ${a.length ? '' : 'disabled'}>⬇ Excel</button>
   </div>
   ${campoBusca('DP', DP.q)}
-  <h2>💸 Pagos em duplicidade</h2>
+  <h2>💸 Suspeitas de pagamento em duplicidade (conferir com o comprovante)</h2>
   <div class="small mut" style="margin-top:8px">${n0(a.length)} caso(s) · pago a mais <b>${brl(soma(a, 'excesso'))}</b></div>
   <div class="dgrid">${pg.map(cardDup).join('') || '<div class="carregando">Nenhum caso de duplicidade com esses filtros. 🎉</div>'}</div>
   ${pags > 1 ? `<div class="pag"><button class="btn" ${DP.pag ? '' : 'disabled'} onclick="DP.pag--;render();window.scrollTo(0,0)">‹ Anterior</button><span class="small mut">página ${DP.pag + 1} de ${pags}</span><button class="btn" ${DP.pag < pags - 1 ? '' : 'disabled'} onclick="DP.pag++;render();window.scrollTo(0,0)">Próxima ›</button></div>` : ''}

@@ -28,6 +28,27 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
 
 ## As 24 regras de cruzamento
 
+**Como a API manda os dados (conferido em 21/10/2026):** o endpoint de BI devolve **uma linha por item/parcela**, sem nº do
+item, da parcela, da NF, sem o id do pagamento e sem comprovante. Consequências para a duplicidade:
+- **Parcela = título (código) + vencimento + valor.** Parcelas diferentes do mesmo título pagas no mesmo dia (ex.: adiantamento
+  diário Beira Rio de R$ 202 mil, cód. 23550) **não** são duplicidade. Era isso que inflava a tela: dos 323 casos "mesmo dia"
+  (R$ 2,69 mi), 261 (R$ 2,41 mi) eram parcelas diferentes; os 62 restantes eram itens iguais da mesma nota (maquininhas GETNET,
+  tarifas, odonto por funcionário). Os 347 casos "dia diferente" (R$ 9,67 mi) eram 100% parcelas diferentes.
+- **Itens iguais no mesmo título, mesmo dia** = itens da mesma nota → R02 ("conferir a nota"), nunca "pago a mais".
+- **Suspeita forte** = a mesma parcela baixada em datas diferentes somando mais que a parcela, ou **títulos diferentes** do mesmo
+  fornecedor com mesmo valor, vencimento e loja, todos pagos (ex.: Moura Dubeux 17191/17193). Nota de mercadoria igual fica à parte.
+- **Confirmado** só com os dois comprovantes/extrato: o auditor anexa a foto/PDF (📎, tabela `fin_comprovantes`, bucket
+  privado `fin-comprovantes`) e marca Irregular.
+
+**O que o Sallamo tem e a API de BI não manda** (testado com o mesmo token, só leitura): o detalhe do título
+(`GET /despesas/get/{contasPagarId}/{empresa}` e `GET /despesas/titulos/{empresa}/{tituloId}`) traz `docFiscal` (nº da NF),
+`numParcela`, `dataVencimentoOriginal`, `codigoBarras`/`linhaDigitavel` do boleto, itens do pedido e, em `ContaPaga`, cada baixa
+com data, valor, conta bancária, `ofxTransactionId` (a linha do extrato, status "Conciliado") e quem baixou (ex.: `cnab-retorno`).
+**Não há foto/anexo da duplicata nem do comprovante** (o único campo `imagem` é a foto do produto). Pedido ao Sallamo: incluir
+no `/api/bi/contas-a-pagar` os campos `tituloId`, `contasPagarId`, `numParcela`, `docFiscal`, `codigoBarras` e, por baixa,
+`idPagamento`, `contaBancaria`, `ofxTransactionId` — com isso dois pagamentos ligados a duas linhas diferentes do extrato provam
+a duplicidade sem foto. (As listas completas `/despesas/titulos/{empresa}` e `/despesas/{empresa}` dão erro 500 por tamanho.)
+
 **Regra de ouro da duplicidade:** só é duplicidade quando o mesmo dinheiro foi **pago** duas vezes. Título **Renegociado**
 (substituído por outro), cancelado, estornado ou agrupado não é dívida nem pagamento — não entra em duplicidade, em
 "em aberto", no vencido (R18) nem na linha repetida (R02). Os em aberto repetidos vão para a R24 (prevenção).
@@ -35,7 +56,7 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
 | Regra | O que pega | Por que importa |
 |---|---|---|
 | R01 Duplicidade | mesmo fornecedor + valor + vencimento + centro de custo em códigos diferentes | pagamento em dobro / NF lançada 2× |
-| R02 Linha repetida | linhas idênticas dentro do mesmo código | rateio duplicado |
+| R02 Itens iguais no mesmo título | linhas idênticas dentro do mesmo código (a API manda 1 linha por item) | item lançado 2× — conferir a nota, não é prova de pagamento 2× |
 | R03 Pago a maior | valor pago > parcela | juros/multa evitáveis ou pagamento indevido |
 | R04 Status incoerente | "Pago" com saldo, cancelado com pagamento, "A vencer" já vencido | baixa errada no sistema |
 | R05 Antecipado | pago antes da competência ou ≥15 dias antes do vencimento | perda financeira / favorecimento |
@@ -55,14 +76,14 @@ Navegador (Portal)  ──login Portal──▶  Edge Function financeiro-sallam
 | R20 Pago a menor | duplicata paga abaixo da parcela (baixa "Pago" com diferença = desconto/abatimento ou baixa errada; ou pagamento parcial) | desconto sem documento, baixa indevida |
 | R21 Despesa na conta errada | nome do fornecedor indica hotel, posto, Uber, restaurante, aérea… e a conta é outra | despesa escondida em outra conta |
 | R22 Observação/abatimento | observação, desconto, abatimento, juros ou multa informados na baixa | **depende da API enviar `observacao`, `valorDesconto`, `valorAbatimento`, `valorJuros`, `valorMulta`** — lidos automaticamente quando vierem |
-| R23 Possível duplicidade (Agente) | mesmo fornecedor/pessoa + mesmo valor exato **pago** mais de uma vez: mesmo dia, até 7 dias, mesmo título (código), centros de custo diferentes, ou mesma competência na folha (pensão, salário, VT, Uber, reembolso…) | pagamento em dobro |
+| R23 Possível duplicidade (Agente) | mesmo fornecedor/pessoa + mesmo valor exato **pago** mais de uma vez, comparando **pagamentos** (itens da mesma baixa = 1): títulos diferentes no mesmo dia/até 7 dias/centros diferentes/mesma competência na folha, ou a **mesma parcela** (título + vencimento) baixada de novo. Parcelas diferentes do mesmo título não contam | pagamento em dobro |
 | R24 Título a pagar repetido (prevenção) | título em aberto (a vencer/previsto/vencido) que repete outro do mesmo fornecedor e valor: mesmo título, mesmo vencimento ou mesma competência no mesmo centro. Alta = o outro já foi pago | ainda não é duplicidade — segurar antes de pagar |
 
 ## Abas de análise
 
-- **❓ Já houve pagamento em duplicidade?** (topo da aba do Agente): resposta direta SIM/NÃO para mesmo fornecedor +
-  mesmo título + mesmo valor + mesmo dia de pagamento na mesma loja, mais o mesmo título pago de novo em até 7 dias, os
-  títulos em aberto que repetem um pagamento (prevenção) e, à parte, o rateio entre lojas. Lista clicável com comparativo
+- **❓ Já houve pagamento em duplicidade?** (topo da aba do Agente): conferência por fornecedor + nº do título + **vencimento** +
+  valor: mesma parcela paga 2×, títulos diferentes iguais (suspeitas fortes), notas de mercadoria iguais e itens iguais (conferir),
+  prevenção, rateio e — só contadas — as parcelas diferentes pagas no mesmo dia. Cada caso abre o comparativo e os 📎 comprovantes. Lista clicável com comparativo
   e PDF. Na remessa ao banco, o aviso **"este valor já foi pago antes"** (mesmo fornecedor e valor pago 2 a 25 dias antes)
   impede pagar de novo.
 - **🕵️ Agente de Duplicidade**: um card por caso suspeito (R01 + R23) com nota de confiança 0–100, os motivos

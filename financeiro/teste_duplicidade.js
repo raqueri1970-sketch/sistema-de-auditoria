@@ -4,7 +4,7 @@ const L = (codigo, fornecedor, valor, pag, venc, comp, conta, cc, extra = {}) =>
   vencimento: venc, competencia: comp, dataPagamento: pag, contaContabil: conta, centroCusto: cc, ...extra});
 const G = 'D. GUARDIAN SEGURANCA ELETRONICA LTDA';
 const d = [
-  // 1) caso real: mesmo código 24623 pago 13/09 e 14/09, mesmo valor, mesma competência, mesma loja
+  // 1) mesmo código 24623 com 2 parcelas iguais coladas (venc. 13/09 e 14/09): pode ser parcela duplicada OU entrada + saldo — conferir
   L(24623, G, 1109.81, '2026-09-13', '2026-09-13', '2026-08-06', '(-) Serviço de Alarme e Monitoramento', '038 - BEBERIBE'),
   L(24623, G, 1109.81, '2026-09-14', '2026-09-14', '2026-08-06', '(-) Serviço de Alarme e Monitoramento', '038 - BEBERIBE'),
   L(24624, G, 435.83, '2026-09-14', '2026-09-14', '2026-08-06', '(-) Serviço de Alarme e Monitoramento', '007 - CASA'),
@@ -45,7 +45,7 @@ console.log('\nTotal ocorrências', r.ocorrencias.length, '·', [...new Set(r.oc
 const r23 = r.ocorrencias.filter(o => o.regra === 'R23');
 const tem = s => r23.some(o => o.fornecedor.includes(s));
 const assert = (c, m) => { if (!c) { console.error('FALHOU:', m); process.exitCode = 1; } else console.log('ok:', m); };
-assert(r23.some(o => o.detalhe.includes('24623') && o.sev === 'alta'), 'D. Guardian 24623 pago 2× = alta');
+assert(r23.some(o => o.detalhe.includes('24623') && o.sev === 'media'), 'D. Guardian 24623: 2 parcelas iguais coladas = média (conferir na nota), não alta');
 assert(tem('ACME'), 'mesmo valor mesmo dia lojas diferentes');
 assert(tem('MARIA DA SILVA'), 'pensão 2× no mesmo mês');
 assert(tem('PEREIRA'), 'Uber 2× com cadastro diferente');
@@ -56,17 +56,45 @@ assert(!tem('IMOBILIARIA') && !tem('MOVEIS'), 'mensal/parcelas não são duplici
 assert(!r23.some(o => o.detalhe.includes('95001')), 'alarme por loja não é duplicidade');
 assert(!tem('FORNEC R01') && r.ocorrencias.some(o => o.regra === 'R01' && o.dup), 'R01 não se repete na R23 e tem comparativo');
 
-// ---- verificação direta: mesmo fornecedor + mesmo título + mesmo valor + mesmo dia
+// ---- verificação direta (padrões reais do Sallamo: uma linha por item/parcela, sem nº do item, da parcela nem da NF)
+const P = (codigo, f, v, pag, venc, conta, cc, parcela) => Object.assign(L(codigo, f, v, pag, venc, '2026-09-01', conta, cc), parcela ? {valorParcela: parcela, saldo: parcela - v} : {});
 const E = A.duplicidadeExata(A.normalizar([
-  L(1, 'FORN A LTDA', 500, '2026-09-10', '2026-09-10', '2026-09-01', '(-) Manutenção', 'LOJA 1'), L(1, 'FORN A LTDA', 500, '2026-09-10', '2026-09-10', '2026-09-01', '(-) Manutenção', 'LOJA 1'),   // exata
-  L(2, 'FORN B LTDA', 300, '2026-09-10', '2026-09-10', '2026-09-01', '(-) Assessoria', 'LOJA 1'), L(2, 'FORN B LTDA', 300, '2026-09-10', '2026-09-10', '2026-09-01', '(-) Assessoria', 'LOJA 2'),     // rateio
-  L(3, 'FORN C LTDA', 700, '2026-09-13', '2026-09-13', '2026-09-01', '(-) Alarme', 'LOJA 3'), L(3, 'FORN C LTDA', 700, '2026-09-14', '2026-09-14', '2026-09-01', '(-) Alarme', 'LOJA 3'),             // dia seguinte
-  L(4, 'FORN D LTDA', 900, '2026-08-10', '2026-08-10', '2026-08-01', '(-) Aluguel', 'LOJA 4'), L(4, 'FORN D LTDA', 900, '2026-09-10', '2026-09-10', '2026-08-01', '(-) Aluguel', 'LOJA 4'),            // parcela mensal
+  // Beira Rio: adiantamento com parcelas DIÁRIAS de R$ 202 mil (vencimentos diferentes); duas pagas no mesmo dia 10/08 → NÃO é duplicidade
+  P(23550, 'CALCADOS BEIRA RIO S/A', 202000, '2026-08-10', '2026-08-05', '(-) Adiantamentos à Fornecedores de Mercadorias', 'CEO'),
+  P(23550, 'CALCADOS BEIRA RIO S/A', 202000, '2026-08-10', '2026-08-10', '(-) Adiantamentos à Fornecedores de Mercadorias', 'CEO'),
+  P(23550, 'CALCADOS BEIRA RIO S/A', 202000, '2026-08-11', '2026-08-11', '(-) Adiantamentos à Fornecedores de Mercadorias', 'CEO'),
+  // GETNET: uma linha por maquininha no mesmo título, mesmo dia → itens da mesma nota (conferir), não "pago a mais"
+  ...Array.from({length: 5}, () => P(23563, 'GETNET TEC EM CAPTURA E PROC TR SA', 137.9, '2026-07-21', '2026-07-21', '(-) Taxas Administrativas', 'PLANEJAMENTO FINANCEIRO')),
+  // mesma parcela (mesmo título e vencimento) baixada 2× em dias diferentes, soma passa da parcela → suspeita forte
+  P(3, 'FORN C LTDA', 700, '2026-09-13', '2026-09-13', '(-) Alarme', 'LOJA 3'), P(3, 'FORN C LTDA', 700, '2026-09-20', '2026-09-13', '(-) Alarme', 'LOJA 3'),
+  // pagamento parcial: parcela de 1.000 paga em 2× de 500 → não é duplicidade
+  P(5, 'FORN E LTDA', 500, '2026-09-10', '2026-09-10', '(-) Manutenção', 'LOJA 5', 1000), P(5, 'FORN E LTDA', 500, '2026-09-15', '2026-09-10', '(-) Manutenção', 'LOJA 5', 1000),
+  // títulos diferentes, mesmo fornecedor/valor/vencimento/centro, ambos pagos → suspeita (nota lançada 2×)
+  P(17191, 'MOURA DUBEUX ENGENHARIA S/A', 125797.04, '2026-06-15', '2026-06-15', '(-) Retirada Bancária', 'CEO'), P(17193, 'MOURA DUBEUX ENGENHARIA S/A', 125797.04, '2026-06-15', '2026-06-15', '(-) Retirada Bancária', 'CEO'),
+  // duas notas de mercadoria iguais (mesma grade) → à parte, conferir NF
+  P(1002, 'SKECHERS DO BRASIL CAL LTDA', 41997.9, '2026-08-21', '2026-08-21', '(-) Compras a Prazo', '097 - MACAÍBA'), P(1003, 'SKECHERS DO BRASIL CAL LTDA', 41997.9, '2026-08-21', '2026-08-21', '(-) Compras a Prazo', '097 - MACAÍBA'),
+  // rateio: mesmo título dividido entre lojas no mesmo dia
+  P(2, 'FORN B LTDA', 300, '2026-09-10', '2026-09-10', '(-) Assessoria', 'LOJA 1'), P(2, 'FORN B LTDA', 300, '2026-09-10', '2026-09-10', '(-) Assessoria', 'LOJA 2'),
+  // parcela mensal do mesmo título
+  P(4, 'FORN D LTDA', 900, '2026-08-10', '2026-08-10', '(-) Aluguel', 'LOJA 4'), P(4, 'FORN D LTDA', 900, '2026-09-10', '2026-09-10', '(-) Aluguel', 'LOJA 4'),
 ]));
-assert(E.exatas.length === 1 && E.exatas[0].codigo === 1 && E.exatas[0].excesso === 500, 'exata: mesmo fornecedor, título, valor e dia');
-assert(E.rateios.length === 1 && E.rateios[0].codigo === 2, 'mesmo dia em lojas diferentes = rateio (à parte)');
-assert(E.diasDiferentes.length === 1 && E.diasDiferentes[0].codigo === 3, 'mesmo título pago de novo no dia seguinte');
-assert(!E.diasDiferentes.some(x => x.codigo === 4), 'parcela mensal não é duplicidade');
+const temCod = (a, c) => a.some(x => x.codigos.includes(c));
+assert(!temCod(E.mesmaParcela, 23550) && !temCod(E.titulosDiferentes, 23550) && !temCod(E.itensIguais, 23550), 'Beira Rio: parcelas diferentes pagas no mesmo dia NÃO são duplicidade');
+assert(E.parcelasMesmoDia === 2, 'parcelas diferentes no mesmo dia só são contadas (informativo)');
+assert(E.itensIguais.length === 1 && E.itensIguais[0].codigo === '23563' && E.itensIguais[0].excesso === 0 && E.itensIguais[0].linhas === 5, 'GETNET: itens iguais da mesma nota = conferir, sem "pago a mais"');
+assert(E.mesmaParcela.length === 1 && E.mesmaParcela[0].codigo === '3' && E.mesmaParcela[0].excesso === 700, 'mesma parcela baixada 2× em dias diferentes = suspeita forte');
+assert(!temCod(E.mesmaParcela, 5), 'pagamento parcial (500 + 500 de uma parcela de 1.000) não é duplicidade');
+assert(E.titulosDiferentes.length === 1 && E.titulosDiferentes[0].excesso === 125797.04 && E.titulosDiferentes[0].mesmaComp, 'Moura Dubeux: 2 títulos iguais pagos no mesmo dia');
+assert(E.mercadoria.length === 1 && temCod(E.mercadoria, 1002), 'Skechers: 2 notas de mercadoria iguais ficam à parte (conferir NF)');
+assert(E.rateios.length === 1 && E.rateios[0].codigo === '2', 'mesmo dia em lojas diferentes = rateio (à parte)');
+assert(!temCod(E.mesmaParcela, 4) && !temCod(E.itensIguais, 4), 'parcela mensal não é duplicidade');
+// o Agente (R23) também não pode chamar parcelas diárias de duplicidade
+const RB = A.analisar([
+  ...['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-10', '2026-08-11'].map(v => P(23550, 'CALCADOS BEIRA RIO S/A', 202000, v === '2026-08-05' ? '2026-08-10' : v, v, '(-) Adiantamentos à Fornecedores de Mercadorias', 'CEO')),
+  ...Array.from({length: 5}, () => P(23563, 'GETNET TEC EM CAPTURA E PROC TR SA', 137.9, '2026-07-21', '2026-07-21', '(-) Taxas Administrativas', 'PLANEJAMENTO FINANCEIRO')),
+], {hoje: '2026-10-20'});
+assert(!RB.ocorrencias.some(o => A.REGRAS_DUP.includes(o.regra)), 'Agente: parcelas diárias e itens da mesma nota não viram duplicidade');
+assert(RB.ocorrencias.some(o => o.regra === 'R02' && o.sev === 'baixa'), 'itens iguais (5 maquininhas) = R02 baixa');
 
 // ---- caso da tela: o mesmo título Renegociado (com saldo) + Pago NÃO é duplicidade nem prevenção nem em aberto
 const reneg = (codigo, fornecedor, v, status, pag, venc, comp, cc) => ({codigo, status, fornecedor, valorParcela: v, valorPago: status === 'Pago' ? v : 0, saldo: status === 'Pago' ? 0 : v,
@@ -78,7 +106,16 @@ const RR = A.analisar([reneg(27972, 'COND DO SHOPPING CENTER GUARARAPES', 66013.
 assert(!RR.ocorrencias.some(o => ['R01', 'R02', 'R23', 'R24', 'R18'].includes(o.regra)), 'Renegociado + Pago: nenhuma duplicidade, prevenção, linha repetida ou vencido');
 assert(RR.indicadores.emAberto === 0, 'Renegociado não conta como em aberto no painel');
 const EX = A.duplicidadeExata(RR.titulos);
-assert(!EX.exatas.length && !EX.diasDiferentes.length, 'verificação exata ignora o renegociado');
+assert(!EX.mesmaParcela.length && !EX.titulosDiferentes.length && !EX.itensIguais.length, 'verificação exata ignora o renegociado');
 // dois pagos de verdade no mesmo título continuam sendo duplicidade
 const R2 = A.analisar([reneg(1, 'FORN X LTDA', 5000, 'Pago', '2026-09-21', '2026-09-21', '2026-08-01', 'LOJA'), reneg(1, 'FORN X LTDA', 5000, 'Pago', '2026-09-22', '2026-09-22', '2026-08-01', 'LOJA')], {hoje: '2026-10-20'});
 assert(R2.ocorrencias.some(o => o.regra === 'R23' && o.dup.pagos === 2), 'mesmo título pago nos dois = duplicidade');
+// prevenção (R24): parcela diária em aberto do mesmo título NÃO "repete o já pago"; a mesma parcela já paga e de novo em aberto, sim
+const RP = A.analisar([
+  P(23550, 'CALCADOS BEIRA RIO S/A', 202000, '2026-10-19', '2026-10-19', '(-) Adiantamentos à Fornecedores de Mercadorias', 'CEO'),
+  P(23550, 'CALCADOS BEIRA RIO S/A', 202000, null, '2026-10-20', '(-) Adiantamentos à Fornecedores de Mercadorias', 'CEO'),
+  P(23550, 'CALCADOS BEIRA RIO S/A', 202000, null, '2026-10-21', '(-) Adiantamentos à Fornecedores de Mercadorias', 'CEO'),
+  P(777, 'FORN Z LTDA', 1500, '2026-10-01', '2026-10-01', '(-) Manutenção', 'LOJA 7'), P(777, 'FORN Z LTDA', 1500, null, '2026-10-01', '(-) Manutenção', 'LOJA 7'),
+], {hoje: '2026-10-18'});
+assert(!RP.ocorrencias.some(o => o.regra === 'R24' && o.fornecedor.includes('BEIRA')), 'prevenção: parcelas diárias em aberto não repetem a já paga');
+assert(RP.ocorrencias.some(o => o.regra === 'R24' && o.fornecedor.includes('FORN Z') && o.sev === 'alta'), 'prevenção: a mesma parcela já paga e de novo em aberto = alta');
