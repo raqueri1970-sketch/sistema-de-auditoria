@@ -1045,6 +1045,26 @@ lider.aoAssumir(() => { if (waPronto && lider.rlPode()) setTimeout(() => process
 setTimeout(checarConexao, 2 * 60 * 1000);
 setInterval(checarConexao, 2 * 60 * 1000);
 
+// ─── VIGIA DE EVENTOS (21/10/2026) ──────────────────────────────
+// BUG REAL (20/10 18:11 -> 21/10 ~20:30): a nuvem reiniciou e voltou "CONNECTED sem evento 'ready'". Nesse estado a lib
+// nao entrega os eventos 'message': as fotos chegavam no grupo, mas so entravam na varredura de 2h (atraso de ate 2h05 em
+// Obras e na RL, por 26h). Agora: a cada 5 min compara a ultima atividade dos grupos (RL e Obras) com o ultimo evento
+// recebido; se o grupo andou e o evento nao veio, encerra (codigo 3), o Docker/o .bat sobe limpo e a varredura lanca o atraso.
+let ultimoEventoMs = Date.now();
+async function vigiarEventos() {
+  if (!waPronto || reiniciandoCliente || process.uptime() < 10 * 60) return;
+  let chats;
+  try { chats = await comLimite(client.getChats(), 60 * 1000, 'getChats'); } catch (e) { return; }
+  const grupos = (chats || []).filter(c => c.isGroup && c.name && (c.name.includes(GRUPO_ALVO) || (obras && obras.ehGrupo(c))));
+  const ultimaNoGrupoMs = Math.max(0, ...grupos.map(c => (Number(c.timestamp) || 0) * 1000));
+  // folga de 2 min para o evento chegar e de 3 min desde a mensagem (o evento pode estar na fila)
+  if (ultimaNoGrupoMs > ultimoEventoMs + 2 * 60 * 1000 && Date.now() - ultimaNoGrupoMs > 3 * 60 * 1000) {
+    log(`Eventos do WhatsApp PARADOS: mensagem no grupo em ${new Date(ultimaNoGrupoMs).toLocaleString('pt-BR')}, ultimo evento em ${new Date(ultimoEventoMs).toLocaleString('pt-BR')} — reiniciando o capturador; a varredura lanca o que ficou para tras`, 'error');
+    setTimeout(() => process.exit(3), 1500);
+  }
+}
+setInterval(() => { vigiarEventos().catch(() => {}); }, 5 * 60 * 1000);
+
 client.on('ready', async () => {
   console.clear();
   waPronto = true; falhasEstado = 0;
@@ -1093,6 +1113,7 @@ setInterval(() => { reprocessarZeradas({ automatico: true }).catch(e => log(`Err
 // 'message_create' cobre essas mensagens; aqui so as enviadas por este numero (fromMe) no grupo de Obras.
 // Duplicidade: processar() checa wa_msg_id (jaLancada) e a fila e serial.
 client.on('message_create', async msg => {
+  ultimoEventoMs = Date.now();
   if (!msg.fromMe || !msg.hasMedia) return;
   try {
     const chat = await msg.getChat();
@@ -1101,6 +1122,7 @@ client.on('message_create', async msg => {
 });
 
 client.on('message', async msg => {
+  ultimoEventoMs = Date.now();
   try {
     const chat = await msg.getChat();
     if (!chat.isGroup) return;
