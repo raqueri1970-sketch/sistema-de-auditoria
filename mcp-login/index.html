@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Conectar ao Portal Esposende</title>
+<meta name="theme-color" content="#0b1020">
+<meta name="referrer" content="no-referrer">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261016-6">
+</head>
+<body>
+<!-- Login do conector MCP do Portal (Claude). O portal-mcp manda o usuário para cá; depois do login o portal-mcp
+     devolve o código de autorização direto para o endereço do Claude. A senha nunca sai desta página. -->
+<div style="max-width:440px;margin:40px auto">
+  <h1>🔐 Conectar ao Portal Esposende</h1>
+  <div class="sub" id="destino">Autorizar o assistente a consultar o Portal com o seu usuário</div>
+  <div class="card" style="margin-top:16px">
+    <label class="small">Email do Portal</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label class="small">Senha</label><input id="lSenha" type="password" autocomplete="current-password">
+    <div id="lErr" class="err"></div>
+    <button class="btn b-pri" id="bEntrar" style="width:100%;padding:14px" onclick="entrar()">Entrar e autorizar</button>
+    <div class="small mut" style="margin-top:10px">Perguntas financeiras só são respondidas para administrador, controladoria e diretoria.</div>
+  </div>
+</div>
+<script>
+const SB_URL = 'https://rdztzurfesnobfkazgpm.supabase.co';
+const SB_KEY = 'sb_publishable_4LHSO4TrP7F4m4tpJyH44g_BGmfC92h';
+const sb = supabase.createClient(SB_URL, SB_KEY, {auth: {persistSession: false}});
+const $ = id => document.getElementById(id);
+const q = new URLSearchParams(location.search);
+try { $('destino').textContent = 'Autorizar ' + new URL(q.get('redirect_uri')).hostname + ' a consultar o Portal com o seu usuário'; }
+catch (e) { $('lErr').textContent = 'Link de autorização inválido. Volte ao aplicativo e conecte de novo.'; $('bEntrar').disabled = true; }
+window.entrar = async () => {
+  $('lErr').textContent = ''; $('bEntrar').disabled = true;
+  try {
+    const r = await sb.auth.signInWithPassword({email: $('lEmail').value.trim(), password: $('lSenha').value});
+    if (r.error) throw new Error('Email ou senha incorretos.');
+    const resp = await fetch(`${SB_URL}/functions/v1/portal-mcp/authorize`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({access_token: r.data.session.access_token, client_id: q.get('client_id'), redirect_uri: q.get('redirect_uri'),
+        state: q.get('state'), code_challenge: q.get('code_challenge'), code_challenge_method: q.get('code_challenge_method')})});
+    const d = await resp.json();
+    if (!resp.ok || !d.redirect) throw new Error(d.error || 'Não foi possível autorizar.');
+    await sb.auth.signOut();
+    location.href = d.redirect;
+  } catch (e) { $('lErr').textContent = e.message; $('bEntrar').disabled = false; }
+};
+$('lSenha').addEventListener('keydown', e => { if (e.key === 'Enter') entrar(); });
+</script>
+</body>
+</html>
