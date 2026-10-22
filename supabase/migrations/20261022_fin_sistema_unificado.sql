@@ -309,14 +309,19 @@ begin
                        'id_pagamento', coalesce(p.v->>'id_pix', p.v->'autenticacoes'->>0),
                        'codigo_barras', p.v->>'codigo_barras', 'favorecido', p.v->>'favorecido',
                        'arquivo_banco', p.v->>'arquivo', 'pagina', p.v->>'pagina',
-                       'comprovante', (select jsonb_build_object('bucket', 'fin-comprovantes', 'path', c.arquivo_path, 'codigo', c.codigo, 'id', c.id)
+                       'comprovante', coalesce((select jsonb_build_object('bucket', 'fin-comprovantes', 'path', c.arquivo_path, 'codigo', c.codigo, 'id', c.id)
                                        from comp c where c.autenticacao = any (select jsonb_array_elements_text(coalesce(p.v->'autenticacoes', '[]')))
-                                          or (p.v->>'id_pix' is not null and c.observacao like '%' || (p.v->>'id_pix') || '%') limit 1)
+                                          or (p.v->>'id_pix' is not null and c.observacao like '%' || (p.v->>'id_pix') || '%') limit 1),
+                                       -- senão, a página do PDF do banco (S:) enviada por fin-evidencias-banco para este lado
+                                       (select jsonb_build_object('bucket', e.storage_bucket, 'path', e.arquivo_path, 'origem', 'PDF do banco')
+                                        from fin_evidencias e where e.ocorrencia_id = 'DUP-' || d.id and e.lado = chr(65 + (p.ord - 1)::int)
+                                          and e.arquivo_path like 'banco/%' order by e.arquivo_path limit 1))
                      ) order by p.ord)
                      from jsonb_array_elements(coalesce(d.pagamentos, '[]')) with ordinality p(v, ord)), '[]'::jsonb)
            || coalesce((select jsonb_agg(jsonb_build_object('tipo', 'comprovante', 'lado', e.lado, 'rotulo', 'Comprovante ' || e.lado,
                          'comprovante', jsonb_build_object('bucket', e.storage_bucket, 'path', e.arquivo_path), 'referencia', e.referencia))
-                        from fin_evidencias e where e.ocorrencia_id = 'DUP-' || d.id and e.storage_bucket is not null), '[]'::jsonb) as evidencias,
+                        from fin_evidencias e where e.ocorrencia_id = 'DUP-' || d.id and e.storage_bucket is not null
+                          and e.arquivo_path not like 'banco/%'), '[]'::jsonb) as evidencias,
            ('DUP-' || d.id)::text as origem_ref
     from fin_duplicidade_comprovantes d
     where d.nivel in ('PAGO_A_MAIS', 'SUSPEITA')
