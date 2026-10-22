@@ -196,6 +196,15 @@ db.exec(`CREATE TABLE IF NOT EXISTS reusos (
   created_at TEXT DEFAULT (datetime('now','localtime'))
 )`);
 
+// Auditoria de midias (22/10/2026, ver auditoria_midias.js): arquivos da pasta fotos/ que foram analisados mas NAO viraram
+// deposito/despesa/reuso (orcamento, guia, manuscrito, possivel duplicata...). Sem isso a Auditoria nao saberia distinguir
+// "ja olhei e nao e lancamento" de "baixou e ninguem lancou" (que foi o que aconteceu com o Pix de 13/07/2026).
+// resultado: revisar | orcamento | nao_lancavel | reuso | copia | resolvido
+db.exec(`CREATE TABLE IF NOT EXISTS midias_auditadas (
+  arquivo TEXT PRIMARY KEY, resultado TEXT NOT NULL, detalhe TEXT, valor REAL, data_documento TEXT, tipo_doc TEXT, remetente TEXT,
+  created_at TEXT DEFAULT (datetime('now','localtime')), atualizado_em TEXT DEFAULT (datetime('now','localtime'))
+)`);
+
 function hashArquivo(nomeArquivo) {
   if (!nomeArquivo) return null;
   try { return crypto.createHash('sha256').update(fs.readFileSync(path.join(PASTA_FOTOS, nomeArquivo))).digest('hex'); }
@@ -292,6 +301,7 @@ IMPORTANTE - tipo_doc:
 - "comprovante_pix": comprovante de pagamento PIX
 - "comprovante_ted": comprovante TED/DOC
 - "comprovante_boleto": comprovante de pagamento de boleto/guia (GNRE, DAS, boleto bancario, etc.) — documento mostra "pagamento realizado", "pago", protocolo de pagamento ou confirmacao do banco, MAS NAO e PIX nem TED
+- "guia": a PROPRIA guia ou boleto A PAGAR (GNRE, DAS, DARF, boleto) — mostra "Data de Vencimento", "Total a Recolher", codigo de barras, dados do contribuinte, mas NAO mostra confirmacao de pagamento do banco. Nao e comprovante. Na guia, fornecedor = orgao que vai receber (ex: "Sefaz PE"), NUNCA o contribuinte/emitente
 - "recibo": recibo de pagamento generico, sem confirmacao clara de que o dinheiro ja saiu da conta
 - "outros": demais documentos
 Se for ORCAMENTO ou COTACAO: defina tipo_doc="orcamento" e is_orcamento=true.
@@ -464,6 +474,32 @@ const stmtDepMesmaAut  = db.prepare(`SELECT id, arquivo FROM depositos WHERE REP
 // Mesmo timestamp no nome do arquivo = mesma mensagem do WhatsApp (nao e reenvio)
 const mesmaMensagem = (a, b) => { const t = n => (String(n || '').match(/^WA_(\d+)_/) || [])[1]; return !!(t(a) && t(a) === t(b)); };
 
+// BUG REAL (09/07/2026, deposito #32): a GUIA GNRE (boleto a pagar, ainda sem pagamento) tem a RL Nordeste como contribuinte;
+// a IA leu "comprovante_boleto, fornecedor RL NORDESTE" e o bot lancou R$ 12 como DEPOSITO (dinheiro entrando). Guia de
+// imposto nunca e entrada, e boleto sem autenticacao do banco nao prova que o dinheiro entrou. Regra:
+//  - texto de guia/imposto (GNRE, SEFAZ, DAS, DARF, "guia", "tributo") ou tipo "guia" -> nunca deposito;
+//  - comprovante_boleto so vale como recebimento com autenticacao do banco;
+//  - PIX/TED/recibo/outros com a RL como beneficiaria -> deposito (como antes).
+const TEXTO_GUIA_REGEX = /\b(GNRE|SEFAZ|DARF|DAS|GUIA|TRIBUT\w*|RECOLHIMENTO)\b/i;
+function ehGuiaOuImposto(d) {
+  return !!d && (d.tipo_doc === 'guia' || TEXTO_GUIA_REGEX.test([d.fornecedor, d.descricao, d.servico, d.banco].filter(Boolean).join(' ')));
+}
+function ehRecebimentoProprio(d) {
+  if (!d || !ehBeneficiarioProprioEmpresa(d.fornecedor)) return false;
+  if (ehGuiaOuImposto(d)) return false;
+  if (d.tipo_doc === 'comprovante_boleto') return autValida(d.autenticacao);
+  return true;
+}
+// Guia/boleto em que a propria RL aparece como "fornecedor" e que nao virou deposito: nao e pagamento a ninguem
+// (e a guia, nao o comprovante). Fica registrado, mas como "guia" — nao soma como gasto nem como entrada.
+function normalizarGuiaPropria(d) {
+  if (d && ehBeneficiarioProprioEmpresa(d.fornecedor) && !ehRecebimentoProprio(d) && (ehGuiaOuImposto(d) || d.tipo_doc === 'comprovante_boleto')) {
+    d.descricao = `${d.descricao ? d.descricao + ' | ' : ''}Guia/boleto em nome da propria RL sem confirmacao de pagamento — nao somado`;
+    d.tipo_doc = 'guia';
+  }
+  return d;
+}
+
 function criarDeposito(dadosIA, remetente, arquivo) {
   const valor = parseValor(dadosIA?.valor);
   const dataDoc = extrairDataDocumento(JSON.stringify(dadosIA));
@@ -584,7 +620,7 @@ function mensagemJaLancada(msg) {
   return !!(stmtDespPorPrefixo.get(pref + '%') || stmtDepPorPrefixo.get(pref + '%') || stmtReusoPorPrefixo.get(pref + '%'));
 }
 
-async function processarMidia(msg, nomeRemetente) {
+async function processarMidia(msg, nomeRemetente, opcoes = {}) {
   // Sai ANTES de baixar a midia se essa mensagem ja virou lancamento (rescan barato:
   // nao gasta download nem IA com as centenas de mensagens antigas ja processadas).
   if (mensagemJaLancada(msg)) return 'ja_lancada';
@@ -593,7 +629,7 @@ async function processarMidia(msg, nomeRemetente) {
     if (msgsEmProcessamento.has(prefMsg)) { log(`Mensagem ${prefMsg} ja em processamento neste instante — ignorando chamada concorrente`, 'warn'); return 'concorrente'; }
     msgsEmProcessamento.add(prefMsg);
   }
-  try { return await processarMidiaInterno(msg, nomeRemetente); }
+  try { return await processarMidiaInterno(msg, nomeRemetente, opcoes); }
   finally { if (prefMsg) msgsEmProcessamento.delete(prefMsg); }
 }
 
@@ -715,7 +751,7 @@ async function baixarMidia(msg, origem = 'RL') {
   return { erro: erroLib ? erroLib.message : 'midia vazia', info: alt && alt.info || null };
 }
 
-async function processarMidiaInterno(msg, nomeRemetente) {
+async function processarMidiaInterno(msg, nomeRemetente, opcoes = {}) {
   let media, erroLib = null;
   const dataMsg = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleString('pt-BR') : '?';
   const bx = await baixarMidia(msg, 'RL');
@@ -767,30 +803,53 @@ async function processarMidiaInterno(msg, nomeRemetente) {
 
   try { fs.writeFileSync(fPath, Buffer.from(media.data, 'base64')); log(`Arquivo salvo: ${nome}`); }
   catch (e) { log(`Erro salvar: ${e.message}`, 'error'); return; }
+  const r = await analisarELancar({ nome, data: media.data, mimetype: media.mimetype, legenda: msg.body || '', nomeRemetente, msg, conservador: !!opcoes.conservador });
+  return r && r.resultado === 'duplicada' ? 'duplicada' : r && r.resultado;
+}
+
+// ─── ANALISAR E LANCAR UM ARQUIVO JA SALVO EM fotos/ ────────────────────────
+// Separado de processarMidiaInterno (22/10/2026) para a Auditoria de midias (auditoria_midias.js) poder relancar um arquivo
+// que foi baixado mas nunca virou lancamento (BUG REAL: Pix de R$ 10.000 da MAR ABERTO de 13/07/2026 ficou so na pasta).
+// conservador=true (usado pela Auditoria, sem ninguem olhando): so lanca comprovante bancario sem nenhuma duvida; o resto
+// (guia, orcamento, manuscrito, possivel duplicata) fica como "revisar" para uma pessoa decidir — nada e somado no escuro.
+// Retorna { resultado, detalhe, id, valor, data_documento, tipo_doc }:
+//   deposito | despesa | reuso | duplicada | orcamento | nao_lancavel | revisar | erro
+const stmtMidiaAuditada = db.prepare(`INSERT INTO midias_auditadas (arquivo,resultado,detalhe,valor,data_documento,tipo_doc,remetente) VALUES (?,?,?,?,?,?,?)
+  ON CONFLICT(arquivo) DO UPDATE SET resultado=excluded.resultado, detalhe=excluded.detalhe, valor=excluded.valor, data_documento=excluded.data_documento,
+  tipo_doc=excluded.tipo_doc, remetente=excluded.remetente, atualizado_em=datetime('now','localtime')`);
+function marcarMidia(nome, resultado, detalhe, d = {}, remetente = null) {
+  try { stmtMidiaAuditada.run(nome, resultado, String(detalhe || '').substring(0, 500), parseValor(d?.valor) || null, extrairDataDocumento(JSON.stringify(d || {})) || null, d?.tipo_doc || null, remetente); } catch (e) {}
+}
+async function analisarELancar({ nome, data = null, mimetype, legenda = '', nomeRemetente, msg = null, conservador = false }) {
+  const fPath = path.join(PASTA_FOTOS, nome);
+  const isImagem = String(mimetype || '').startsWith('image/');
+  const isPdf    = mimetype === 'application/pdf';
+  if (!data) { try { data = fs.readFileSync(fPath).toString('base64'); } catch (e) { return { resultado: 'erro', detalhe: `arquivo ilegivel: ${e.message}` }; } }
 
   // Evita duplicidade: mesma foto ja capturada antes (ex: historico rodado mais de uma vez)
   const hash = hashArquivo(nome);
   if (hash) {
     if (hashesEmProcessamento.has(hash)) {
       log(`Midia identica ja em processamento neste instante (chamada concorrente) — ignorando`, 'warn');
-      try { fs.unlinkSync(fPath); } catch(e) {}
-      return 'duplicada';
+      if (!conservador) { try { fs.unlinkSync(fPath); } catch(e) {} }
+      return { resultado: 'duplicada', detalhe: 'mesma midia em processamento' };
     }
     const jaDesp = db.prepare(`SELECT id, arquivo FROM despesas WHERE arquivo_hash=? LIMIT 1`).get(hash);
     const jaDep  = db.prepare(`SELECT id, arquivo FROM depositos WHERE arquivo_hash=? LIMIT 1`).get(hash);
     if (jaDesp || jaDep) {
       const arquivoOriginal = jaDesp?.arquivo || jaDep?.arquivo;
+      const detalhe = `mesma foto do ${jaDesp ? 'despesa' : 'deposito'} #${jaDesp?.id || jaDep?.id} (${arquivoOriginal})`;
       if (arquivoOriginal !== nome && !mesmaMensagem(arquivoOriginal, nome)) {
         // Outra mensagem com a MESMA foto de um comprovante ja lancado (de qualquer periodo): reuso. Mantem o arquivo.
         const o = jaDesp ? db.prepare(`SELECT * FROM despesas WHERE id=?`).get(jaDesp.id) : db.prepare(`SELECT * FROM depositos WHERE id=?`).get(jaDep.id);
         registrarReuso({ remetente: nomeRemetente, arquivo: nome, arquivo_hash: hash, motivo: 'Foto idêntica a um comprovante já lançado',
           original_tabela: jaDesp ? 'despesa' : 'deposito', original_id: o.id, valor: o.valor, fornecedor: o.fornecedor || o.remetente || null,
-          data_documento: o.data_documento, hora_documento: o.hora_documento, autenticacao: o.autenticacao, legenda: (msg.body || '').substring(0, 500) || null });
-        return 'duplicada';
+          data_documento: o.data_documento, hora_documento: o.hora_documento, autenticacao: o.autenticacao, legenda: String(legenda || '').substring(0, 500) || null });
+        return { resultado: 'duplicada', detalhe };
       }
       log(`Midia identica ja processada (despesa #${jaDesp?.id||'-'} / deposito #${jaDep?.id||'-'}) — mesma mensagem, ignorando`, 'warn');
       if (arquivoOriginal !== nome) { try { fs.unlinkSync(fPath); } catch(e) {} }
-      return 'duplicada';
+      return { resultado: 'duplicada', detalhe };
     }
     hashesEmProcessamento.add(hash);
   }
@@ -802,7 +861,7 @@ async function processarMidiaInterno(msg, nomeRemetente) {
     if (ai && (isImagem || isPdf)) {
       try {
         log(`IA extraindo dados de ${nome}...`);
-        dadosIA = await extrairComIA(media.data, media.mimetype);
+        dadosIA = await extrairComIA(data, mimetype);
         log(`IA: valor=${dadosIA?.valor} fornecedor=${dadosIA?.fornecedor} conf=${dadosIA?.confianca}`);
       } catch (e) {
         log(`Erro IA: ${e.message}`, 'warn');
@@ -811,30 +870,63 @@ async function processarMidiaInterno(msg, nomeRemetente) {
     } else {
       dadosIA = { descricao: 'Sem IA — revisar manualmente', confianca: 0 };
     }
+    dadosIA = dadosIA || { descricao: 'IA sem resposta', confianca: 0 };
 
     // Sem placa impressa no documento (comum em PIX): tenta achar na legenda da foto
     // (msg.body, quando enviada junto com a imagem) ou na descricao lida pela IA.
     if (!ehPaulo && !dadosIA?.placa) {
-      const placaLegenda = extrairPlacaDeTexto(msg.body) || extrairPlacaDeTexto(dadosIA?.descricao);
+      const placaLegenda = extrairPlacaDeTexto(legenda) || extrairPlacaDeTexto(dadosIA?.descricao);
       if (placaLegenda) dadosIA.placa = placaLegenda;
     }
 
-    const ehRecebimentoProprio = ehBeneficiarioProprioEmpresa(dadosIA?.fornecedor);
-    if (ehPaulo || ehRecebimentoProprio) {
-      if (ehRecebimentoProprio && !ehPaulo) log(`Comprovante para a propria RL Nordeste (beneficiario=${dadosIA?.fornecedor}) — lancado como DEPOSITO mesmo enviado por ${nomeRemetente}`);
-      criarDeposito(dadosIA, nomeRemetente, nome);
+    const recebimentoProprio = ehRecebimentoProprio(dadosIA);
+    if (!recebimentoProprio) normalizarGuiaPropria(dadosIA);
+    const valor = parseValor(dadosIA?.valor);
+    const dataDoc = extrairDataDocumento(JSON.stringify(dadosIA));
+    const vaiSerDeposito = ehPaulo || recebimentoProprio;
+
+    if (conservador) {
+      // Sem ninguem olhando: so lanca o que nao deixa duvida. O resto fica para revisao humana (alerta na Auditoria).
+      const comprovante = vaiSerDeposito ? (valor > 0 && ['comprovante_pix','comprovante_ted','comprovante_boleto','outros','recibo'].includes(dadosIA?.tipo_doc))
+                                         : (ehDespesaReal(dadosIA?.tipo_doc) && valor > 0 && !dadosIA?.is_orcamento);
+      if (!comprovante || !(Number(dadosIA?.confianca) >= 0.7)) {
+        const det = `${dadosIA?.tipo_doc || 'documento'} ${valor ? 'R$ ' + valor.toFixed(2) : 'sem valor'}${dadosIA?.fornecedor ? ' — ' + dadosIA.fornecedor : ''} (confianca ${dadosIA?.confianca ?? '?'}) — nao e comprovante claro, revisar`;
+        marcarMidia(nome, 'revisar', det, dadosIA, nomeRemetente);
+        return { resultado: 'revisar', detalhe: det, valor, data_documento: dataDoc, tipo_doc: dadosIA?.tipo_doc };
+      }
+      const parecido = vaiSerDeposito
+        ? db.prepare(`SELECT id, arquivo FROM depositos WHERE ABS(valor-?)<0.005 AND COALESCE(data_documento,substr(data,1,10))=? LIMIT 1`).get(valor, dataDoc)
+        : db.prepare(`SELECT id, arquivo FROM despesas WHERE ABS(valor-?)<0.005 AND COALESCE(data_documento,substr(data,1,10))=? AND status!='cancelado' AND (fornecedor=? OR ? IS NULL) LIMIT 1`).get(valor, dataDoc, dadosIA?.fornecedor || null, dadosIA?.fornecedor || null);
+      if (parecido) {
+        const det = `${vaiSerDeposito ? 'deposito' : 'despesa'} de R$ ${valor.toFixed(2)} em ${dataDoc} ja existe (#${parecido.id}, ${parecido.arquivo || 'sem arquivo'}) — pode ser o mesmo, revisar`;
+        marcarMidia(nome, 'revisar', det, dadosIA, nomeRemetente);
+        return { resultado: 'revisar', detalhe: det, valor, data_documento: dataDoc, tipo_doc: dadosIA?.tipo_doc };
+      }
+    }
+
+    if (vaiSerDeposito) {
+      if (recebimentoProprio && !ehPaulo) log(`Comprovante para a propria RL Nordeste (beneficiario=${dadosIA?.fornecedor}) — lancado como DEPOSITO mesmo enviado por ${nomeRemetente}`);
+      const id = criarDeposito(dadosIA, nomeRemetente, nome);
+      if (!id) { marcarMidia(nome, 'reuso', 'mesma autenticacao de deposito ja lancado', dadosIA, nomeRemetente); return { resultado: 'reuso', valor, data_documento: dataDoc }; }
+      return { resultado: 'deposito', id, valor, data_documento: dataDoc, tipo_doc: dadosIA?.tipo_doc };
     } else if (dadosIA?.is_orcamento || dadosIA?.tipo_doc === 'orcamento') {
       log(`ORÇAMENTO recebido de ${nomeRemetente} — R$ ${dadosIA?.valor||0} — arquivo salvo, nao lancado como despesa`);
+      marcarMidia(nome, 'orcamento', `orcamento R$ ${valor || 0}${dadosIA?.fornecedor ? ' — ' + dadosIA.fornecedor : ''}`, dadosIA, nomeRemetente);
+      return { resultado: 'orcamento', valor, data_documento: dataDoc, tipo_doc: dadosIA?.tipo_doc };
     } else {
       // Junta a descricao lida no comprovante com a legenda que a Bruna escreveu
       // junto da foto no WhatsApp (msg.body) — a legenda costuma trazer contexto
       // que nao esta no documento (motivo do pagamento, placa, observacao).
-      if (msg.body && msg.body.trim()) {
-        const legenda = msg.body.trim();
-        dadosIA.descricao = dadosIA?.descricao ? `${dadosIA.descricao} | Msg: ${legenda}` : `Msg: ${legenda}`;
+      if (legenda && String(legenda).trim()) {
+        const l = String(legenda).trim();
+        dadosIA.descricao = dadosIA?.descricao ? `${dadosIA.descricao} | Msg: ${l}` : `Msg: ${l}`;
       }
-      criarDespesa(dadosIA, nomeRemetente, nome);
+      const id = criarDespesa(dadosIA, nomeRemetente, nome);
+      return { resultado: 'despesa', id, valor, data_documento: dataDoc, tipo_doc: dadosIA?.tipo_doc };
     }
+  } catch (e) {
+    log(`Erro ao lancar ${nome}: ${e.message}`, 'error');
+    return { resultado: 'erro', detalhe: e.message };
   } finally {
     if (hash) hashesEmProcessamento.delete(hash);
   }
@@ -868,13 +960,20 @@ let obras = null;
 try { obras = require('./obras_bot')({ client, log, sb: sbBase, baixarMidiaPelaPagina, baixarMidia, sombra: MODO_SOMBRA, ia, lider }); }
 catch (e) { log(`Modulo Obras nao carregou: ${e.message}`, 'warn'); }
 // Health check (09/10/2026): publica o estado em capturador_status a cada 1 min. So le; nunca derruba o bot.
-try { require('./capturador_status')({ client, sb: sbBase, db, obras, log, ia, lider, versao: MODO_SOMBRA ? 'bot_v3 (sombra)' : 'bot_v3' }); }
+try { require('./capturador_status')({ client, sb: sbBase, db, obras, log, ia, lider, auditoria: () => auditoriaMidias, versao: MODO_SOMBRA ? 'bot_v3 (sombra)' : 'bot_v3' }); }
 catch (e) { log(`Health check nao carregou: ${e.message}`, 'warn'); }
 // Painel da RL no D90 (19/10/2026): em reserva, copia a RL da nuvem (Supabase) para o SQLite local a cada 3 min,
 // senao o painel 3456 fica parado no dia em que a nuvem assumiu. Ver espelho_nuvem.js.
 let espelhoNuvem = null;
 try { if (!MODO_SOMBRA) espelhoNuvem = require('./espelho_nuvem')({ db, sb: sbBase, log, lider, client, grupo: GRUPO_ALVO, pastaFotos: PASTA_FOTOS }); }
 catch (e) { log(`Copia da nuvem para o painel nao carregou: ${e.message}`, 'warn'); }
+// Auditoria de midias (22/10/2026): toda midia do grupo (15 dias) e todo arquivo da pasta (30 dias) tem de virar lancamento,
+// reuso ou ALERTA. Ver auditoria_midias.js (bug do Pix de R$ 10.000 de 13/07/2026 que ficou so na pasta).
+let auditoriaMidias = null;
+try {
+  if (!MODO_SOMBRA) auditoriaMidias = require('./auditoria_midias')({ db, log, sb: sbBase, client, PASTA_FOTOS, hashArquivo, acharGrupo, buscarMensagensDesde,
+    mensagemJaLancada, prefixoArquivoMsg, processarMidia, analisarELancar, rlGrava, waPronto: () => waPronto, instancia: lider ? lider.INSTANCIA : 'local' });
+} catch (e) { log(`Auditoria de midias nao carregou: ${e.message}`, 'warn'); }
 // RL so lanca depois de alinhar o SQLite com o Supabase (ver rlAlinhada e espelho_nuvem.js); depois roda a varredura.
 if (espelhoNuvem) espelhoNuvem.alinharAoIniciar(() => {
   rlAlinhada = true;
@@ -1572,6 +1671,35 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // ── AUDITORIA DE MIDIAS (ver auditoria_midias.js) ──
+  // GET  /api/auditoria-midias                      -> pendencias abertas + resumo da ultima execucao
+  // POST /api/auditoria-midias?simular=1&de=AAAA-MM-DD&ate=AAAA-MM-DD[&dias=15][&conservador=0] -> roda agora
+  // POST /api/auditoria-midias/resolver?arquivo=NOME[&nota=texto] -> pessoa revisou: sai das pendencias
+  if (url === '/api/auditoria-midias/resolver' && req.method === 'POST') {
+    if (!auditoriaMidias) return jsonResp(res, { erro:'auditoria indisponivel' }, 503);
+    const arquivo = decodeURIComponent((qs.match(/arquivo=([^&]*)/) || [])[1] || '');
+    const nota = decodeURIComponent((qs.match(/nota=([^&]*)/) || [])[1] || '');
+    if (!arquivo) return jsonResp(res, { erro:'informe arquivo=' }, 400);
+    return jsonResp(res, { ok: auditoriaMidias.resolver(arquivo, nota) });
+  }
+  if (url === '/api/auditoria-midias') {
+    if (!auditoriaMidias) return jsonResp(res, { erro:'auditoria indisponivel' }, 503);
+    (async () => {
+      try {
+        if (req.method === 'POST') {
+          const g = k => (qs.match(new RegExp(k + '=([^&]*)')) || [])[1];
+          const dias = Number(g('dias')) || 15;
+          const r = await auditoriaMidias.executar({ simular: g('simular') === '1', de: g('de') || null, ate: g('ate') || null,
+            diasGrupo: dias, diasPasta: Math.max(dias, 30), conservador: g('conservador') !== '0', motivo: 'manual' });
+          return jsonResp(res, r);
+        }
+        const p = await auditoriaMidias.pendencias();
+        return jsonResp(res, { ...p, ultima_execucao: auditoriaMidias.resumo() });
+      } catch (e) { return jsonResp(res, { erro: e.message }, 500); }
+    })();
+    return;
+  }
+
   // ── RECUPERAR PERIODO (lacuna de mensagens do WhatsApp) ──
   // GET/POST /api/recuperar-periodo?de=2026-09-19&ate=2026-09-27[&simular=1]
   // simular=1: so lista as midias do periodo e se ja viraram lancamento (nao grava nada).
@@ -2096,7 +2224,8 @@ const server = http.createServer((req, res) => {
 
         // Mesma regra do WhatsApp: comprovante com a propria RL Nordeste como beneficiario
         // e deposito, independente do tipo escolhido no formulario.
-        const ehDeposito = (tipo||'despesa') === 'deposito' || ehBeneficiarioProprioEmpresa(dadosIA?.fornecedor);
+        const ehDeposito = (tipo||'despesa') === 'deposito' || ehRecebimentoProprio(dadosIA);
+        if (!ehDeposito) normalizarGuiaPropria(dadosIA);
         const recId = ehDeposito
           ? criarDeposito(dadosIA, remetente||'Paulo (upload)', nome)
           : criarDespesa(dadosIA, remetente||'Bruna (upload)', nome);

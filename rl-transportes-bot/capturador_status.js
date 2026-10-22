@@ -7,7 +7,7 @@
 'use strict';
 const os = require('os');
 
-module.exports = function iniciarStatus({ client, sb, db, obras, log, ia = null, lider = null, versao = 'bot_v3' }) {
+module.exports = function iniciarStatus({ client, sb, db, obras, log, ia = null, lider = null, auditoria = null, versao = 'bot_v3' }) {
   const INSTANCIA = lider ? lider.INSTANCIA : (process.env.CAPTURADOR_INSTANCIA || os.hostname());
   // lider.js decide quem é a principal pelo iniciado_em + detalhes.prioridade publicados aqui
   const iniciadoEm = lider ? lider.iniciadoEm : new Date().toISOString();
@@ -44,7 +44,9 @@ module.exports = function iniciarStatus({ client, sb, db, obras, log, ia = null,
         pendentes_leitura: pend.count || 0, fila_pendente: obras && obras._fila ? obras._fila() : 0,
         erros_24h: erros.n, ultimo_erro: erros.ultimo, versao,
         detalhes: { node: process.version, memoria_mb: Math.round(process.memoryUsage().rss / 1048576), uptime_min: Math.round(process.uptime() / 60),
-          ...(lider ? { papel: lider.papel(), prioridade: lider.PRIORIDADE, rl: lider.rlPode() ? 'gravando' : 'parada (reserva)', principal: lider.concorrente() || INSTANCIA } : {}) }
+          ...(lider ? { papel: lider.papel(), prioridade: lider.PRIORIDADE, rl: lider.rlPode() ? 'gravando' : 'parada (reserva)', principal: lider.concorrente() || INSTANCIA } : {}),
+          // Auditoria de midias da RL (auditoria_midias.js): ultima execucao e quantas fotos ficaram sem lancamento
+          ...(auditoria && auditoria() ? { auditoria_rl: auditoria().resumo() } : {}) }
       });
       if (error) log(`Health check: nao gravou no Supabase (${error.message})`, 'warn');
     } catch (e) { if (!avisou) { avisou = true; log(`Health check falhou: ${e.message}`, 'warn'); } } // nunca derruba o bot
