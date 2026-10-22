@@ -27,7 +27,7 @@ RUN npm install --omit=dev --no-audit --no-fund
 # aplicada sobre a 1.34.7 (versão fixa no package.json). Quando sair versão oficial com a correção, remover este passo.
 COPY patches ./patches
 RUN patch -d node_modules/whatsapp-web.js -p1 < patches/whatsapp-web.js-1.34.7-serialized.patch
-COPY bot_v3.js obras_bot.js ia.js lider.js capturador_status.js sync_supabase.js espelho_nuvem.js leitor_pdf.py ./
+COPY bot_v3.js obras_bot.js ia.js lider.js capturador_status.js sync_supabase.js espelho_nuvem.js auditoria_midias.js leitor_pdf.py ./
 # Sessão do WhatsApp, cache da versão do WhatsApp Web, banco/fotos da RL e cópias das fotos de Obras ficam em volumes
 VOLUME ["/app/.wwebjs_auth", "/app/.wwebjs_cache", "/dados", "/app/fotos_obras"]
 EXPOSE 3456
