@@ -894,9 +894,13 @@ async function analisarELancar({ nome, data = null, mimetype, legenda = '', nome
         marcarMidia(nome, 'revisar', det, dadosIA, nomeRemetente);
         return { resultado: 'revisar', detalhe: det, valor, data_documento: dataDoc, tipo_doc: dadosIA?.tipo_doc };
       }
-      const parecido = vaiSerDeposito
+      // Mesma autenticacao do banco = reenvio comprovado: segue o fluxo normal, que registra como REUSO (nao soma).
+      const mesmaAut = autValida(dadosIA?.autenticacao) && (vaiSerDeposito ? stmtDepMesmaAut : stmtDespMesmaAut).get(dadosIA.autenticacao, valor);
+      // Sem autenticacao igual: qualquer lancamento de mesmo valor na mesma data (de qualquer fornecedor — a IA escreve o
+      // nome de jeitos diferentes) pode ser o mesmo pagamento. Na duvida, revisao humana; nunca soma duas vezes no escuro.
+      const parecido = mesmaAut ? null : vaiSerDeposito
         ? db.prepare(`SELECT id, arquivo FROM depositos WHERE ABS(valor-?)<0.005 AND COALESCE(data_documento,substr(data,1,10))=? LIMIT 1`).get(valor, dataDoc)
-        : db.prepare(`SELECT id, arquivo FROM despesas WHERE ABS(valor-?)<0.005 AND COALESCE(data_documento,substr(data,1,10))=? AND status!='cancelado' AND (fornecedor=? OR ? IS NULL) LIMIT 1`).get(valor, dataDoc, dadosIA?.fornecedor || null, dadosIA?.fornecedor || null);
+        : db.prepare(`SELECT id, arquivo FROM despesas WHERE ABS(valor-?)<0.005 AND COALESCE(data_documento,substr(data,1,10))=? AND status!='cancelado' LIMIT 1`).get(valor, dataDoc);
       if (parecido) {
         const det = `${vaiSerDeposito ? 'deposito' : 'despesa'} de R$ ${valor.toFixed(2)} em ${dataDoc} ja existe (#${parecido.id}, ${parecido.arquivo || 'sem arquivo'}) — pode ser o mesmo, revisar`;
         marcarMidia(nome, 'revisar', det, dadosIA, nomeRemetente);
