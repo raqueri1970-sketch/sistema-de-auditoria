@@ -1,5 +1,6 @@
 # Roda no D90 (acesso ao S:\). Renderiza a pagina do PDF do banco de cada pagamento das duplicidades e envia para
 # fin-evidencias-banco. So envia a pagina se o ID do pagamento (ou o valor) aparecer no texto dela.
+# Páginas escaneadas (sem texto) ficam NAO_ACHOU no log; a 2a passada é enviar_fotos_banco_ocr.py.
 # Uso: python enviar_fotos_banco.py <codigo>  (codigo temporario: insira o sha256 dele em fin_envio_token com validade)
 import sys, base64, re, fitz, requests
 URL = 'https://rdztzurfesnobfkazgpm.supabase.co/functions/v1/fin-evidencias-banco'
