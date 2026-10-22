@@ -887,9 +887,17 @@ async function analisarELancar({ nome, data = null, mimetype, legenda = '', nome
 
     if (conservador) {
       // Sem ninguem olhando: so lanca o que nao deixa duvida. O resto fica para revisao humana (alerta na Auditoria).
-      const comprovante = vaiSerDeposito ? (valor > 0 && ['comprovante_pix','comprovante_ted','comprovante_boleto','outros','recibo'].includes(dadosIA?.tipo_doc))
-                                         : (ehDespesaReal(dadosIA?.tipo_doc) && valor > 0 && !dadosIA?.is_orcamento);
-      if (!comprovante || !(Number(dadosIA?.confianca) >= 0.7)) {
+      // 22/10/2026 (1a rodada real): print de SALDO da conta virou deposito (tipo "outros") e print de LISTA de boletos virou
+      // despesa com data inventada. Automatico agora exige: deposito = PIX/TED (boleto so com autenticacao); despesa = comprovante
+      // com autenticacao do banco; e a data do documento ate 60 dias antes do envio (a IA "chuta" a data quando nao ha nenhuma).
+      const tsEnvio = Number((String(nome).match(/^(?:WA|UP)_(\d{12,})_/) || [])[1]) || Date.now();
+      const tsDoc = dataDoc ? new Date(dataDoc + 'T12:00:00-03:00').getTime() : NaN;
+      const dataPlausivel = isFinite(tsDoc) && tsDoc <= tsEnvio + 2 * 864e5 && tsDoc >= tsEnvio - 60 * 864e5;
+      const temAut = autValida(dadosIA?.autenticacao);
+      const comprovante = vaiSerDeposito
+        ? (valor > 0 && (['comprovante_pix','comprovante_ted'].includes(dadosIA?.tipo_doc) || (dadosIA?.tipo_doc === 'comprovante_boleto' && temAut)))
+        : (ehDespesaReal(dadosIA?.tipo_doc) && valor > 0 && !dadosIA?.is_orcamento && temAut);
+      if (!comprovante || !dataPlausivel || !(Number(dadosIA?.confianca) >= 0.7)) {
         const det = `${dadosIA?.tipo_doc || 'documento'} ${valor ? 'R$ ' + valor.toFixed(2) : 'sem valor'}${dadosIA?.fornecedor ? ' — ' + dadosIA.fornecedor : ''} (confianca ${dadosIA?.confianca ?? '?'}) — nao e comprovante claro, revisar`;
         marcarMidia(nome, 'revisar', det, dadosIA, nomeRemetente);
         return { resultado: 'revisar', detalhe: det, valor, data_documento: dataDoc, tipo_doc: dadosIA?.tipo_doc };
@@ -926,6 +934,9 @@ async function analisarELancar({ nome, data = null, mimetype, legenda = '', nome
         dadosIA.descricao = dadosIA?.descricao ? `${dadosIA.descricao} | Msg: ${l}` : `Msg: ${l}`;
       }
       const id = criarDespesa(dadosIA, nomeRemetente, nome);
+      // criarDespesa devolve o id ORIGINAL quando e reenvio (registra reuso): so e despesa nova se o arquivo e dela
+      const nova = id && db.prepare(`SELECT 1 FROM despesas WHERE id=? AND arquivo=?`).get(id, nome);
+      if (!nova) { marcarMidia(nome, 'reuso', `reenvio da despesa #${id}`, dadosIA, nomeRemetente); return { resultado: 'reuso', id, valor, data_documento: dataDoc }; }
       return { resultado: 'despesa', id, valor, data_documento: dataDoc, tipo_doc: dadosIA?.tipo_doc };
     }
   } catch (e) {

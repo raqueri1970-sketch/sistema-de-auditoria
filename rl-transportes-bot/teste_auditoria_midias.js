@@ -67,6 +67,12 @@ const fotos = path.join(dados, 'fotos');
   // 7) outro print do MESMO Pix de 10 mil (bytes diferentes) na pasta: possivel duplicata -> revisar, nao soma
   const print2 = 'WA_1784555475000_3A1111111111_Rafael_Marques_Trans.jpeg';
   fs.writeFileSync(path.join(fotos, print2), Buffer.from(conteudo('P2', pix(null, 10000, 'RL NORDESTE LTDA', '2026-07-13')), 'base64'));
+  // 8) print do SALDO da conta (bug real da 1a rodada): IA diz "outros" com a RL -> nao pode virar deposito
+  const saldo = 'WA_1785249963000_4A81817D6F1A_Bruna.jpeg';
+  fs.writeFileSync(path.join(fotos, saldo), Buffer.from(conteudo('S', { valor: 8375.61, data: '2024-06-24', fornecedor: 'RL NORDESTE LTDA', tipo_doc: 'outros', confianca: 0.8 }), 'base64'));
+  // 9) print da LISTA de boletos (sem autenticacao, data chutada) -> nao pode virar despesa
+  const lista = 'WA_1783619493000_4AA141EAB238_Bruna.jpeg';
+  fs.writeFileSync(path.join(fotos, lista), Buffer.from(conteudo('L', { valor: 240, data: '2026-06-24', hora: '13:34', fornecedor: 'Gnre Sefaz Pernambuco', tipo_doc: 'comprovante_boleto', confianca: 0.9 }), 'base64'));
   const textoAntigo = { timestamp: ts('2026-06-30'), id: { id: 'IDTXTXXXXXXXXX' }, hasMedia: false, body: 'bom dia', type: 'chat' }; // historico cobre a janela
   mensagensDoGrupo = [textoAntigo, mA, mG, mB];
 
@@ -74,7 +80,7 @@ const fotos = path.join(dados, 'fotos');
   const sim = await http('POST', '/api/auditoria-midias?simular=1&de=2026-07-01&ate=2026-07-31');
   assert(sim.ok, JSON.stringify(sim));
   assert.equal(sim.grupo.pendentes.length, 1, 'simulacao acha a midia do grupo nao lancada');
-  assert.equal(sim.pasta.orfaos.length, 3, 'simulacao acha os 3 orfaos (copia fica de fora): ' + JSON.stringify(sim.pasta.orfaos));
+  assert.equal(sim.pasta.orfaos.length, 5, 'simulacao acha os 5 orfaos (copia fica de fora): ' + JSON.stringify(sim.pasta.orfaos));
   assert.equal((await http('GET', '/api/depositos')).length, 0, 'simulacao nao grava');
 
   // EXECUCAO
@@ -85,17 +91,17 @@ const fotos = path.join(dados, 'fotos');
   assert.deepEqual(deps.map(d => d.valor).sort((a, b) => a - b), [5000, 10000], 'Pix do grupo e Pix orfao lancados, print repetido nao: ' + JSON.stringify(deps.map(d => [d.valor, d.arquivo])));
   assert.equal(r.pasta.copias, 1, 'copia identica reconhecida');
   const rev = r.pasta.revisar.map(x => x.arquivo).sort();
-  assert.deepEqual(rev, [print2, manuscrito].sort(), 'manuscrito e print repetido ficam para revisao');
-  assert.equal(r.pendencias, 2, 'duas pendencias abertas');
+  assert.deepEqual(rev, [print2, manuscrito, saldo, lista].sort(), 'manuscrito, print repetido, print de saldo e lista de boletos ficam para revisao');
+  assert.equal(r.pendencias, 4, 'quatro pendencias abertas');
   dash = await http('GET', '/api/dashboard');
   assert.equal(dash.total_despesas, 297.84, 'nada de despesa falsa');
 
   // pendencias no painel e resolucao manual
   let p = await http('GET', '/api/auditoria-midias');
-  assert.equal(p.itens.length, 2);
+  assert.equal(p.itens.length, 4);
   assert((await http('POST', '/api/auditoria-midias/resolver?arquivo=' + encodeURIComponent(manuscrito) + '&nota=fechamento%20semanal')).ok);
   p = await http('GET', '/api/auditoria-midias');
-  assert.deepEqual(p.itens.map(i => i.arquivo), [print2]);
+  assert.deepEqual(p.itens.map(i => i.arquivo).sort(), [print2, saldo, lista].sort());
 
   // segunda execucao: idempotente (nada novo, nada relancado)
   const r2 = await http('POST', '/api/auditoria-midias?de=2026-07-01&ate=2026-07-31');
