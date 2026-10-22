@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Financeiro · Inteligência e Auditoria</title>
+<meta name="theme-color" content="#0b1020">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261016-6">
+<style>
+  .cls{font-size:11.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;display:inline-block;border:1px solid transparent}
+  .c-NORMAL{background:rgba(34,197,94,.13);color:#86efac;border-color:rgba(34,197,94,.3)}
+  .c-SOB_ANALISE{background:rgba(245,179,1,.13);color:#fcd34d;border-color:rgba(245,179,1,.32)}
+  .c-IRREGULARIDADE_CONFIRMADA{background:rgba(249,115,22,.15);color:#fdba74;border-color:rgba(249,115,22,.35)}
+  .c-PREJUIZO_CONFIRMADO{background:rgba(239,68,68,.16);color:#fca5a5;border-color:rgba(239,68,68,.4)}
+  .p-ALTA{color:#fca5a5;font-weight:700}.p-MEDIA{color:#fcd34d;font-weight:600}.p-BAIXA{color:var(--mut)}
+  .trilha{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:10px 0}
+  .trilha .chip{cursor:pointer}
+  tr.clicavel{cursor:pointer}
+  .matriz td,.matriz th{text-align:center}.matriz td:first-child,.matriz th:first-child{text-align:left}
+  .matriz td.n{cursor:pointer;font-variant-numeric:tabular-nums}.matriz td.n:hover{background:rgba(59,130,246,.08)}
+  .ev{background:var(--card2);border:1px solid var(--line2);border-radius:12px;padding:10px;min-width:0;font-size:13px}
+  .ev img{width:100%;border-radius:8px;margin-top:8px;cursor:zoom-in;background:#fff}
+  .ev .k{color:var(--mut)}
+  .resp{white-space:pre-wrap;line-height:1.55}
+  .aviso{background:rgba(245,179,1,.08);border:1px solid rgba(245,179,1,.28);border-radius:12px;padding:10px 12px;font-size:13px;color:#fde68a;margin:12px 0}
+  .regra{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:12px;padding:10px 12px;font-size:13px;color:#bfdbfe;margin:12px 0}
+  .dec .btn{flex:1 1 180px;justify-content:center}
+  .mbox.larga{max-width:1100px}
+</style>
+</head>
+<body>
+
+<div id="vLogin" class="hidden" style="max-width:420px;margin:40px auto">
+  <h1>💰 Financeiro</h1><div class="sub">Entre com o mesmo usuário do Portal Esposende</div>
+  <div class="card" style="margin-top:16px">
+    <label class="small">Email do Portal</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label class="small">Senha</label><input id="lSenha" type="password" autocomplete="current-password">
+    <div id="lErr" class="err"></div>
+    <button class="btn b-pri" style="width:100%;padding:14px" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div><h1>💰 Para onde o dinheiro vai — e onde ele se perde</h1>
+      <div class="sub" id="origem">Sallamo · contas a pagar</div></div>
+    <div class="row"><button class="btn" onclick="atualizar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button></div>
+  </div>
+  <div class="tabs" style="margin-top:16px" id="abas">
+    <button data-aba="resumo" class="on">Resumo</button>
+    <button data-aba="gastos">Gastos</button>
+    <button data-aba="auditoria">Auditoria</button>
+    <button data-aba="revisao">Caixa de Revisão <span id="nRev"></span></button>
+    <button data-aba="pergunte">Pergunte</button>
+  </div>
+  <div id="cobertura"></div>
+
+  <!-- RESUMO -->
+  <section id="a-resumo">
+    <h2>Gastos</h2><div class="grid" id="kGasto"></div>
+    <h2>Auditoria — fato separado de suspeita</h2><div class="grid" id="kAud"></div>
+    <div class="regra">Regra do sistema: suspeita fica <b>Sob análise</b> e nunca entra como prejuízo. <b>Prejuízo confirmado</b> só existe depois que uma pessoa confirma na Caixa de Revisão. Falta de dado não é zero.</div>
+    <h2>Sentinela · o que olhar primeiro</h2><div class="card tw" id="sentinela"></div>
+  </section>
+
+  <!-- GASTOS -->
+  <section id="a-gastos" class="hidden">
+    <div class="card">
+      <div class="filtros">
+        <div><label>Data base</label><select id="fBase"><option value="pagamento">Pagamento (o que saiu do caixa)</option><option value="vencimento">Vencimento (pago + a pagar)</option><option value="competencia">Competência</option></select></div>
+        <div><label>De</label><input id="fDe" type="date"></div>
+        <div><label>Até</label><input id="fAte" type="date"></div>
+        <div><label>Buscar (fornecedor, conta, centro)</label><input id="fBusca" placeholder="ex.: energia, vulcabras, 050"></div>
+        <div><label>Situação</label><select id="fSit"><option value="">Todas</option><option>Pago</option><option>A vencer</option><option>Vencido</option><option>Previsto</option><option>Renegociado</option><option>Cancelado</option></select></div>
+        <div><label>Agrupar por</label><select id="fDim"><option value="fornecedor">Fornecedor</option><option value="conta">Conta contábil</option><option value="centro">Centro de custo</option><option value="mes">Mês</option><option value="situacao">Situação</option></select></div>
+      </div>
+      <div class="row"><button class="btn b-pri" onclick="consultar()">Consultar</button><button class="btn" onclick="comparar()">Comparar com o período anterior</button><button class="btn" onclick="limparFiltros()">Limpar</button></div>
+    </div>
+    <div class="trilha" id="trilha"></div>
+    <div class="grid" id="kConsulta"></div>
+    <div class="small mut" id="defConsulta"></div>
+    <div id="comparacao"></div>
+    <h2 id="tGrupos">Grupos</h2><div class="card tw" id="grupos"></div>
+    <h2>Lançamentos <span class="mut" style="text-transform:none;letter-spacing:0;font-weight:500">· clique para ver comprovantes e ocorrências</span></h2><div class="card tw" id="lancs"></div>
+  </section>
+
+  <!-- AUDITORIA -->
+  <section id="a-auditoria" class="hidden">
+    <h2>5 grupos × 4 classificações <span class="mut" style="text-transform:none;letter-spacing:0;font-weight:500">· clique num número para listar</span></h2>
+    <div class="card tw" id="matriz"></div>
+    <div class="card" style="margin-top:14px">
+      <div class="filtros">
+        <div><label>Grupo</label><select id="oGrupo"><option value="">Todos</option></select></div>
+        <div><label>Classificação</label><select id="oClasse"><option value="">Todas (menos Normal)</option><option value="SOB_ANALISE">Sob análise</option><option value="IRREGULARIDADE_CONFIRMADA">Irregularidade confirmada</option><option value="PREJUIZO_CONFIRMADO">Prejuízo confirmado</option><option value="NORMAL">Normal (descartadas)</option></select></div>
+        <div><label>Prioridade</label><select id="oPrior"><option value="">Todas</option><option>ALTA</option><option>MEDIA</option><option>BAIXA</option></select></div>
+        <div><label>Fornecedor</label><input id="oForn"></div>
+      </div>
+      <button class="btn b-pri" onclick="listarOcorrencias()">Listar</button>
+    </div>
+    <div class="card tw" style="margin-top:14px" id="ocorrencias"></div>
+  </section>
+
+  <!-- CAIXA DE REVISÃO -->
+  <section id="a-revisao" class="hidden">
+    <div class="regra">Casos em que a evidência automática não basta. Abra, compare os documentos lado a lado e decida. Toda decisão grava usuário, data, observação e evidências.</div>
+    <div class="row"><div class="tabs" id="revFiltro"><button data-f="ABERTO" class="on">Abertos</button><button data-f="REVISAR_DEPOIS">Revisar depois</button><button data-f="DECIDIDO">Decididos</button><button data-f="RESOLVIDO">Resolvidos</button></div></div>
+    <div class="card tw" style="margin-top:12px" id="revisao"></div>
+  </section>
+
+  <!-- PERGUNTE -->
+  <section id="a-pergunte" class="hidden">
+    <div class="card">
+      <label>Pergunte ao Cérebro Executivo (gastos usam a base inteira; erros e perdas usam as ocorrências)</label>
+      <textarea id="pTexto" rows="2" placeholder="Ex.: quanto gastamos com energia em setembro? · e em agosto? · quais fornecedores cresceram fora do padrão? · onde estamos perdendo dinheiro?"></textarea>
+      <button class="btn b-pri" onclick="perguntar()">Perguntar</button>
+    </div>
+    <div id="respostas"></div>
+  </section>
+</div>
+
+<div class="modal" id="modal" onclick="if(event.target===this)fechar()"><div class="mbox larga" id="mbox"></div></div>
+<div class="modal" id="zoom" onclick="this.style.display='none'"><img id="zoomImg" style="max-width:96vw;max-height:92vh;border-radius:10px;background:#fff"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const SB_URL = 'https://rdztzurfesnobfkazgpm.supabase.co';
+const SB_KEY = 'sb_publishable_4LHSO4TrP7F4m4tpJyH44g_BGmfC92h';
+// Mesma chave de sessão das telas de Obras: quem já entrou lá não precisa entrar de novo.
+const sb = supabase.createClient(SB_URL, SB_KEY, {auth: {persistSession: true, autoRefreshToken: true, storageKey: 'obras-fluxo-auth'}});
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+// null/undefined aparece como "—": ausência de dado nunca vira R$ 0,00
+const brl = v => v === null || v === undefined ? '—' : Number(v).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+const dBR = d => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '—';
+const num = v => v === null || v === undefined ? '—' : Number(v).toLocaleString('pt-BR');
+const toast = (m, ms = 4000) => { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', ms); };
+const msgErro = e => String(e && e.message || e).replace(/^.*?ERROR:\s*/, '');
+const GRUPOS = {FIN_DUPLICIDADE: 'Duplicidade de pagamento', FIN_PAGAMENTO_INCORRETO: 'Pagamento incorreto', FIN_JUROS_MULTA: 'Juros e multas',
+  FIN_CREDITO_DESCONTO: 'Crédito/desconto/devolução não aproveitados', FIN_INCONSISTENCIA_DADOS: 'Inconsistência de dados'};
+const CLASSES = {NORMAL: 'Normal', SOB_ANALISE: 'Sob análise', IRREGULARIDADE_CONFIRMADA: 'Irregularidade confirmada', PREJUIZO_CONFIRMADO: 'Prejuízo confirmado'};
+const classe = c => `<span class="cls c-${c}">${CLASSES[c] || esc(c)}</span>`;
+const kpi = (l, v, n, tipo = '', click = '') => `<div class="card kpi ${tipo} ${click ? 'clic' : ''}" ${click ? `onclick="${click}"` : ''}><div class="l">${l}</div><div class="v">${v}</div>${n ? `<div class="n">${n}</div>` : ''}</div>`;
+const rpc = async (fn, args = {}) => { const r = await sb.rpc(fn, args); if (r.error) throw r.error; return r.data; };
+
+// ---------- login ----------
+function mostrarLogin(m) { $('vApp').classList.add('hidden'); $('vLogin').classList.remove('hidden'); $('lErr').textContent = m || ''; }
+async function iniciar() {
+  const pode = await rpc('fin_pode_auditar').catch(() => false);
+  if (!pode) return mostrarLogin('Este usuário não tem acesso ao Financeiro (perfis: administrador, controladoria, diretoria).');
+  $('vLogin').classList.add('hidden'); $('vApp').classList.remove('hidden');
+  irPara(location.hash.replace('#', '') || 'resumo');
+}
+window.entrar = async () => {
+  $('lErr').textContent = '';
+  const r = await sb.auth.signInWithPassword({email: $('lEmail').value.trim(), password: $('lSenha').value});
+  if (r.error) { $('lErr').textContent = 'Email ou senha incorretos.'; return; }
+  iniciar();
+};
+window.sair = async () => { await sb.auth.signOut(); mostrarLogin(); };
+$('lSenha').addEventListener('keydown', e => { if (e.key === 'Enter') entrar(); });
+
+// ---------- abas ----------
+const carregado = {};
+function irPara(aba) {
+  if (!$('a-' + aba)) aba = 'resumo';
+  document.querySelectorAll('#abas button').forEach(b => b.classList.toggle('on', b.dataset.aba === aba));
+  document.querySelectorAll('section[id^="a-"]').forEach(s => s.classList.toggle('hidden', s.id !== 'a-' + aba));
+  history.replaceState(null, '', '#' + aba);
+  if (!carregado[aba]) { carregado[aba] = true; ({resumo: carregarResumo, gastos: consultar, auditoria: carregarAuditoria, revisao: carregarRevisao})[aba]?.(); }
+}
+$('abas').addEventListener('click', e => { const b = e.target.closest('button'); if (b) irPara(b.dataset.aba); });
+window.atualizar = () => { Object.keys(carregado).forEach(k => delete carregado[k]); irPara(location.hash.replace('#', '') || 'resumo'); };
+
+function mostrarCobertura(c) {
+  if (!c) return;
+  $('origem').textContent = `Sallamo · contas a pagar · ${num(c.lancamentos)} lançamentos · carga de ${c.carga_em ? new Date(c.carga_em).toLocaleString('pt-BR') : '—'} · ` +
+    `${num(c.pagos_com_comprovante)} de ${num(c.pagos)} pagamentos com comprovante anexado`;
+  $('cobertura').innerHTML = `<div class="aviso">📅 ${esc(c.aviso)}</div>`;
+}
+
+// ---------- RESUMO ----------
+async function carregarResumo() {
+  try {
+    const r = await rpc('fin_resumo');
+    mostrarCobertura(r.cobertura);
+    const g = r.gasto, a = r.auditoria;
+    $('kGasto').innerHTML = kpi('Pago este mês', brl(g.mes_atual), 'pela data do pagamento', 't-azul', "irPara('gastos')") +
+      kpi('Pago no mês anterior', brl(g.mes_anterior), '', 't-azul') + kpi('Em aberto (a pagar)', brl(g.em_aberto), 'A vencer + Vencido + Previsto', 'k-pagar') +
+      kpi('Vencido sem pagamento', brl(g.vencido), `${num(g.vencidos_qtd)} título(s) · risco de juros`, 'k-bad');
+    $('kAud').innerHTML = kpi('Prejuízo confirmado', brl(a.prejuizo_confirmado), `${num(a.prejuizo_confirmado_qtd)} caso(s) decididos`, 'k-bad') +
+      kpi('Irregularidade confirmada', num(a.irregularidade_confirmada_qtd), `${brl(a.irregularidade_confirmada_impacto)} comprovado por documento`, 't-laranja') +
+      kpi('Sob análise (suspeita)', num(a.sob_analise_qtd), `${brl(a.sob_analise_valor_em_risco)} em risco — não é prejuízo`, 'k-pagar', "irPara('auditoria')") +
+      kpi('Caixa de Revisão', num(a.caixa_revisao), 'aguardando decisão', 't-roxo', "irPara('revisao')") +
+      (Number(a.recuperado) ? kpi('Recuperado', brl(a.recuperado), '', 'k-ok') : '');
+    $('nRev').textContent = a.caixa_revisao ? `(${a.caixa_revisao})` : '';
+    $('sentinela').innerHTML = r.sentinela.length ? `<table><thead><tr><th>Prioridade</th><th>Ocorrência</th><th>Fornecedor</th><th>Grupo</th><th class="r">Valor</th><th>Situação</th></tr></thead><tbody>` +
+      r.sentinela.map(s => `<tr class="clicavel" onclick="abrirCaso(${s.id})"><td class="p-${s.prioridade}">${s.prioridade}</td><td>${esc(s.titulo)}</td><td>${esc(s.fornecedor || '—')}</td>` +
+        `<td class="small">${GRUPOS[s.grupo]}</td><td class="r">${brl(s.valor)}</td><td>${classe(s.classificacao)}</td></tr>`).join('') + '</tbody></table>'
+      : '<div class="vazio">Nenhuma ocorrência ativa.</div>';
+  } catch (e) { toast('Erro ao carregar o resumo: ' + msgErro(e)); }
+}
+
+// ---------- GASTOS (inteligência com drill-down) ----------
+let filtrosExtras = {};   // filtros vindos do clique nos grupos (fornecedor/conta/centro/situação/mês)
+const PROXIMO = {fornecedor: 'conta', conta: 'fornecedor', centro: 'fornecedor', situacao: 'fornecedor', mes: 'fornecedor'};
+function filtrosAtuais() {
+  const p = {base: $('fBase').value, agrupar: $('fDim').value, limite: 100, limite_lancamentos: 300, ...filtrosExtras};
+  if ($('fDe').value) p.de = $('fDe').value; if ($('fAte').value) p.ate = $('fAte').value;
+  if ($('fBusca').value.trim()) p.busca = $('fBusca').value.trim();
+  if ($('fSit').value) p.situacao = $('fSit').value;
+  return p;
+}
+window.limparFiltros = () => { ['fDe', 'fAte', 'fBusca'].forEach(i => $(i).value = ''); $('fSit').value = ''; filtrosExtras = {}; consultar(); };
+function trilha() {
+  const nomes = {fornecedor_exato: 'Fornecedor', conta_exata: 'Conta', centro_exato: 'Centro', situacao: 'Situação'};
+  $('trilha').innerHTML = Object.keys(filtrosExtras).length ? '<span class="small mut">Filtrando:</span> ' + Object.entries(filtrosExtras).map(([k, v]) =>
+    `<span class="chip s-aberta" title="Remover" onclick="tirarFiltro('${k}')">${nomes[k] || k}: ${esc(v || '(vazio)')} ✕</span>`).join(' ') : '';
+}
+window.tirarFiltro = k => { delete filtrosExtras[k]; consultar(); };
+window.consultar = async () => {
+  $('comparacao').innerHTML = '';
+  trilha();
+  try {
+    const p = filtrosAtuais(), d = await rpc('fin_consulta', {p});
+    mostrarCobertura(d.cobertura);
+    const t = d.totais, base = p.base;
+    $('kConsulta').innerHTML = t.lancamentos ? (base === 'pagamento'
+      ? kpi('Total pago', brl(t.valor_pago), `${num(t.lancamentos)} lançamentos · ${num(t.fornecedores)} fornecedores`, 't-azul')
+      : kpi('Total das parcelas', brl(t.valor_parcela), `${num(t.lancamentos)} parcelas`, 't-azul') + kpi('Já pago', brl(t.valor_pago), '', 'k-ok') +
+        kpi('Em aberto', brl(t.saldo_em_aberto), '', 'k-pagar') + kpi('Vencido', brl(t.vencido_em_aberto), '', 'k-bad'))
+      : `<div class="card vazio" style="grid-column:1/-1">Nenhum lançamento encontrado com esses filtros. Isso não quer dizer gasto zero — confira o nome e o período.</div>`;
+    $('defConsulta').textContent = `${d.definicao} Origem: ${d.origem}.`;
+    const dim = p.agrupar, nomeDim = {fornecedor: 'Fornecedor', conta: 'Conta contábil', centro: 'Centro de custo', mes: 'Mês', situacao: 'Situação'}[dim];
+    $('tGrupos').textContent = `Por ${nomeDim.toLowerCase()}`;
+    $('grupos').innerHTML = d.grupos.length ? `<table><thead><tr><th>${nomeDim}</th><th class="r">Lançamentos</th><th class="r">Valor</th><th class="r">%</th>${base !== 'pagamento' ? '<th class="r">Em aberto</th>' : ''}</tr></thead><tbody>` +
+      d.grupos.map(g => `<tr class="clicavel" data-g="${esc(g.grupo)}"><td>${esc(g.grupo)}</td><td class="r">${num(g.lancamentos)}</td><td class="r">${brl(g.valor)}</td>` +
+        `<td class="r">${g.pct == null ? '—' : num(g.pct) + '%'}</td>${base !== 'pagamento' ? `<td class="r">${brl(g.saldo_em_aberto)}</td>` : ''}</tr>`).join('') + '</tbody></table>'
+      : '<div class="vazio">—</div>';
+    $('grupos').querySelectorAll('tr[data-g]').forEach(tr => tr.onclick = () => descer(dim, tr.dataset.g));
+    $('lancs').innerHTML = d.lancamentos.length ? `<table><thead><tr><th>Título</th><th>Fornecedor</th><th>Conta</th><th>Centro</th><th>Venc.</th><th>Pago em</th><th class="r">Parcela</th><th class="r">Pago</th><th>Situação</th><th>Auditoria</th></tr></thead><tbody>` +
+      d.lancamentos.map(l => `<tr class="clicavel" onclick="abrirLancamento('${esc(l.chave)}')"><td>${esc(l.codigo)}</td><td>${esc(l.fornecedor)}</td><td class="small">${esc(l.conta)}</td>` +
+        `<td class="small">${esc(l.centro || '—')}</td><td>${dBR(l.vencimento)}</td><td>${dBR(l.data_pagamento)}</td><td class="r">${brl(l.valor_parcela)}</td><td class="r">${brl(l.valor_pago)}</td>` +
+        `<td class="small">${esc(l.situacao)}</td><td>${classe(l.auditoria)}</td></tr>`).join('') + '</tbody></table>' +
+        (t.lancamentos > d.lancamentos.length ? `<div class="small mut" style="margin-top:8px">Mostrando os ${d.lancamentos.length} maiores de ${num(t.lancamentos)}. Clique num grupo acima para chegar nos demais.</div>` : '')
+      : '<div class="vazio">—</div>';
+  } catch (e) { toast('Erro na consulta: ' + msgErro(e)); }
+};
+function descer(dim, valor) {
+  if (dim === 'mes') { const [a, m] = valor.split('-'); $('fDe').value = `${a}-${m}-01`; $('fAte').value = new Date(Date.UTC(+a, +m, 0)).toISOString().slice(0, 10); }
+  // valor exato do grupo clicado ("ETA" não pode trazer "BETA")
+  else filtrosExtras[{fornecedor: 'fornecedor_exato', conta: 'conta_exata', centro: 'centro_exato'}[dim] || dim] = valor === '(vazio)' ? '' : valor;
+  $('fDim').value = PROXIMO[dim];
+  consultar();
+}
+window.comparar = async () => {
+  const p = filtrosAtuais(); delete p.limite; delete p.limite_lancamentos;
+  if (p.de && p.ate) { const de = new Date(p.de), ate = new Date(p.ate), dias = Math.round((ate - de) / 864e5);
+    const aAte = new Date(de); aAte.setUTCDate(aAte.getUTCDate() - 1); const aDe = new Date(aAte); aDe.setUTCDate(aDe.getUTCDate() - dias);
+    Object.assign(p, {b_de: p.de, b_ate: p.ate, a_de: aDe.toISOString().slice(0, 10), a_ate: aAte.toISOString().slice(0, 10)}); }
+  delete p.de; delete p.ate;
+  if (!['fornecedor', 'conta', 'centro'].includes(p.agrupar)) p.agrupar = 'fornecedor';
+  try {
+    const d = await rpc('fin_comparar', {p});
+    const nomes = {AUMENTO_ANORMAL: 'Aumento anormal', NOVO: 'Novo', SUMIU: 'Zerou', QUEDA_FORTE: 'Queda forte'};
+    $('comparacao').innerHTML = `<h2>Comparação ${dBR(d.periodo_a.de)}–${dBR(d.periodo_a.ate)} × ${dBR(d.periodo_b.de)}–${dBR(d.periodo_b.ate)}</h2>` +
+      `<div class="grid">${kpi('Período anterior', brl(d.periodo_a.total))}${kpi('Período atual', brl(d.periodo_b.total))}` +
+      `${kpi('Variação', d.variacao_pct == null ? '—' : (d.variacao_pct > 0 ? '+' : '') + num(d.variacao_pct) + '%', brl(d.variacao), d.variacao > 0 ? 'k-bad' : 'k-ok')}` +
+      `${kpi('Concentração (5 maiores)', d.concentracao_top5_pct == null ? '—' : num(d.concentracao_top5_pct) + '%')}</div>` +
+      `<div class="card tw" style="margin-top:12px"><h3>Fora do padrão</h3>` + (d.alertas.length ? `<table><thead><tr><th>Item</th><th class="r">Antes</th><th class="r">Agora</th><th class="r">Diferença</th><th>Alerta</th></tr></thead><tbody>` +
+        d.alertas.map(x => `<tr><td>${esc(x.grupo)}</td><td class="r">${brl(x.a)}</td><td class="r">${brl(x.b)}</td><td class="r">${brl(x.diferenca)}${x.pct != null ? ` (${x.pct > 0 ? '+' : ''}${num(x.pct)}%)` : ''}</td><td>${nomes[x.alerta]}</td></tr>`).join('') + '</tbody></table>'
+        : '<div class="mut small">Nenhum item acima do critério (+50% e +R$ 10 mil, novo ou zerado acima de R$ 10 mil).</div>') + '</div>';
+  } catch (e) { toast('Erro na comparação: ' + msgErro(e)); }
+};
+
+// ---------- detalhe de um lançamento ----------
+async function urlAssinada(b, path) { if (!b || !path) return null; const r = await sb.storage.from(b).createSignedUrl(path, 900); return r.data?.signedUrl || null; }
+window.zoom = src => { $('zoomImg').src = src; $('zoom').style.display = 'flex'; };
+window.fechar = () => { $('modal').style.display = 'none'; };
+function abrirModal(html) { $('mbox').innerHTML = html; $('modal').style.display = 'flex'; $('modal').scrollTop = 0; }
+async function cartaoComprovante(c, rotulo) {
+  const url = await urlAssinada('fin-comprovantes', c.arquivo_path);
+  return `<div class="ev"><b>${esc(rotulo || 'Comprovante')}</b><div class="k">Pago ${dBR(c.data_pagamento)} · ${brl(c.valor)}${c.valor_banco != null ? ` · banco ${brl(c.valor_banco)}` : ''}</div>` +
+    `${c.autenticacao ? `<div class="k">Autenticação ${esc(c.autenticacao)}</div>` : ''}${c.favorecido ? `<div class="k">Favorecido: ${esc(c.favorecido)}</div>` : ''}` +
+    `${Number(c.encargos) > 0 ? `<div class="crit">Encargos ${brl(c.encargos)}</div>` : ''}` +
+    (url ? `<img src="${url}" onclick="zoom(this.src)" alt="comprovante">` : '<div class="mut">Arquivo indisponível</div>') + '</div>';
+}
+window.abrirLancamento = async chave => {
+  abrirModal('<div class="vazio">Carregando…</div>');
+  try {
+    const d = await rpc('fin_lancamento', {p_chave: chave}), l = d.lancamento;
+    const comps = await Promise.all((d.comprovantes || []).map((c, i) => cartaoComprovante(c, `Comprovante ${i + 1}`)));
+    abrirModal(`<div class="row" style="justify-content:space-between"><h3>Título ${esc(l.codigo)} · ${esc(l.fornecedor)}</h3><button class="btn" onclick="fechar()">Fechar</button></div>` +
+      `<div class="mini"><div><b>${brl(l.valor_parcela)}</b><span>parcela</span></div><div><b>${brl(l.valor_pago)}</b><span>pago</span></div><div><b>${brl(l.saldo)}</b><span>saldo</span></div>` +
+      `<div><b>${dBR(l.vencimento)}</b><span>vencimento</span></div><div><b>${dBR(l.data_pagamento)}</b><span>pagamento</span></div><div><b>${esc(l.situacao)}</b><span>situação</span></div></div>` +
+      `<div class="small">Conta: <b>${esc(l.conta_contabil)}</b> · Centro: <b>${esc(l.centro_custo || '—')}</b> · Competência ${dBR(l.competencia)}</div>` +
+      `<div class="small mut">Origem: ${esc(d.origem)} · chave ${esc(l.chave)}</div>` +
+      `<h2>Ocorrências de auditoria</h2>` + ((d.ocorrencias || []).length ? (d.ocorrencias).map(o =>
+        `<div class="row clicavel" style="margin:6px 0" onclick="abrirCaso(${o.id})">${classe(o.classificacao)} <b>${esc(o.titulo)}</b> <span class="mut">${GRUPOS[o.grupo]} · ${brl(o.valor)}</span></div>`).join('')
+        : '<div class="mut small">Nenhuma — lançamento NORMAL.</div>') +
+      `<h2>Comprovantes</h2>` + (comps.length ? `<div class="cmp-grid">${comps.join('')}</div>` : '<div class="mut small">Nenhum comprovante anexado a esta parcela.</div>') +
+      `<h2>Parcelas do título</h2><div class="tw"><table><thead><tr><th>Venc.</th><th class="r">Parcela</th><th class="r">Pago</th><th>Pago em</th><th>Situação</th></tr></thead><tbody>` +
+      (d.parcelas_do_titulo || []).map(x => `<tr${x.chave === l.chave ? ' style="background:rgba(59,130,246,.08)"' : ''}><td>${dBR(x.vencimento)}</td><td class="r">${brl(x.valor_parcela)}</td><td class="r">${brl(x.valor_pago)}</td>` +
+        `<td>${dBR(x.data_pagamento)}</td><td>${esc(x.situacao)}${x.vigente === false ? ' <span class="chip s-cinza">saiu do Sallamo</span>' : ''}</td></tr>`).join('') + '</tbody></table></div>');
+  } catch (e) { abrirModal(`<div class="err">${esc(msgErro(e))}</div><button class="btn" onclick="fechar()">Fechar</button>`); }
+};
+
+// ---------- AUDITORIA ----------
+const COLS_OC = 'id,grupo,regra,titulo,classificacao,prioridade,forca,fornecedor,codigo_titulo,valor_envolvido,impacto_estimado,impacto_comprovado,data_ref,status_revisao,pontos';
+async function carregarAuditoria() {
+  $('oGrupo').innerHTML = '<option value="">Todos</option>' + Object.entries(GRUPOS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+  try {
+    const r = await rpc('fin_resumo'); mostrarCobertura(r.cobertura);
+    const pg = r.auditoria.por_grupo || {};
+    const cel = (g, c, v) => `<td class="n" onclick="filtrarMatriz('${g}','${c}')">${num(v || 0)}</td>`;
+    $('matriz').innerHTML = `<table class="matriz"><thead><tr><th>Grupo</th><th>Sob análise</th><th>Em risco (suspeita)</th><th>Irregularidade confirmada</th><th>Prejuízo confirmado</th><th>Valor do prejuízo</th><th>Normal (descartado)</th></tr></thead><tbody>` +
+      Object.entries(GRUPOS).map(([k, nome]) => { const g = pg[k] || {};
+        return `<tr><td>${nome}</td>${cel(k, 'SOB_ANALISE', g.SOB_ANALISE)}<td>${brl(g.valor_em_risco ?? 0)}</td>${cel(k, 'IRREGULARIDADE_CONFIRMADA', g.IRREGULARIDADE_CONFIRMADA)}` +
+          `${cel(k, 'PREJUIZO_CONFIRMADO', g.PREJUIZO_CONFIRMADO)}<td>${brl(g.prejuizo ?? 0)}</td>${cel(k, 'NORMAL', g.NORMAL)}</tr>`; }).join('') + '</tbody></table>';
+    listarOcorrencias();
+  } catch (e) { toast('Erro: ' + msgErro(e)); }
+}
+window.filtrarMatriz = (g, c) => { $('oGrupo').value = g; $('oClasse').value = c; listarOcorrencias(); };
+window.listarOcorrencias = async () => {
+  let q = sb.from('fin_ocorrencias').select(COLS_OC).order('pontos', {ascending: false}).order('impacto_estimado', {ascending: false, nullsFirst: false}).limit(500);
+  const cls = $('oClasse').value;
+  q = cls ? q.eq('classificacao', cls) : q.neq('classificacao', 'NORMAL');
+  if (cls !== 'NORMAL') q = q.or('ativo.eq.true,status_revisao.in.(DECIDIDO,RESOLVIDO)');
+  if ($('oGrupo').value) q = q.eq('grupo', $('oGrupo').value);
+  if ($('oPrior').value) q = q.eq('prioridade', $('oPrior').value);
+  if ($('oForn').value.trim()) q = q.ilike('fornecedor', `%${$('oForn').value.trim()}%`);
+  const {data, error} = await q;
+  if (error) return toast(msgErro(error));
+  $('ocorrencias').innerHTML = tabelaOcorrencias(data);
+};
+function tabelaOcorrencias(lista) {
+  if (!lista.length) return '<div class="vazio">Nenhuma ocorrência com esses filtros.</div>';
+  return `<div class="small mut">${lista.length} ocorrência(s)</div><table><thead><tr><th>#</th><th>Prioridade</th><th>Ocorrência</th><th>Fornecedor</th><th>Título</th><th>Data</th><th class="r">Envolvido</th><th class="r">Em risco / comprovado</th><th>Classificação</th></tr></thead><tbody>` +
+    lista.map(o => `<tr class="clicavel" onclick="abrirCaso(${o.id})"><td class="mut">${o.id}</td><td class="p-${o.prioridade}">${o.prioridade}</td><td>${esc(o.titulo)}<div class="small mut">${GRUPOS[o.grupo]} · força ${o.forca.toLowerCase()}</div></td>` +
+      `<td>${esc(o.fornecedor || '—')}</td><td>${esc(o.codigo_titulo || '—')}</td><td>${dBR(o.data_ref)}</td><td class="r">${brl(o.valor_envolvido)}</td>` +
+      `<td class="r">${o.impacto_comprovado != null ? `<b>${brl(o.impacto_comprovado)}</b>` : brl(o.impacto_estimado)}</td><td>${classe(o.classificacao)}</td></tr>`).join('') + '</tbody></table>';
+}
+
+// ---------- CAIXA DE REVISÃO ----------
+let filtroRev = 'ABERTO';
+$('revFiltro').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; filtroRev = b.dataset.f;
+  document.querySelectorAll('#revFiltro button').forEach(x => x.classList.toggle('on', x === b)); carregarRevisao(); });
+async function carregarRevisao() {
+  let q = sb.from('fin_ocorrencias').select(COLS_OC).eq('status_revisao', filtroRev).order('pontos', {ascending: false}).limit(500);
+  if (filtroRev === 'ABERTO' || filtroRev === 'REVISAR_DEPOIS') q = q.eq('ativo', true).eq('classificacao', 'SOB_ANALISE');
+  const {data, error} = await q;
+  if (error) return toast(msgErro(error));
+  $('revisao').innerHTML = tabelaOcorrencias(data);
+}
+
+window.abrirCaso = async id => {
+  abrirModal('<div class="vazio">Carregando…</div>');
+  try {
+    const d = await rpc('fin_ocorrencia', {p_id: id}), o = d.ocorrencia;
+    // evidências do caso (pagamentos A/B, comprovantes) + comprovantes das parcelas, lado a lado
+    const evs = await Promise.all((o.evidencias || []).map(async ev => {
+      const url = ev.comprovante ? await urlAssinada(ev.comprovante.bucket, ev.comprovante.path) : null;
+      return `<div class="ev"><b>${esc(ev.rotulo || ev.tipo)}</b>` +
+        [['Forma', ev.forma], ['Data', ev.data && dBR(ev.data)], ['Valor', ev.valor != null && brl(ev.valor)], ['ID do pagamento', ev.id_pagamento],
+         ['Código de barras', ev.codigo_barras], ['Favorecido', ev.favorecido], ['Arquivo do banco', ev.arquivo_banco && `${ev.arquivo_banco}${ev.pagina ? ' · pág. ' + ev.pagina : ''}`]]
+          .filter(x => x[1]).map(([k, v]) => `<div><span class="k">${k}:</span> ${esc(v)}</div>`).join('') +
+        (url ? `<img src="${url}" onclick="zoom(this.src)" alt="evidência">` : (ev.comprovante ? '<div class="mut">Imagem indisponível</div>' : '')) + '</div>';
+    }));
+    const vistos = new Set((o.evidencias || []).map(ev => ev.comprovante?.path).filter(Boolean));
+    const extras = await Promise.all((d.comprovantes || []).filter(c => !vistos.has(c.arquivo_path)).map(c => cartaoComprovante(c, `Comprovante do título ${c.codigo}`)));
+    const aberto = o.status_revisao === 'ABERTO' || o.status_revisao === 'REVISAR_DEPOIS';
+    const sugestao = o.impacto_comprovado ?? o.impacto_estimado ?? '';
+    abrirModal(`<div class="row" style="justify-content:space-between"><h3>#${o.id} · ${esc(o.titulo)}</h3><button class="btn" onclick="fechar()">Fechar</button></div>` +
+      `<div class="row">${classe(o.classificacao)} <span class="chip s-cinza">${GRUPOS[o.grupo]}</span> <span class="chip s-cinza">força ${o.forca.toLowerCase()}</span> <span class="p-${o.prioridade}">prioridade ${o.prioridade.toLowerCase()}</span> <span class="chip s-cinza">${o.status_revisao.replace('_', ' ').toLowerCase()}</span></div>` +
+      `<p><b>Motivo do alerta:</b> ${esc(o.motivo)}</p>` +
+      `<div class="mini"><div><b>${brl(o.valor_envolvido)}</b><span>valor envolvido</span></div><div><b>${brl(o.impacto_estimado)}</b><span>pode ser perda (suspeita)</span></div>` +
+      `<div><b>${brl(o.impacto_comprovado)}</b><span>impacto comprovado</span></div><div><b>${esc(o.fornecedor || '—')}</b><span>fornecedor</span></div>` +
+      `<div><b>${esc(o.codigo_titulo || '—')}</b><span>título</span></div><div><b>${esc(o.documento || '—')}</b><span>documento</span></div></div>` +
+      `<h2>Lançamentos no Sallamo</h2>` + ((d.lancamentos || []).length ? `<div class="tw"><table><thead><tr><th>Título</th><th>Venc.</th><th>Pago em</th><th class="r">Parcela</th><th class="r">Pago</th><th>Situação</th><th>Conta</th></tr></thead><tbody>` +
+        d.lancamentos.map(l => `<tr class="clicavel" onclick="abrirLancamento('${esc(l.chave)}')"><td>${esc(l.codigo)}</td><td>${dBR(l.vencimento)}</td><td>${dBR(l.data_pagamento)}</td><td class="r">${brl(l.valor_parcela)}</td><td class="r">${brl(l.valor_pago)}</td><td>${esc(l.situacao)}</td><td class="small">${esc(l.conta_contabil)}</td></tr>`).join('') + '</tbody></table></div>'
+        : '<div class="mut small">Nenhum título do Sallamo ligado automaticamente (o caso veio só do banco/OCR).</div>') +
+      `<h2>Pagamentos, documentos e comprovantes — lado a lado</h2>` + ((evs.length + extras.length) ? `<div class="cmp-grid">${evs.join('')}${extras.join('')}</div>` : '<div class="mut small">Sem evidência em arquivo.</div>') +
+      (aberto ? `<h2>Decisão</h2><div class="card">
+        <label>Observação (obrigatória) — o que você conferiu?</label><textarea id="dObs" rows="2" placeholder="Ex.: extrato do Itaú mostra 2 débitos de R$ 23.027,20 em 16/06 e 13/07"></textarea>
+        <label>Valor (impacto comprovado ao confirmar · valor recuperado ao resolver)</label><input id="dValor" type="number" step="0.01" value="${sugestao}">
+        <label>Evidência anexada (link, nº do extrato, protocolo…)</label><input id="dEv" placeholder="opcional">
+        <div class="row dec"><button class="btn b-warn" onclick="decidir(${o.id},'CONFIRMAR_IRREGULARIDADE')">Confirmar irregularidade</button>
+          <button class="btn b-ok" onclick="decidir(${o.id},'NAO_E_IRREGULARIDADE')">Não é irregularidade</button>
+          <button class="btn" onclick="decidir(${o.id},'REVISAR_DEPOIS')">Revisar depois</button>
+          <button class="btn" onclick="decidir(${o.id},'RESOLVIDO')">Resolvido</button></div>
+        <div class="small mut">Confirmar com valor &gt; 0 = <b>Prejuízo confirmado</b>; sem valor = <b>Irregularidade confirmada</b>.</div></div>`
+        : `<div class="regra">Decidido por ${esc(o.decidido_por)} em ${o.decidido_em ? new Date(o.decidido_em).toLocaleString('pt-BR') : '—'}: ${esc(o.observacao || '')}</div>
+           <div class="row"><button class="btn" onclick="decidir(${o.id},'RESOLVIDO')">Marcar como resolvido</button></div>
+           <label>Observação</label><textarea id="dObs" rows="2"></textarea><label>Valor recuperado</label><input id="dValor" type="number" step="0.01"><input id="dEv" type="hidden">`) +
+      `<h2>Histórico de decisões</h2>` + ((d.decisoes || []).length ? d.decisoes.map(x =>
+        `<div class="small" style="margin:6px 0"><b>${new Date(x.em).toLocaleString('pt-BR')}</b> · ${esc(x.usuario)} · ${esc(x.decisao.replaceAll('_', ' ').toLowerCase())} · ${CLASSES[x.de] || x.de} → ${CLASSES[x.para] || x.para}` +
+        `${x.impacto != null ? ` · impacto ${brl(x.impacto)}` : ''}${x.recuperado != null ? ` · recuperado ${brl(x.recuperado)}` : ''}<div class="mut">${esc(x.observacao)}</div></div>`).join('')
+        : '<div class="mut small">Nenhuma decisão ainda.</div>'));
+  } catch (e) { abrirModal(`<div class="err">${esc(msgErro(e))}</div><button class="btn" onclick="fechar()">Fechar</button>`); }
+};
+window.decidir = async (id, decisao) => {
+  const obs = ($('dObs')?.value || '').trim(), v = $('dValor')?.value, ev = ($('dEv')?.value || '').trim();
+  if (obs.length < 5) return toast('Escreva a observação: o que foi conferido.');
+  if (decisao === 'CONFIRMAR_IRREGULARIDADE' && !confirm(Number(v) > 0 ? `Confirmar como PREJUÍZO de ${brl(v)}?` : 'Confirmar como irregularidade (sem valor de prejuízo)?')) return;
+  try {
+    const r = await rpc('fin_decidir', {p_id: id, p_decisao: decisao, p_observacao: obs, p_valor: v === '' || v == null ? null : Number(v),
+      p_evidencias: ev ? [{tipo: 'informada', descricao: ev, em: new Date().toISOString()}] : []});
+    toast(`Decisão gravada: ${CLASSES[r.classificacao]} (${r.por}).`);
+    fechar(); delete carregado.resumo; delete carregado.auditoria;
+    if (!$('a-revisao').classList.contains('hidden')) carregarRevisao();
+    if (!$('a-auditoria').classList.contains('hidden')) listarOcorrencias();
+  } catch (e) { toast('Não gravou: ' + msgErro(e), 6000); }
+};
+
+// ---------- PERGUNTE (Cérebro Executivo) ----------
+let contexto = null;
+window.perguntar = async () => {
+  const pergunta = $('pTexto').value.trim(); if (!pergunta) return;
+  const {data: {session}} = await sb.auth.getSession();
+  const box = document.createElement('div'); box.className = 'card'; box.style.marginTop = '12px';
+  box.innerHTML = `<div class="small mut">${esc(pergunta)}</div><div class="vazio">Consultando…</div>`;
+  $('respostas').prepend(box);
+  try {
+    const r = await fetch(`${SB_URL}/functions/v1/portal-financeiro-query`, {method: 'POST',
+      headers: {apikey: SB_KEY, Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json'},
+      body: JSON.stringify({pergunta, contexto})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    contexto = d.contexto;
+    box.innerHTML = `<div class="small mut">${esc(pergunta)} · ${esc(d.agente)}</div><div class="resp">${esc(d.resposta)}</div>` +
+      ((d.dados?.lancamentos || []).length ? `<div class="small" style="margin-top:8px">${d.dados.lancamentos.slice(0, 10).map(l =>
+        `<a href="#" onclick="abrirLancamento('${esc(l.chave)}');return false">título ${esc(l.codigo)} · ${brl(l.valor_pago || l.valor_parcela)}</a>`).join(' · ')}</div>` : '') +
+      ((d.dados?.casos || []).length ? `<div class="small" style="margin-top:8px">${d.dados.casos.map(c => `<a href="#" onclick="abrirCaso(${c.id});return false">#${c.id}</a>`).join(' · ')}</div>` : '');
+    $('pTexto').value = '';
+  } catch (e) { box.innerHTML = `<div class="err">${esc(msgErro(e))}</div>`; }
+};
+$('pTexto').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); perguntar(); } });
+
+(async () => { const s = await sb.auth.getSession(); if (s.data && s.data.session) iniciar(); else mostrarLogin(); })();
+</script>
+</body>
+</html>
