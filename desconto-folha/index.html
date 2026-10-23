@@ -56,6 +56,24 @@
   .rel{display:flex;flex-direction:column;gap:8px}
   .rel .row .btn{flex:1;justify-content:center}
   #preview{margin-top:14px}
+  .acoes-aba{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin:14px 0 -2px}
+  .hero{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;align-items:center;margin-top:14px;background:linear-gradient(135deg,rgba(37,99,235,.18),rgba(15,23,42,.6) 60%);border-color:rgba(59,130,246,.35)}
+  .hero .t{font-size:13px;color:var(--txt2);text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+  .hero .c{font-size:30px;font-weight:800;letter-spacing:-.02em;margin:4px 0}
+  .hero .f{font-size:13.5px;color:var(--txt2);line-height:1.6}
+  .gauge{text-align:center}.gauge .v{font-size:44px;font-weight:900;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .gauge .l{font-size:12.5px;color:var(--txt2)}.gauge .barra{height:12px;border-radius:8px;background:var(--card2);overflow:hidden;margin:8px auto 4px;max-width:320px}
+  .gauge .barra i{display:block;height:100%;border-radius:8px}
+  .kp4{grid-template-columns:repeat(4,minmax(0,1fr))!important;margin-top:14px}
+  .sitb{display:grid;gap:10px;margin-top:10px}
+  .sitb div{display:grid;grid-template-columns:150px 1fr 110px;gap:10px;align-items:center;font-size:13.5px}
+  .sitb .b{height:14px;border-radius:7px;background:var(--card2);overflow:hidden}.sitb .b i{display:block;height:100%;border-radius:7px}
+  .sitb b{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .achados{display:grid;gap:8px;margin-top:10px}
+  .achados>div{display:grid;grid-template-columns:14px 1fr;gap:10px;font-size:13.5px;line-height:1.45;padding:9px 10px;border-radius:10px;background:var(--card2);border:1px solid var(--line)}
+  .achados i{width:10px;height:10px;border-radius:50%;margin-top:5px}
+  .achados .acao{color:var(--mut);font-size:12.5px;margin-top:2px}
+  @media (max-width:900px){.hero{grid-template-columns:1fr}.kp4{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sitb div{grid-template-columns:110px 1fr 90px}}
   .embutido .modal{position:fixed!important}.embutido .toast{position:fixed!important}
   @media (max-width:620px){.busca input,.busca select{min-width:0;width:100%;flex:auto}.topo-comp{width:100%}.topo-comp select{flex:1}}
   @media print{
@@ -101,15 +119,19 @@
 
   <!-- PAINEL -->
   <section id="a-painel">
-    <h2 id="tPainel">Competência</h2>
-    <div class="grid" id="kpis"></div>
+    <div class="card hero" id="hero"></div>
+    <div class="grid kp4" id="kpis"></div>
     <div class="g2" style="margin-top:14px">
-      <div class="card"><h3>O que falta para fechar o mês</h3><div class="chk-mes" id="checklist" style="margin-top:10px"></div></div>
       <div class="card viz"><h3>Devido × descontado por competência <span id="legCol"></span></h3><div id="gCol"></div></div>
+      <div class="card"><h3>Situação dos funcionários na competência</h3><div class="sitb" id="gSit"></div></div>
     </div>
     <div class="g2" style="margin-top:14px">
-      <div class="card viz"><h3>Deixou de descontar por loja</h3><div id="gLoja"></div></div>
-      <div class="card viz"><h3>Pendências abertas por tipo</h3><div id="gTipo"></div></div>
+      <div class="card"><h3>Principais achados</h3><div class="achados" id="achados"></div></div>
+      <div class="card"><h3>O que falta para fechar o mês</h3><div class="chk-mes" id="checklist" style="margin-top:10px"></div></div>
+    </div>
+    <div class="g2" style="margin-top:14px">
+      <div class="card viz"><h3>Diferença por loja (a menos + a mais)</h3><div id="gLoja"></div></div>
+      <div class="card"><h3>Pendências abertas por tipo</h3><div id="gTipo"></div></div>
     </div>
     <h2>Maiores diferenças da competência</h2>
     <div class="card tw" id="topDif"></div>
@@ -166,6 +188,8 @@
   <!-- RELATÓRIOS -->
   <section id="a-rel" class="hidden">
     <div class="pgrid" style="margin-top:16px">
+      <div class="card rel" style="border-color:rgba(124,58,237,.45)"><h3>Relatório executivo (Diretoria)</h3><div class="small mut">Uma visão da competência para a diretoria: números, evolução, achados com a ação recomendada, maiores riscos e situação dos funcionários.</div>
+        <div class="row"><button class="btn" onclick="relatorio('exec','ver')">Ver</button><button class="btn b-pri" onclick="relatorio('exec','pdf')">PDF</button><button class="btn" onclick="relatorio('exec','imprimir')">Imprimir</button></div></div>
       <div class="card rel"><h3>Auditoria da competência</h3><div class="small mut">Resumo, gráficos, divergências de desconto, duplicidades, faltas graves e resumo por loja, com assinaturas.</div>
         <div class="row"><button class="btn" onclick="relatorio('comp','ver')">Ver</button><button class="btn b-pri" onclick="relatorio('comp','pdf')">PDF</button><button class="btn" onclick="relatorio('comp','imprimir')">Imprimir</button></div></div>
       <div class="card rel"><h3>Erros e faltas graves</h3><div class="small mut">Todas as pendências abertas, da mais grave para a menos grave, com a tratativa.</div>
@@ -184,7 +208,7 @@
 
   <!-- ARQUIVOS -->
   <section id="a-arq" class="hidden">
-    <div class="regra">Todo mês: <b>1)</b> relatório de compras no crediário do ciclo (21 a 20), <b>2)</b> cadastro de funcionários atualizado, <b>3)</b> relatório de eventos da folha com o desconto do crediário (evento 1260 "Compra Loja") e, se tiver, <b>4)</b> as baixas do crediário. O mesmo arquivo não entra duas vezes; antes de gravar a tela mostra o que leu para conferir.</div>
+    <div class="regra">Todo mês: <b>1)</b> compras no crediário — "LISTAGEM DO RH" ou "COMPRA EM LOJA" (é o devido), <b>2)</b> cadastro de funcionários atualizado, <b>3)</b> planilha de desconto da folha (aba <b>crediario</b> = o que foi descontado) e, se tiver, <b>4)</b> as baixas do crediário. O mesmo arquivo não entra duas vezes; antes de gravar a tela mostra o que leu para conferir.</div>
     <div class="pgrid">
       <div class="card fonte"><h3>Compras no crediário <span class="o">todo mês</span></h3>
         <div class="small mut">"COMPRA EM LOJA" (CSV ou Excel). Parcelas repetidas entre relatórios viram uma só; valor diferente vira alerta.</div>
@@ -193,7 +217,7 @@
         <div class="small mut">Planilha de ativos e afastados (CPF, matrícula, loja, situação). Quem sair do cadastro passa a ser tratado como desligado.</div>
         <label class="drop" data-tipo="cadastro">Soltar ou escolher arquivo<input type="file" accept=".csv,.txt,.xlsx,.xls"></label></div>
       <div class="card fonte"><h3>Descontos da folha <span class="o">todo mês</span></h3>
-        <div class="small mut">Relatório de eventos da folha (matrícula ou CPF, competência, evento, valor, data de pagamento).</div>
+        <div class="small mut">Planilha "desconto de FOLHA": vale a aba <b>crediario</b> (o que foi descontado de cada funcionário). Se a planilha tiver várias abas, a tela abre a "crediario" e deixa trocar.</div>
         <label class="drop" data-tipo="folha">Soltar ou escolher arquivo<input type="file" accept=".csv,.txt,.xlsx,.xls"></label></div>
       <div class="card fonte"><h3>Baixas do crediário <span class="o">opcional</span></h3>
         <div class="small mut">Parcelas recebidas (documento, parcela, data da baixa, valor). Mostra quando cada parcela foi quitada.</div>
@@ -311,12 +335,12 @@ async function lerArquivo(file) {
   const buf = await file.arrayBuffer();
   const h = await crypto.subtle.digest('SHA-256', buf);
   const hash = [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('');
-  let rows;
+  let abas;
   if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
     const wb = XLSX.read(buf, {type: 'array', cellDates: false});
-    rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: true, defval: ''});
-  } else rows = lerCSV(decodificar(buf));
-  return {rows, hash};
+    abas = wb.SheetNames.map(n => ({nome: n, rows: XLSX.utils.sheet_to_json(wb.Sheets[n], {header: 1, raw: true, defval: ''})})).filter(a => a.rows.some(r => r.some(c => c !== '')));
+  } else abas = [{nome: 'CSV', rows: lerCSV(decodificar(buf))}];
+  return {abas, hash};
 }
 // colunas reconhecidas pelo nome do cabeçalho (dá para corrigir na conferência)
 const COLUNAS = {
@@ -418,13 +442,14 @@ function cruzar() {
     const b = bx.get(p.documento + '|' + p.parcela) || bx.get(p.contrato + '|' + p.parcela); x.baixas = b || []; x.baixa = b ? b[0] : null;
     return x;
   });
-  const folha = D.folha.map(l => {
+  const ident = l => {
     let cpf = l.cpf; const m = matN(l.matricula);
     if (!cpf && m && porMat.has(m)) cpf = porMat.get(m).cpf;
     if (!cpf && l.nome && porNome.has(nomeN(l.nome))) cpf = porNome.get(nomeN(l.nome)).cpf;
     const a = arqPorId.get(l.arquivo_id);
     return {...l, cpf, comp: l.competencia, valor: Number(l.valor), arq: a ? a.nome : ''};
-  });
+  };
+  const folha = D.folha.map(ident);
   const folhaOk = folha.filter(l => l.cpf), semId = folha.filter(l => !l.cpf);
 
   // cobertura: ciclos de compra importados
@@ -624,37 +649,83 @@ $('selComp').addEventListener('change', () => { COMP = $('selComp').value; COMP_
 
 /* ---------- PAINEL ---------- */
 const kpi = (l, v, n, tipo = '', click = '') => `<div class="card kpi ${tipo} ${click ? 'clic' : ''}" ${click ? `onclick="${click}"` : ''}><div class="l">${l}</div><div class="v">${v}</div>${n ? `<div class="n">${n}</div>` : ''}</div>`;
-const pc = () => R.porComp.find(c => c.comp === COMP) || {comp: COMP, folha: false, devido: 0, desc: 0, menos: 0, mais: 0, n: 0, cont: {}, faltam: R.cobertura(COMP), dataPag: [], abertas: 0, fech: null};
+const pc = (comp = COMP) => R.porComp.find(c => c.comp === comp) || {comp, folha: false, devido: 0, desc: 0, menos: 0, mais: 0, n: 0, cont: {}, faltam: R.cobertura(comp), dataPag: [], abertas: 0, fech: null};
+const pct = (a, b) => b ? Math.round(a / b * 1000) / 10 : 0;
+const pctTxt = v => v.toLocaleString('pt-BR', {maximumFractionDigits: 1}) + '%';
+// números da competência usados no painel, no PDF executivo e nos relatórios
+function numeros(comp = COMP) {
+  const c = pc(comp), ls = R.linhas.filter(l => l.comp === comp);
+  const aud = ls.filter(l => l.st !== 'prev'), ok = aud.filter(l => l.st === 'ok').length;
+  const pend = R.pend.filter(p => (p.comp === comp || !p.comp) && !encerrada(p));
+  return {c, ls, aud, ok, pctFunc: pct(ok, aud.length), pctValor: c.folha ? pct(Math.min(c.desc, c.devido), c.devido) : 0, liquida: r2(c.desc - c.devido), pend,
+    graves: pend.filter(p => p.grav === 'alta' && p.cat !== 'duplicidade'), dups: pend.filter(p => p.cat === 'duplicidade'),
+    nMenos: (c.cont.menos || 0) + (c.cont.nao || 0), nMais: (c.cont.mais || 0) + (c.cont.semcompra || 0)};
+}
+// achados automáticos (painel e PDF executivo): {grav, txt, acao}
+function achados(comp = COMP) {
+  const N = numeros(comp), c = N.c, out = [], a = (grav, txt, acao) => out.push({grav, txt, acao});
+  const tipo = t => N.pend.filter(p => p.tipo === t), soma = ps => ps.reduce((s, p) => s + Math.abs(p.valor || 0), 0);
+  if (!c.folha) a('media', `A folha de ${compBR(comp)} ainda não foi importada — os números são a previsão (${brl(c.devido)} a descontar de ${qtd(c.n)} funcionários).`, 'Importar a planilha de desconto da folha do mês.');
+  else {
+    a(N.pctValor >= 99.5 ? 'ok' : N.pctValor >= 95 ? 'media' : 'alta', `${pctTxt(N.pctValor)} do valor devido foi descontado na folha (${brl(c.desc)} de ${brl(c.devido)}); ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem exatamente.`, N.pctValor >= 99.5 ? 'Manter a rotina.' : 'Tratar as divergências abaixo antes de fechar o mês.');
+    if (c.menos > 0.009) a('alta', `${qtd(N.nMenos)} funcionário(s) sem desconto ou com desconto menor: ${brl(c.menos)} deixaram de ser descontados.`, 'Lançar a diferença na próxima folha ou cobrar do funcionário.');
+    if (c.mais > 0.009) a('alta', `${qtd(N.nMais)} funcionário(s) com desconto acima do devido: ${brl(c.mais)} a mais.`, 'Devolver ao funcionário na próxima folha (risco trabalhista).');
+    if (!c.dataPag.length) a('media', `A folha de ${compBR(comp)} foi importada sem data de pagamento.`, 'Informar a data de pagamento em "Arquivos do mês".');
+  }
+  if (c.faltam.length) a('media', `O devido de ${compBR(comp)} pode estar incompleto: faltam as compras de ${faixas(c.faltam)}.`, 'Importar a listagem de compras que cobre esses meses.');
+  if (c.folha && c.devido === 0) a('alta', `A folha de ${compBR(comp)} tem ${brl(c.desc)} descontados, mas nenhuma parcela das compras importadas cai nessa competência.`, 'Importar as compras do período (as parcelas já pagas saem da LISTAGEM DO RH) ou conferir a regra de competência em "Arquivos do mês".');
+  const fora = [...tipo('Comprador fora do cadastro'), ...tipo('Saiu do cadastro')];
+  if (fora.length) a('alta', `${qtd(fora.length)} comprador(es) não estão no cadastro de funcionários (desligados ou terceiros), com ${brl(soma(fora))} em aberto.`, 'Descontar na rescisão ou cobrar por boleto; bloquear novas compras.');
+  const afa = tipo('Afastado sem salário'); if (afa.length) a('alta', `${qtd(afa.length)} afastado(s) sem salário com ${brl(soma(afa))} em aberto — o desconto em folha não acontece.`, 'Combinar cobrança direta ou suspender as parcelas.');
+  const nome = tipo('Nome diferente no CPF'); if (nome.length) a('alta', `${qtd(nome.length)} CPF(s) de funcionário com compra em nome de outra pessoa.`, 'Confirmar com a loja quem comprou.');
+  if (N.dups.length) a('alta', `${qtd(N.dups.length)} possível(is) duplicidade(s), ${brl(soma(N.dups))} envolvidos.`, 'Conferir em "Duplicidades" e estornar o que for repetido.');
+  if (!out.some(x => x.grav === 'alta')) a('ok', 'Nenhuma falta grave aberta nesta competência.', 'Fechar a competência.');
+  return out;
+}
+const COR_GRAV = {alta: '#ef4444', media: '#f5b301', ok: '#22c55e', baixa: '#94a3b8'};
 function telaPainel() {
-  const c = pc();
-  const pendComp = R.pend.filter(p => (p.comp === COMP || !p.comp) && !encerrada(p));
-  const graves = pendComp.filter(p => p.grav === 'alta' && p.cat !== 'duplicidade').length, dups = pendComp.filter(p => p.cat === 'duplicidade').length;
-  $('tPainel').textContent = `Competência ${compBR(COMP)}${c.fech && c.fech.status === 'fechada' ? ' · fechada' : ''}`;
-  $('kpis').innerHTML = (c.folha
-    ? kpi('Total devido', brl(c.devido), `${qtd(c.n)} funcionários`, 't-roxo') +
-      kpi('Descontado na folha', brl(c.desc), c.dataPag.length ? 'pago em ' + c.dataPag.map(dataBR).join(', ') : '<span class="wt">sem data de pagamento</span>', 't-verde') +
-      kpi('Deixou de descontar', brl(c.menos), `${(c.cont.menos || 0) + (c.cont.nao || 0)} funcionário(s) — perda`, c.menos > 0.009 ? 't-vermelho' : 't-verde', "irPara('pend')") +
-      kpi('Descontou a mais', brl(c.mais), `${(c.cont.mais || 0) + (c.cont.semcompra || 0)} funcionário(s) — devolver`, c.mais > 0.009 ? 't-laranja' : 't-verde', "irPara('pend')")
-    : kpi('A descontar (previsto)', brl(c.devido), `${qtd(c.n)} funcionários · folha ainda não importada`, 't-roxo') +
-      kpi('Descontado na folha', '—', 'importe a folha do mês', 't-cinza', "irPara('arq')")) +
-    kpi('Erros e faltas graves', qtd(graves), 'abertas', graves ? 't-vermelho' : 't-verde', "irPara('pend')") +
-    kpi('Duplicidades', qtd(dups), 'abertas', dups ? 't-vermelho' : 't-verde', "irPara('dup')");
+  const N = numeros(), c = N.c;
+  const fechada = c.fech && c.fech.status === 'fechada';
+  const corG = N.pctValor >= 99.5 ? '#22c55e' : N.pctValor >= 95 ? '#f5b301' : '#ef4444';
+  $('hero').innerHTML = `<div><div class="t">Competência</div><div class="c">${compBR(COMP)}${fechada ? ' <span class="st st-ok">fechada</span>' : ''}</div>
+    <div class="f">Devido = parcelas das compras no crediário${c.faltam.length ? ' <span class="wt">(faltam compras de ' + faixas(c.faltam) + ')</span>' : ''}<br>
+    ${c.folha ? `Folha importada · ${c.dataPag.length ? 'paga em <b>' + c.dataPag.map(dataBR).join(', ') + '</b>' : '<span class="wt">sem data de pagamento</span> · <a href="javascript:void(0)" onclick="irPara(\'arq\')">informar</a>'}` : '<span class="wt">Folha ainda não importada</span>'}
+    ${fechada ? `<br>Fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : ''}</div></div>
+    <div class="gauge">${c.folha ? `<div class="v" style="color:${corG}">${pctTxt(N.pctValor)}</div><div class="barra"><i style="width:${Math.min(100, N.pctValor)}%;background:${corG}"></i></div>
+      <div class="l">do valor devido foi descontado · ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem (${pctTxt(N.pctFunc)})</div>`
+      : `<div class="v" style="color:#c4b5fd">${brl(c.devido)}</div><div class="l">a descontar na folha de ${compBR(COMP)} · ${qtd(c.n)} funcionários</div>`}</div>`;
+  $('kpis').innerHTML =
+    kpi('Total devido', brl(c.devido), 'parcelas das compras no crediário', 't-roxo') +
+    kpi('Descontado na folha', c.folha ? brl(c.desc) : '—', c.folha ? `${qtd(c.n)} funcionários` : 'folha não importada', c.folha ? 't-verde' : 't-cinza', c.folha ? '' : "irPara('arq')") +
+    kpi('Diferença líquida', c.folha ? brl(N.liquida) : '—', c.folha ? (N.liquida < -0.009 ? 'descontado a menos no total' : N.liquida > 0.009 ? 'descontado a mais no total' : 'confere') : '', !c.folha ? 't-cinza' : Math.abs(N.liquida) > 0.009 ? 't-laranja' : 't-verde') +
+    kpi('Funcionários que batem', c.folha ? `${qtd(N.ok)} de ${qtd(N.aud.length)}` : '—', c.folha ? pctTxt(N.pctFunc) : '', c.folha ? (N.pctFunc >= 99 ? 't-verde' : 't-laranja') : 't-cinza') +
+    kpi('Deixou de descontar', brl(c.menos), `${qtd(N.nMenos)} funcionário(s) — perda`, c.menos > 0.009 ? 't-vermelho' : 't-verde', "irPara('pend')") +
+    kpi('Descontou a mais', brl(c.mais), `${qtd(N.nMais)} funcionário(s) — devolver`, c.mais > 0.009 ? 't-laranja' : 't-verde', "irPara('pend')") +
+    kpi('Erros e faltas graves', qtd(N.graves.length), 'abertas', N.graves.length ? 't-vermelho' : 't-verde', "irPara('pend')") +
+    kpi('Duplicidades', qtd(N.dups.length), brl(N.dups.reduce((s, p) => s + Math.abs(p.valor || 0), 0)), N.dups.length ? 't-vermelho' : 't-verde', "irPara('dup')");
+
+  // situação dos funcionários
+  const ordem = ['ok', 'nao', 'menos', 'mais', 'semcompra', 'verif', 'prev'], corSt = {ok: '#22c55e', nao: '#ef4444', menos: '#f87171', mais: '#f97316', semcompra: '#fb923c', verif: '#f5b301', prev: '#94a3b8'};
+  const tot = N.ls.length || 1;
+  $('gSit').innerHTML = ordem.filter(k => c.cont[k]).map(k => { const ls = N.ls.filter(l => l.st === k), v = ls.reduce((s, l) => s + Math.abs(k === 'ok' || k === 'prev' ? l.devido : l.dif), 0);
+    return `<div><span>${STAT[k][0]}</span><span class="b"><i style="width:${Math.max(2, c.cont[k] / tot * 100)}%;background:${corSt[k]}"></i></span><b>${qtd(c.cont[k])} · ${brlCurto(v)}</b></div>`; }).join('') || '<div class="vazio">Sem dados na competência.</div>';
+  $('achados').innerHTML = achados().map(x => `<div><i style="background:${COR_GRAV[x.grav]}"></i><span>${esc(x.txt)}<div class="acao">→ ${esc(x.acao)}</div></span></div>`).join('');
 
   // checklist do mês
-  const temCiclo = R.ciclos.has(COMP), cad = R.arqPorId.get(R.cadAtual), fArqs = D.arquivos.filter(a => a.tipo === 'folha' && (a.competencias || []).includes(COMP));
+  const cad = R.arqPorId.get(R.cadAtual), fArqs = D.arquivos.filter(a => a.tipo === 'folha' && (a.competencias || []).includes(COMP));
   const regraUso = R.calib && R.calib.find(x => x.regra === R.cfg.regra && x.corte === R.cfg.corte), regraMelhor = R.calib && R.calib[0] === regraUso;
   const item = (ok, txt, acao = '') => `<div><b class="${ok === true ? 'okt' : ok === false ? 'badt' : 'wt'}">${ok === true ? '✔' : ok === false ? '✖' : '!'}</b><span>${txt}${acao}</span></div>`;
   const ir = t => ` · <a href="javascript:void(0)" onclick="irPara('${t}')">resolver</a>`;
-  const gravesComp = pendComp.filter(p => p.grav === 'alta');
+  const gravesComp = N.pend.filter(p => p.grav === 'alta');
   $('checklist').innerHTML = [
-    item(temCiclo, temCiclo ? `Compras do ciclo de ${compBR(COMP)} importadas` : `Compras do ciclo de ${compBR(COMP)} (dia ${R.cfg.corte + 1} a ${R.cfg.corte}) não importadas`, temCiclo ? '' : ir('arq')),
-    item(c.faltam.length ? null : true, c.faltam.length ? `Faltam compras de ${faixas(c.faltam)} para o devido ficar completo` : 'Compras de todos os ciclos que geram parcela neste mês importadas', c.faltam.length ? ir('arq') : ''),
+    item(fArqs.length === 1 ? true : fArqs.length > 1 ? null : false, fArqs.length ? `Folha de ${compBR(COMP)} importada (${fArqs.map(a => esc(a.nome)).join(', ')})` : `Folha de ${compBR(COMP)} não importada`, fArqs.length === 1 ? '' : ir('arq')),
+    ...(fArqs.length ? [item(c.dataPag.length ? true : false, c.dataPag.length ? `Folha paga em ${c.dataPag.map(dataBR).join(', ')}` : 'Data de pagamento da folha não informada', c.dataPag.length ? '' : ir('arq'))] : []),
     item(!!cad, cad ? `Cadastro de funcionários de ${dtBR(cad.importado_em)} (${esc(cad.nome)})` : 'Cadastro de funcionários não importado', cad ? '' : ir('arq')),
-    item(fArqs.length === 1 ? true : fArqs.length > 1 ? null : false, fArqs.length ? `Folha de ${compBR(COMP)} importada (${fArqs.map(a => esc(a.nome)).join(', ')})${c.dataPag.length ? ' — paga em ' + c.dataPag.map(dataBR).join(', ') : ''}` : `Folha de ${compBR(COMP)} não importada`, fArqs.length === 1 ? '' : ir('arq')),
+    item(c.devido > 0 && !c.faltam.length ? true : c.devido > 0 ? null : false, c.devido > 0 ? (c.faltam.length ? `Compras importadas, mas faltam as de ${faixas(c.faltam)} para o devido ficar completo` : 'Compras de todos os meses que geram parcela nesta folha importadas') : `Nenhuma parcela das compras importadas cai em ${compBR(COMP)}`, c.faltam.length || !c.devido ? ir('arq') : ''),
+    item(R.calib ? regraMelhor : null, R.calib ? `Regra de competência explica ${((regraUso ? regraUso.pct : 0) * 100).toFixed(1)}% dos descontos${regraMelhor ? '' : ' — existe regra melhor'}` : 'Regra de competência ainda não conferida com a folha', R.calib && !regraMelhor ? ir('arq') : ''),
     item(D.baixas.length ? true : null, D.baixas.length ? 'Baixas do crediário importadas' : 'Baixas do crediário (opcional) não importadas'),
-    item(R.calib ? regraMelhor : null, R.calib ? `Regra de competência em uso explica ${((regraUso ? regraUso.pct : 0) * 100).toFixed(1)}% dos descontos${regraMelhor ? '' : ' — existe regra melhor'}` : 'Regra de competência ainda não conferida com a folha', R.calib && !regraMelhor ? ir('arq') : ''),
     item(gravesComp.length === 0, gravesComp.length ? `${gravesComp.length} pendência(s) grave(s) sem tratativa` : 'Nenhuma pendência grave aberta', gravesComp.length ? ir('pend') : ''),
-    item(c.fech && c.fech.status === 'fechada' ? true : null, c.fech && c.fech.status === 'fechada' ? `Competência fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : 'Competência ainda não fechada', c.fech && c.fech.status === 'fechada' ? '' : ir('meses'))
+    item(fechada ? true : null, fechada ? `Competência fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : 'Competência ainda não fechada', fechada ? '' : ir('meses'))
   ].join('');
 
   // gráficos
@@ -662,11 +733,11 @@ function telaPainel() {
   $('legCol').innerHTML = legenda(['Devido', 'Descontado']);
   graficoColunas($('gCol'), serie.map(x => ({rotulo: MESES[+x.comp.slice(5) - 1] + '/' + x.comp.slice(2, 4), titulo: compBR(x.comp), a: x.devido, b: x.folha ? x.desc : 0,
     det: x.folha ? `<div><span>Diferença</span><span>${brl(x.desc - x.devido)}</span></div>` : '<div><span>Folha</span><span>não importada</span></div>'})), ['Devido', 'Descontado']);
-  const lojas = porLoja(COMP).filter(l => l.menos > 0.009).sort((a, b) => b.menos - a.menos).slice(0, 10);
-  graficoBarrasH($('gLoja'), lojas.map(l => ({rotulo: l.loja, valor: l.menos, det: `<div><span>Funcionários</span><span>${l.nDiv}</span></div>`})), {vazio: c.folha ? 'Nenhuma perda nesta competência.' : 'Importe a folha para comparar.'});
-  const tipos = {}; pendComp.forEach(p => tipos[p.tipo] = (tipos[p.tipo] || 0) + (Math.abs(p.valor) || 0));
+  const lojas = porLoja(COMP).filter(l => l.menos + l.mais > 0.009).sort((a, b) => b.menos + b.mais - a.menos - a.mais).slice(0, 10);
+  graficoBarrasH($('gLoja'), lojas.map(l => ({rotulo: l.loja, valor: r2(l.menos + l.mais), det: `<div><span>A menos</span><span>${brl(l.menos)}</span></div><div><span>A mais</span><span>${brl(l.mais)}</span></div><div><span>Funcionários</span><span>${l.nDiv}</span></div>`})), {vazio: c.folha ? 'Nenhuma diferença nesta competência.' : 'Importe a folha para comparar.'});
+  const tipos = {}; N.pend.forEach(p => tipos[p.tipo] = (tipos[p.tipo] || 0) + (Math.abs(p.valor) || 0));
   graficoRosca($('gTipo'), Object.entries(tipos).sort((a, b) => b[1] - a[1]).map(([rotulo, valor]) => ({rotulo, valor})), {vazio: 'Nenhuma pendência aberta com valor.', centro: 'Em jogo', aoClicar: () => irPara('pend')});
-  const top = R.linhas.filter(l => l.comp === COMP && !['ok', 'prev'].includes(l.st)).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif)).slice(0, 10);
+  const top = N.ls.filter(l => !['ok', 'prev'].includes(l.st)).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif)).slice(0, 10);
   $('topDif').innerHTML = top.length ? tabelaLinhas(top) : `<div class="vazio">${c.folha ? 'Nenhuma diferença nesta competência. ✔' : 'Folha de ' + compBR(COMP) + ' ainda não importada — o painel mostra a previsão.'}</div>`;
 }
 function tabelaLinhas(ls) {
@@ -779,19 +850,22 @@ async function reabrir(comp) {
 }
 
 /* ---------- FUNCIONÁRIOS ---------- */
-function telaFunc() {
-  const lojas = [...new Set([...R.pessoas.values()].map(p => p.cad ? p.cad.loja || '(sem loja)' : 'FORA DO CADASTRO'))].sort();
-  const sel = $('fLoja').value;
-  $('fLoja').innerHTML = `<option value="">Todas as lojas</option>` + lojas.map(l => `<option ${l === sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
-  $('legenda').innerHTML = Object.keys(STAT).map(stChip).join('');
+function listaFunc() {
   const q = nomeN($('fBusca').value), qd = soDig($('fBusca').value), loja = $('fLoja').value, st = $('fSt').value;
-  const ps = [...R.pessoas.values()].filter(p => {
+  return [...R.pessoas.values()].filter(p => {
     if (loja && (p.cad ? p.cad.loja || '(sem loja)' : 'FORA DO CADASTRO') !== loja) return false;
     if (st === 'div' && !p.nDiv) return false;
     if (st === 'alerta' && !p.pend.some(x => !encerrada(x))) return false;
     if (!q && !qd) return true;
     return (q && nomeN(p.nome + ' ' + p.nomeCred + ' ' + (p.cad ? p.cad.loja : '')).includes(q)) || (qd && (p.cpf.includes(qd) || (p.cad && String(p.cad.matricula || '').includes(qd))));
   }).sort((a, b) => (b.menos + b.mais + b.verif) - (a.menos + a.mais + a.verif) || a.nome.localeCompare(b.nome));
+}
+function telaFunc() {
+  const lojas = [...new Set([...R.pessoas.values()].map(p => p.cad ? p.cad.loja || '(sem loja)' : 'FORA DO CADASTRO'))].sort();
+  const sel = $('fLoja').value;
+  $('fLoja').innerHTML = `<option value="">Todas as lojas</option>` + lojas.map(l => `<option ${l === sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  $('legenda').innerHTML = Object.keys(STAT).map(stChip).join('');
+  const ps = listaFunc();
   const comps = R.comps.filter(c => difMes(c, COMP) <= 5 && difMes(COMP, c) <= 6);
   if (!ps.length) { $('tFunc').innerHTML = `<div class="vazio">Nenhum funcionário.</div>`; return; }
   const lim = ps.slice(0, 300);
@@ -828,7 +902,7 @@ function telaArquivos() {
       <td class="r">${qtd(a.linhas)}</td><td class="r">${a.total != null ? nfm(a.total) : ''}</td>
       <td class="small">${a.rodape == null ? '' : Math.abs(Number(a.rodape) - Number(a.total)) <= 0.01 ? '<span class="okt">confere com o rodapé</span>' : `<span class="badt">rodapé ${nfm(a.rodape)} não confere</span>`}</td>
       <td class="small">${dtBR(a.importado_em)}<br><span class="mut">${esc(quemCurto(a.importado_por))}</span></td>
-      <td>${a.tipo === 'cadastro' ? '' : `<button class="btn" data-excluir="${a.id}">Excluir</button>`}</td></tr>`).join('') + `</tbody></table>` : `<div class="vazio">Nenhum arquivo importado.</div>`;
+      <td class="row">${a.tipo === 'folha' ? `<button class="btn" data-datapag="${a.id}">Data de pagamento</button>` : ''}${a.tipo === 'cadastro' ? '' : `<button class="btn" data-excluir="${a.id}">Excluir</button>`}</td></tr>`).join('') + `</tbody></table>` : `<div class="vazio">Nenhum arquivo importado.</div>`;
   $('cRegra').value = R.cfg.regra; $('cCorte').value = R.cfg.corte; $('cTol').value = R.cfg.tol;
   const ex = R.par.find(p => p.n_parcelas > 1);
   $('regraTxt').innerHTML = (R.cfg.regra === 'ciclo'
@@ -848,6 +922,18 @@ async function salvarConfig(regra, corte) {
   if (r.error) { toast('Não gravou: ' + msgErro(r.error), 6000); return; }
   toast('Regra salva.'); await recarregar();
 }
+function dataPagamento(id) {
+  const a = D.arquivos.find(x => x.id === id), atual = (D.folha.find(l => l.arquivo_id === id && l.data_pagamento) || {}).data_pagamento || '';
+  abrirModal(`<h3>Data de pagamento da folha</h3><div class="small mut">${esc(a.nome)} · ${(a.competencias || []).map(compBR).join(', ')}</div>
+    <label>Data em que a folha foi paga</label><input type="date" id="dpData" value="${esc(atual)}">
+    <div class="row"><button class="btn b-pri" id="bDp">Gravar</button><button class="btn" onclick="fecharModal()">Cancelar</button></div>`);
+  $('bDp').onclick = async () => {
+    const v = $('dpData').value; if (!v) { toast('Escolha a data.'); return; }
+    const r = await sb.from('cred_folha').update({data_pagamento: v}).eq('arquivo_id', id);
+    if (r.error) { toast('Não gravou: ' + msgErro(r.error), 6000); return; }
+    fecharModal(); toast('Data de pagamento gravada.'); await recarregar();
+  };
+}
 async function excluirArquivo(id) {
   const a = D.arquivos.find(x => x.id === id);
   const n = {compras: D.parcelas.filter(p => p.arquivo_id === id).length, folha: D.folha.filter(l => l.arquivo_id === id).length, baixas: D.baixas.filter(b => b.arquivo_id === id).length}[a.tipo];
@@ -862,15 +948,25 @@ let IMP = null;
 async function importar(tipo, file) {
   try {
     toast('Lendo ' + file.name + '…', 20000);
-    const {rows, hash} = await lerArquivo(file);
-    const ja = D.arquivos.find(a => a.tipo === tipo && a.hash === hash);
-    if (ja) { toast(`Este arquivo já foi importado em ${dtBR(ja.importado_em)} por ${quemCurto(ja.importado_por)} (como "${ja.nome}").`, 9000); return; }
-    const det = detectar(rows, tipo);
-    IMP = {tipo, nome: file.name, hash, rows, ...det, compFixa: det.map.comp == null ? compDoNome(file.name) : '', dataPagFixa: '', eventos: null};
-    if (tipo === 'folha') { const evs = eventosDe(); const sel = evs.filter(e => /1260|compra.?loja|credi|compra|loja|conv|merc/i.test(e)); IMP.eventos = sel.length ? sel : evs.slice(); }
+    const {abas, hash} = await lerArquivo(file);
+    IMP = {tipo, arquivo: file.name, hashArq: hash, abas, dataPagFixa: ''};
+    // a primeira aba ainda não importada; na folha, a aba "crediario" é a que vale (o que foi descontado)
+    const livres = abas.map((a, k) => k).filter(k => !abaImportada(k));
+    if (!livres.length) { const ja = D.arquivos.find(a => a.tipo === tipo && a.hash === hashAba(0)); toast(`Este arquivo já foi importado${ja ? ` em ${dtBR(ja.importado_em)} por ${quemCurto(ja.importado_por)} (como "${ja.nome}")` : ''}.`, 9000); return; }
+    const credi = livres.find(k => /credi/i.test(abas[k].nome));
     $('toast').style.display = 'none';
-    conferir();
+    abrirAba(tipo === 'folha' && credi != null ? credi : livres[0]);
   } catch (e) { toast(`${file.name}: não consegui ler (${msgErro(e)})`, 8000); }
+}
+// cada aba de uma planilha conta como um arquivo (a 1ª aba usa o hash do arquivo, as outras hash + nome da aba)
+const hashAba = k => k === 0 ? IMP.hashArq : IMP.hashArq + ':' + IMP.abas[k].nome;
+const abaImportada = k => D.arquivos.some(a => a.tipo === IMP.tipo && a.hash === hashAba(k));
+function abrirAba(k) {
+  const rows = IMP.abas[k].rows, det = detectar(rows, IMP.tipo);
+  Object.assign(IMP, {aba: k, rows, ...det, hash: hashAba(k), nome: IMP.abas.length > 1 ? `${IMP.arquivo} › ${IMP.abas[k].nome}` : IMP.arquivo,
+    compFixa: det.map.comp == null ? compDoNome(IMP.arquivo) : '', eventos: null});
+  if (IMP.tipo === 'folha') { const evs = eventosDe(); const sel = evs.filter(e => /1260|compra.?loja|credi|compra|loja|conv|merc/i.test(e)); IMP.eventos = sel.length ? sel : evs.slice(); }
+  conferir();
 }
 function eventosDe() {
   if (IMP.map.evento == null) return [];
@@ -901,6 +997,7 @@ function montarLinhas() {
     } else if (tipo === 'folha') {
       const ev = map.evento != null ? String(row[map.evento] ?? '').trim() : '';
       if (okEv && map.evento != null && !okEv.has(ev)) continue;
+      if (row.some(c => /^\s*total/i.test(String(c))) && !cpfN(cel(row, map, 'cpf')) && !soDig(cel(row, map, 'matricula'))) continue;  // linha de total
       const v = numero(cel(row, map, 'valor')); if (!isFinite(v) || v === 0) continue;
       let cpf = cpfN(cel(row, map, 'cpf')); const mat = String(cel(row, map, 'matricula') ?? '').trim();
       if (!cpf && mat && porMat.has(matN(mat))) cpf = porMat.get(matN(mat));
@@ -929,6 +1026,8 @@ function conferir() {
   const amostra = linhas.slice(0, 6), ks = amostra[0] ? Object.keys(amostra[0]).filter(k => k !== 'chave') : [];
   const lancs = linhas.map(l => l.lancamento).filter(Boolean).sort();
   let h = `<h3>Conferir: ${TIPO_NOME[t]}</h3><div class="small mut">${esc(IMP.nome)}</div>
+    ${IMP.abas.length > 1 ? `<div class="map"><label>Aba da planilha${t === 'folha' ? ' (vale a "crediario")' : ''}<select id="iAba">${IMP.abas.map((a, k) => `<option value="${k}" ${k === IMP.aba ? 'selected' : ''}>${esc(a.nome)}${abaImportada(k) ? ' (já importada)' : ''}</option>`).join('')}</select></label></div>` : ''}
+    ${abaImportada(IMP.aba) ? '<div class="perigo">Esta aba já foi importada.</div>' : ''}
     <div class="kv"><div><span>Linhas lidas</span>${qtd(linhas.length)}</div>${soma ? `<div><span>Total</span>${brl(soma)}</div>` : ''}${rodape != null ? `<div><span>Rodapé do relatório</span>${brl(rodape)} ${Math.abs(rodape - soma) <= 0.01 ? '<span class="okt">confere</span>' : '<span class="badt">não confere</span>'}</div>` : ''}
     ${t === 'folha' ? `<div><span>Competências</span>${[...new Set(linhas.map(l => l.competencia).filter(Boolean))].sort().map(compBR).join(', ') || '—'}</div><div><span>Funcionários</span>${new Set(linhas.map(l => l.cpf || l.matricula)).size}</div>` : ''}
     ${t === 'compras' ? `<div><span>Funcionários</span>${new Set(linhas.map(l => l.cpf)).size}</div>${lancs.length ? `<div><span>Compras de</span>${dataBR(lancs[0])} a ${dataBR(lancs[lancs.length - 1])}</div>` : ''}<div><span>Vencimentos</span>${linhas.length ? dataBR(linhas.map(l => l.vencimento).sort()[0]) + ' a ' + dataBR(linhas.map(l => l.vencimento).sort().pop()) : '—'}</div>` : ''}</div>
@@ -942,7 +1041,7 @@ function conferir() {
     if (evs.length) h += `<div class="small mut" style="margin-top:6px">Eventos que são desconto do crediário:</div><div class="evs">${evs.map(e => `<label><input type="checkbox" data-iev="1" value="${esc(e)}" ${(IMP.eventos || []).includes(e) ? 'checked' : ''}>${esc(e)}</label>`).join('')}</div>`;
   }
   if (amostra.length) h += `<div class="small mut" style="margin-top:8px">Primeiras linhas como serão gravadas:</div><div class="tw"><table class="pq"><thead><tr>${ks.map(k => `<th>${esc(k)}</th>`).join('')}</tr></thead><tbody>${amostra.map(l => `<tr>${ks.map(k => `<td>${esc(l[k] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  const bloqueia = OBRIG[t].some(k => IMP.map[k] == null) || !linhas.length || (t === 'folha' && linhas.some(l => !l.competencia));
+  const bloqueia = abaImportada(IMP.aba) || OBRIG[t].some(k => IMP.map[k] == null) || !linhas.length || (t === 'folha' && linhas.some(l => !l.competencia));
   h += `<div class="row" style="margin-top:12px"><button class="btn b-pri" id="bGravar" ${bloqueia ? 'disabled' : ''}>Gravar ${qtd(linhas.length)} linha(s)</button><button class="btn" onclick="fecharModal()">Cancelar</button></div>`;
   abrirModal(h, 'larga');
   $('bGravar').onclick = gravarImportacao;
@@ -950,6 +1049,7 @@ function conferir() {
 document.body.addEventListener('change', e => {
   const t = e.target; if (!IMP || !t.closest('#modal')) return;
   if (t.dataset.imap) { if (t.value === '') delete IMP.map[t.dataset.imap]; else IMP.map[t.dataset.imap] = +t.value; if (t.dataset.imap === 'evento') IMP.eventos = eventosDe(); conferir(); }
+  else if (t.id === 'iAba') abrirAba(+t.value);
   else if (t.id === 'iComp') { IMP.compFixa = t.value; conferir(); }
   else if (t.id === 'iData') { IMP.dataPagFixa = t.value; conferir(); }
   else if (t.dataset.iev) { IMP.eventos = [...document.querySelectorAll('[data-iev]:checked')].map(x => x.value); conferir(); }
@@ -1011,17 +1111,17 @@ function modeloCompetencia(comp) {
         rodape: ['Total', lojas.reduce((s, l) => s + l.n, 0), lojas.reduce((s, l) => s + l.nDiv, 0), V(c.devido), V(c.desc), V(c.menos), V(c.mais)]}],
     assinaturas: ['Auditoria', 'RH / Departamento Pessoal', 'Controladoria']};
 }
-function modeloPendencias() {
-  const ls = R.pend.filter(p => p.cat !== 'duplicidade' && !encerrada(p));
+function modeloPendencias(lista) {
+  const ls = lista || R.pend.filter(p => p.cat !== 'duplicidade' && !encerrada(p));
   const soma = g => ls.filter(p => p.grav === g).length;
   return {titulo: 'Erros e faltas graves - desconto em folha', subtitulo: `Pendências abertas e em tratamento - todas as competências (selecionada: ${compBR(COMP)})`, marca: MARCA, paisagem: true, arquivo: `pendencias_desconto_folha_${hojeISO()}`,
-    resumo: [['Pendências graves abertas', qtd(soma('alta'))], ['Pendências médias', qtd(soma('media'))], ['Pendências baixas', qtd(soma('baixa'))], ['Total em jogo', brl(ls.reduce((s, p) => s + Math.abs(p.valor || 0), 0))]],
+    resumo: [['Pendências graves', qtd(soma('alta'))], ['Pendências médias', qtd(soma('media'))], ['Pendências baixas', qtd(soma('baixa'))], ['Total em jogo', brl(ls.reduce((s, p) => s + Math.abs(p.valor || 0), 0))]],
     secoes: ['desconto', 'cadastro', 'integridade'].map(cat => ({titulo: {desconto: 'Desconto em folha', cadastro: 'Cadastro', integridade: 'Arquivos e integridade'}[cat] + ` (${ls.filter(p => p.cat === cat).length})`,
       cab: CAB_PEND, linhas: ls.filter(p => p.cat === cat).map(linhaPend), direita: [8]})),
     assinaturas: ['Auditoria', 'RH / Departamento Pessoal']};
 }
-function modeloDuplicidades() {
-  const ls = R.pend.filter(p => p.cat === 'duplicidade' && !encerrada(p));
+function modeloDuplicidades(lista) {
+  const ls = lista || R.pend.filter(p => p.cat === 'duplicidade' && !encerrada(p));
   return {titulo: 'Duplicidades - desconto em folha e crediário', subtitulo: 'Descontos, parcelas, compras e baixas repetidas (abertas e em tratamento)', marca: MARCA, paisagem: true, arquivo: `duplicidades_desconto_folha_${hojeISO()}`,
     resumo: [['Duplicidades', qtd(ls.length)], ['Graves', qtd(ls.filter(p => p.grav === 'alta').length)], ['Valor em duplicidade', brl(ls.reduce((s, p) => s + Math.abs(p.valor || 0), 0))]],
     secoes: [{titulo: `Duplicidades (${ls.length})`, cab: CAB_PEND, linhas: ls.map(linhaPend), direita: [8]}], assinaturas: ['Auditoria', 'RH / Departamento Pessoal']};
@@ -1066,9 +1166,68 @@ function modeloFuncionario(cpf) {
       ...(p.pend.length ? [{titulo: 'Pendências', cab: ['Tipo', 'Comp.', 'Detalhe', 'Tratativa'], linhas: p.pend.map(a => [a.tipo, compBR(a.comp), a.txt, a.trat ? TRAT[a.trat.status] : 'Sem tratativa'])}] : [])],
     assinaturas: ['Auditoria', `Funcionário: ${p.nome}`]};
 }
-const MODELOS = {comp: () => modeloCompetencia(COMP), pend: modeloPendencias, dup: modeloDuplicidades, loja: () => modeloLojas(COMP), rh: () => modeloRH(COMP)};
+// PDF executivo para a Diretoria: números da competência, evolução, achados com a ação recomendada e os maiores riscos
+function modeloExecutivo(comp) {
+  const N = numeros(comp), c = N.c, fechada = c.fech && c.fech.status === 'fechada';
+  const serie = R.porComp.filter(x => x.comp <= comp).slice(-12);
+  const lojas = porLoja(comp).filter(l => l.menos + l.mais > 0.009).sort((a, b) => b.menos + b.mais - a.menos - a.mais);
+  const riscos = R.pend.filter(p => !encerrada(p) && (p.comp === comp || !p.comp) && p.valor).sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor)).slice(0, 12);
+  const sit = ['ok', 'nao', 'menos', 'mais', 'semcompra', 'verif', 'prev'].filter(k => c.cont[k]).map(k => { const ls = N.ls.filter(l => l.st === k);
+    return [STAT[k][0], qtd(ls.length), pctTxt(pct(ls.length, N.ls.length)), V(ls.reduce((s, l) => s + (k === 'ok' || k === 'prev' ? l.devido : Math.abs(l.dif)), 0))]; });
+  const GR = {alta: 'Alta', media: 'Média', ok: 'OK', baixa: 'Baixa'};
+  return {titulo: `Relatório Executivo - Desconto em Folha do Crediário - ${compBR(comp)}`,
+    subtitulo: `Para a Diretoria - ${c.folha ? 'folha ' + (c.dataPag.length ? 'paga em ' + c.dataPag.map(dataBR).join(', ') : 'sem data de pagamento') : 'folha ainda não importada (previsão)'}${fechada ? ' - competência fechada em ' + dtBR(c.fech.fechado_em) : ''}`,
+    marca: MARCA, paisagem: true, arquivo: `relatorio_executivo_desconto_folha_${comp}`,
+    resumo: [['Total devido', brl(c.devido)], ['Total descontado - pago na folha', c.folha ? brl(c.desc) : '-'], ['Valor descontado / devido', c.folha ? pctTxt(N.pctValor) : '-'], ['Funcionários que batem', c.folha ? `${qtd(N.ok)} de ${qtd(N.aud.length)}` : '-'],
+      ['Deixou de descontar - pendência', brl(c.menos)], ['Descontou a mais - pago a mais', brl(c.mais)], ['Pendências graves abertas', qtd(N.graves.length)], ['Duplicidades', qtd(N.dups.length)]],
+    graficos: [{titulo: 'Devido x descontado por competência', tipo: 'colunas', series: ['Devido', 'Descontado'], itens: serie.map(x => ({rotulo: MESES[+x.comp.slice(5) - 1] + '/' + x.comp.slice(2, 4), a: x.devido, b: x.folha ? x.desc : 0}))},
+      {titulo: 'Diferença por loja (a menos + a mais)', tipo: 'barras', itens: lojas.slice(0, 10).map(l => ({rotulo: l.loja, a: r2(l.menos + l.mais)}))}],
+    secoes: [
+      {titulo: 'Principais achados e ação recomendada', cab: ['Gravidade', 'Achado', 'Ação recomendada'], linhas: achados(comp).map(x => [GR[x.grav], x.txt, x.acao])},
+      {titulo: 'Situação dos funcionários', cab: ['Situação', 'Funcionários', '%', 'Valor'], direita: [1, 2, 3], linhas: sit},
+      {titulo: `Maiores riscos em aberto (${riscos.length})`, cab: ['Tipo', 'Funcionário', 'Loja', 'Comp.', 'Valor', 'Tratativa'], direita: [4],
+        linhas: riscos.map(p => [p.tipo, p.nome, p.loja, compBR(p.comp), V(Math.abs(p.valor)), p.trat ? TRAT[p.trat.status] : 'Sem tratativa'])},
+      {titulo: 'Evolução mensal', cab: ['Competência', 'Devido', 'Descontado', 'Diferença', '% descontado', 'Fechamento'], direita: [1, 2, 3, 4],
+        linhas: serie.map(x => [compBR(x.comp), V(x.devido), x.folha ? V(x.desc) : '-', x.folha ? V(x.desc - x.devido) : '-', x.folha ? pctTxt(pct(Math.min(x.desc, x.devido), x.devido)) : '-', x.fech && x.fech.status === 'fechada' ? 'Fechada' : 'Aberta'])}],
+    assinaturas: ['Auditoria', 'Controladoria', 'Diretoria']};
+}
+function modeloMeses() {
+  const cs = R.porComp;
+  return {titulo: 'Desconto em Folha - mês a mês', subtitulo: 'Devido (parcelas das compras) x descontado na folha, por competência', marca: MARCA, paisagem: true, arquivo: `mes_a_mes_desconto_folha_${hojeISO()}`,
+    graficos: [{titulo: 'Devido x descontado por competência', tipo: 'colunas', series: ['Devido', 'Descontado'], itens: cs.slice(-14).map(x => ({rotulo: MESES[+x.comp.slice(5) - 1] + '/' + x.comp.slice(2, 4), a: x.devido, b: x.folha ? x.desc : 0}))}],
+    secoes: [{titulo: `Competências (${cs.length})`, cab: ['Competência', 'Funcionários', 'Devido', 'Descontado', 'A menos', 'A mais', '% descontado', 'Pago em', 'Compras', 'Fechamento'], direita: [1, 2, 3, 4, 5, 6],
+      linhas: cs.slice().reverse().map(x => [compBR(x.comp), x.n, V(x.devido), x.folha ? V(x.desc) : '-', x.folha ? V(x.menos) : '-', x.folha ? V(x.mais) : '-', x.folha ? pctTxt(pct(Math.min(x.desc, x.devido), x.devido)) : '-',
+        x.dataPag.map(dataBR).join(', '), x.faltam.length ? 'Parcial - faltam ' + faixas(x.faltam) : 'Completas', x.fech ? (x.fech.status === 'fechada' ? 'Fechada por ' + quemCurto(x.fech.fechado_por) + ' ' + dtBR(x.fech.fechado_em) : 'Reaberta') : (x.folha ? 'Aberta' : 'Aguardando folha')]),
+      rodape: ['Total', '', V(cs.reduce((s, x) => s + x.devido, 0)), V(cs.reduce((s, x) => s + (x.folha ? x.desc : 0), 0)), V(cs.reduce((s, x) => s + x.menos, 0)), V(cs.reduce((s, x) => s + x.mais, 0)), '', '', '', '']}],
+    assinaturas: ['Auditoria', 'Controladoria']};
+}
+function modeloFuncionarios(ps) {
+  const L = ps.map(p => { const x = p.celulas[COMP], f = p.cad;
+    return [p.nome, cpfF(p.cpf), f ? f.matricula || '' : '', f ? f.loja || '' : 'FORA DO CADASTRO', f ? f.situacao || '' : '', x ? V(x.devido) : '', x && x.st !== 'prev' ? V(x.desc) : '-', x && x.st !== 'prev' ? V(x.dif) : '', x ? STAT[x.st][0] : '-', p.pend.filter(a => !encerrada(a)).length]; });
+  return {titulo: `Funcionários - desconto em folha - ${compBR(COMP)}`, subtitulo: `${ps.length} funcionário(s) no filtro da tela`, marca: MARCA, paisagem: true, arquivo: `funcionarios_desconto_folha_${COMP}`,
+    resumo: [['Funcionários', qtd(ps.length)], ['Total devido', brl(ps.reduce((s, p) => s + ((p.celulas[COMP] || {}).devido || 0), 0))], ['Total descontado - pago', brl(ps.reduce((s, p) => s + ((p.celulas[COMP] || {}).desc || 0), 0))], ['Com pendência', qtd(ps.filter(p => p.pend.some(a => !encerrada(a))).length)]],
+    secoes: [{titulo: `Funcionários (${ps.length})`, cab: ['Funcionário', 'CPF', 'Matrícula', 'Loja', 'Situação cad.', 'Devido', 'Descontado', 'Diferença', 'Situação', 'Pendências'], direita: [5, 6, 7, 9], linhas: L}],
+    assinaturas: ['Auditoria']};
+}
+function modeloArquivos() {
+  const as = D.arquivos.slice().sort((a, b) => b.id - a.id), rg = REGRAS.find(x => x.regra === R.cfg.regra && x.corte === R.cfg.corte);
+  return {titulo: 'Desconto em Folha - arquivos importados', subtitulo: `Regra de competência: ${rg ? rg.txt : R.cfg.regra + ' / corte ' + R.cfg.corte} - tolerância ${brl(R.cfg.tol)}`, marca: MARCA, paisagem: true, arquivo: `arquivos_desconto_folha_${hojeISO()}`,
+    secoes: [{titulo: `Arquivos (${as.length})`, cab: ['Tipo', 'Arquivo', 'Competências', 'Linhas', 'Total', 'Rodapé', 'Importado em', 'Por'], direita: [3, 4, 5],
+      linhas: as.map(a => [TIPO_NOME[a.tipo], a.nome, (a.competencias || []).map(compBR).join(', '), qtd(a.linhas), a.total != null ? V(a.total) : '', a.rodape != null ? V(a.rodape) : '', dtBR(a.importado_em), quemCurto(a.importado_por)])},
+      ...(R.calib ? [{titulo: 'Qual regra explica a folha', cab: ['Regra', 'Funcionário x mês que batem', '%'], direita: [1, 2], linhas: R.calib.map(c => [c.txt, `${c.ok}/${c.tot}`, pctTxt(c.pct * 100)])}] : [])]};
+}
+const MODELOS = {exec: () => modeloExecutivo(COMP), comp: () => modeloCompetencia(COMP), pend: () => modeloPendencias(), dup: () => modeloDuplicidades(), loja: () => modeloLojas(COMP), rh: () => modeloRH(COMP)};
+// PDF / impressão de cada menu (o que está na tela, com os filtros)
+const MODELO_ABA = {painel: () => modeloExecutivo(COMP), pend: () => modeloPendencias(listaPend()), dup: () => modeloDuplicidades(listaDup()), meses: modeloMeses, func: () => modeloFuncionarios(listaFunc()), arq: modeloArquivos};
+function relatorioAba(aba, acao) {
+  if (!R || !D.arquivos.length) { toast('Importe os arquivos primeiro.'); return; }
+  const m = MODELO_ABA[aba](); return acao === 'imprimir' ? imprimirModelo(m) : baixarPDF(m);
+}
+const ROT_ABA = {painel: 'PDF executivo (Diretoria)', pend: 'PDF desta lista', dup: 'PDF desta lista', meses: 'PDF mês a mês', func: 'PDF desta lista', arq: 'PDF dos arquivos'};
+Object.keys(MODELO_ABA).forEach(a => { const d = document.createElement('div'); d.className = 'acoes-aba';
+  d.innerHTML = `<button class="btn b-pri" data-pdfaba="${a}">📄 ${ROT_ABA[a]}</button><button class="btn" data-impaba="${a}">🖨 Imprimir</button>`; $('a-' + a).prepend(d); });
 async function relatorio(tipo, acao) {
-  if (!R || !R.par.length) { toast('Importe os arquivos primeiro.'); return; }
+  if (!R || !D.arquivos.length) { toast('Importe os arquivos primeiro.'); return; }
   const m = MODELOS[tipo]();
   if (acao === 'ver') { $('preview').innerHTML = `<div class="card"><h3>${esc(m.titulo)}</h3><div class="small mut">${esc(m.subtitulo)}</div>${htmlModelo(m)}</div>`; $('preview').scrollIntoView({behavior: 'smooth'}); return; }
   if (acao === 'imprimir') return imprimirModelo(m);
@@ -1144,7 +1303,10 @@ function exportar() {
 
 /* ---------- cliques ---------- */
 document.body.addEventListener('click', e => {
-  const t = e.target.closest('[data-tratar],[data-pes],[data-fechar],[data-reabrir],[data-excluir],[data-usar],[data-ircomp],[data-pdfpes],[data-imppes]'); if (!t) return;
+  const t = e.target.closest('[data-tratar],[data-pes],[data-fechar],[data-reabrir],[data-excluir],[data-usar],[data-ircomp],[data-pdfpes],[data-imppes],[data-datapag],[data-pdfaba],[data-impaba]'); if (!t) return;
+  if (t.dataset.datapag) return dataPagamento(+t.dataset.datapag);
+  if (t.dataset.pdfaba) return relatorioAba(t.dataset.pdfaba, 'pdf');
+  if (t.dataset.impaba) return relatorioAba(t.dataset.impaba, 'imprimir');
   if (t.dataset.tratar) return tratar(t.dataset.tratar);
   if (t.dataset.fechar) return fecharComp(t.dataset.fechar);
   if (t.dataset.reabrir) return reabrir(t.dataset.reabrir);
