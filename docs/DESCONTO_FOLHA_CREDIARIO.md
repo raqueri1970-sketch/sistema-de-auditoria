@@ -10,9 +10,9 @@ Objetivo: todo mês, saber **funcionário por funcionário** quanto deveria ser 
 
 | Arquivo | Quando | O que a tela confere ao importar |
 |---|---|---|
-| Compras no crediário ("COMPRA EM LOJA", CSV/Excel) | todo ciclo (21 a 20) | soma das linhas × total do rodapé; parcela repetida entre relatórios vira uma só; valor diferente vira alerta |
+| Compras no crediário ("LISTAGEM DO RH", "COMPRA EM LOJA", CSV/Excel, inclusive o Excel antigo do sistema) — é o **devido** | todo mês | soma das linhas × total do rodapé; parcela repetida entre relatórios vira uma só; valor diferente vira alerta |
 | Cadastro de funcionários (Ativos, Excel) | todo mês | quem saiu do cadastro passa a ser tratado como desligado |
-| Descontos da folha (relatório de eventos) | depois que a folha fecha | só os eventos marcados (padrão: "Compra Loja", evento 1260); CPF pela matrícula do cadastro; competência e data de pagamento pela coluna ou informadas na tela |
+| Descontos da folha (planilha "desconto de FOLHA", aba **crediario**) | depois que a folha fecha | a tela abre a aba "crediario" (o que foi descontado) e deixa trocar de aba; cada aba conta como um arquivo; linha de TOTAL é ignorada; CPF pela matrícula do cadastro; competência pelo nome do arquivo ("09-2026") ou informada; data de pagamento informada na importação ou depois ("Data de pagamento" em Arquivos importados) |
 | Baixas do crediário | opcional | data em que cada parcela foi quitada |
 
 Antes de gravar, a tela mostra o que leu (colunas, totais, primeiras linhas) para conferir. O mesmo arquivo (mesmo SHA-256) não entra duas vezes. A gravação é uma transação só (`cred_importar`): entra tudo ou nada. Um arquivo errado pode ser excluído (as linhas que vieram dele saem da base); o cadastro não se exclui — importa-se um mais novo.
@@ -38,6 +38,12 @@ Cada pendência recebe **tratativa** (pendente, cobrar, devolver, justificado, r
 Em "Mês a mês" o auditor **fecha a competência**: devido, descontado, a menos, a mais, pendências e a lista de divergências ficam gravados (`cred_fechamentos`). Se os números mudarem depois (arquivo novo, regra trocada), a tela avisa "números mudaram depois do fechamento". Dá para reabrir.
 
 ## Relatórios (PDF, impressão e Excel)
+
+Todo menu tem **PDF** e **Imprimir** do que está na tela (com os filtros): Painel → **PDF executivo para a Diretoria** (números da competência, evolução, achados com a ação recomendada, maiores riscos, situação dos funcionários, assinaturas Auditoria / Controladoria / Diretoria); Erros e faltas graves; Duplicidades; Mês a mês; Funcionários; Arquivos do mês.
+
+Atenção: a LISTAGEM DO RH traz só parcelas em aberto (vencimentos a partir da data em que foi tirada). Para auditar uma folha já paga, importe a listagem tirada antes daquela folha (ou o "COMPRA EM LOJA" dos meses anteriores); senão o devido daquela competência fica zerado e a tela avisa.
+
+Também na aba Relatórios:
 
 - Auditoria da competência (resumo, gráficos, divergências, duplicidades, faltas graves, resumo por loja, assinaturas Auditoria / RH / Controladoria)
 - Erros e faltas graves · Duplicidades · Divergências por loja (para o gerente)
