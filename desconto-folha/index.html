@@ -229,7 +229,7 @@
     <div class="card">
       <div class="cfg">
         <div><label>Como a parcela cai na folha</label>
-          <select id="cRegra"><option value="venc_ant">Vencimento de 21 a 20 → folha do mês em que começa</option><option value="ciclo">Ciclo da compra + nº da parcela</option><option value="venc">Pelo vencimento da parcela (com corte)</option></select></div>
+          <select id="cRegra"><option value="ciclo">Compra de 21 a 20 → folha do mês + 1 mês por parcela</option><option value="venc_ant">Vencimento de 21 a 20 → folha do mês em que começa</option><option value="venc">Pelo vencimento da parcela (com corte)</option></select></div>
         <div><label>Dia de corte do ciclo</label><input id="cCorte" type="number" min="1" max="31"></div>
         <div><label>Tolerância de arredondamento (R$)</label><input id="cTol" type="number" min="0" step="0.01"></div>
         <div><label>Máximo de parcelas permitido</label><input id="cMax" type="number" min="1" max="24"></div>
@@ -386,9 +386,10 @@ function compDaParcela(p, regra, corte) {
   if (regra === 'venc_ant') return addMes(cicloDe(p.vencimento, corte), -1);
   return addMes(cicloDe(p.lancamento || p.vencimento, corte), (p.parcela || 1) - 1);
 }
+// regra da empresa: compra de 21/09 a 20/10 → folha de outubro (1ª parcela), paga no 5º dia útil de novembro; cada parcela seguinte, um mês depois
 const REGRAS = [
+  {regra: 'ciclo', corte: 20, txt: 'Compra de 21 a 20 → folha do mês (21/09 a 20/10 = folha de outubro) + 1 mês por parcela'},
   {regra: 'venc_ant', corte: 20, txt: 'Vencimento de 21 a 20 → folha do mês em que começa (21/09 a 20/10 = folha 09)'},
-  {regra: 'ciclo', corte: 20, txt: 'Ciclo da compra (corte dia 20) + parcela'},
   {regra: 'venc', corte: 20, txt: 'Vencimento com corte no dia 20'},
   {regra: 'venc', corte: 31, txt: 'Mês do vencimento (calendário)'},
   {regra: 'ciclo', corte: 31, txt: 'Mês da compra + parcela'}
@@ -473,7 +474,19 @@ function cruzar() {
   // traz pedaços de compras antigas e não pode dar a cobertura por completa
   const ciclos = new Set(par.filter(p => p.parcela === 1 && !p.rec).map(p => cicloDe(p.lancamento || p.vencimento, cfg.corte)));
   const maxParc = Math.min(12, Math.max(1, ...par.map(p => p.n_parcelas || p.parcela || 1)));
-  const cobertura = comp => { const falt = []; for (let k = maxParc; k >= 0; k--) { const c = addMes(comp, -k); if (!ciclos.has(c)) falt.push(c); } return falt; };
+  // "carteira em aberto" = relatório com compras de muitos meses e só parcelas a vencer (lançamento bem anterior ao 1º vencimento);
+  // tirada antes do início da janela de vencimentos da folha, ela traz TODAS as parcelas dessa folha
+  const porArq = new Map(); par.filter(p => !p.rec).forEach(p => { const o = porArq.get(p.arquivo_id) || {mv: '9', ml: '9'}; porArq.set(p.arquivo_id, o);
+    if (p.vencimento < o.mv) o.mv = p.vencimento; if (p.lancamento && p.lancamento < o.ml) o.ml = p.lancamento; });
+  const menos45 = d => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() - 45); return x.toISOString().slice(0, 10); };
+  const carteiras = [...porArq.values()].filter(o => o.ml < menos45(o.mv)).map(o => o.mv);
+  const dia = String(Math.min(28, cfg.corte + 1)).padStart(2, '0');
+  // parcelas da folha M vencem a partir do dia 21 de M (regra do ciclo e venc_ant) ou de M-1 (vencimento com corte)
+  const inicioJanela = comp => cfg.regra === 'venc' ? addMes(comp, -1) + '-' + dia : comp + '-' + dia;
+  const cobertura = comp => {
+    const ini = inicioJanela(comp);
+    if (carteiras.length) return carteiras.some(mv => mv <= ini) ? [] : [comp];   // completa se a carteira em aberto cobre a janela
+    const falt = []; for (let k = maxParc; k >= 0; k--) { const c = addMes(comp, -k); if (!ciclos.has(c)) falt.push(c); } return falt; };
   const compsFolha = new Set(folhaOk.map(l => l.comp));
   const dataPagComp = {}; folhaOk.forEach(l => { if (l.data_pagamento) (dataPagComp[l.comp] = dataPagComp[l.comp] || new Set()).add(l.data_pagamento); });
 
@@ -561,14 +574,14 @@ function cruzar() {
   // competências que já deviam ter folha
   const compsDevido = [...new Set(par.map(p => p.comp))].sort();
   const compsReais = new Set(par.filter(p => !p.rec).map(p => p.comp));
-  const folhaJaPaga = c => hoje > addMes(c, 1) + '-10';
+  const folhaJaPaga = c => hoje > quintoDiaUtil(c);
   compsDevido.filter(c => folhaJaPaga(c) && !compsFolha.has(c) && compsReais.has(c)).forEach(c => {
     const dv = r2(par.filter(p => p.comp === c).reduce((s, p) => s + p.valor, 0));
     add('integridade', 'alta', 'Folha não importada', '', c, `A folha de ${compBR(c)} já passou e não foi importada — ${brl(dv)} deviam ter sido descontados.`, dv, {nome: 'Folha ' + compBR(c)});
   });
   // ciclos de compra sem relatório entre o primeiro e o último
   const cs = [...ciclos].sort();
-  if (cs.length > 1) for (let c = cs[0]; c < cs[cs.length - 1]; c = addMes(c, 1)) if (!ciclos.has(c))
+  if (cs.length > 1 && !carteiras.length) for (let c = cs[0]; c < cs[cs.length - 1]; c = addMes(c, 1)) if (!ciclos.has(c))
     add('integridade', 'media', 'Compras do ciclo não importadas', '', c, `Não há compras do ciclo de ${compBR(c)} (dia ${cfg.corte + 1} a ${cfg.corte}) — importe o relatório para o devido ficar completo.`, 0, {nome: 'Ciclo ' + compBR(c)});
   // baixas
   if (D.baixas.length) {
@@ -610,7 +623,8 @@ function cruzar() {
   const contratos = [...contr.values()].filter(ps => ps[0].n_parcelas).map(ps => ({cpf: ps[0].cpf, contrato: ps[0].contrato, lanc: ps[0].lancamento, n: ps[0].n_parcelas, total: r2(ps.reduce((s, p) => s + p.valor, 0)), comp: ps[0].comp}));
   for (const [, cs2] of grp(contratos, c => c.cpf + '|' + c.lanc + '|' + c.n + '|' + c.total.toFixed(2))) {
     if (cs2.length < 2) continue;
-    add('duplicidade', 'media', 'Compra repetida no mesmo dia', cs2[0].cpf, '', `${cs2.length} compras iguais em ${dataBR(cs2[0].lanc)}: ${cs2.map(c => c.contrato).join(', ')} — ${cs2[0].n}x, total ${brl(cs2[0].total)} cada. Confirmar se não é lançamento em duplicidade.`, cs2.slice(1).reduce((s, c) => s + c.total, 0), {sufixo: cs2.map(c => c.contrato).join('+')});
+    // várias compras do mesmo funcionário (inclusive no mesmo dia) são normais e as parcelas se acumulam no mês: só informativo
+    add('integridade', 'baixa', 'Compras iguais no mesmo dia', cs2[0].cpf, '', `${cs2.length} compras com o mesmo valor e parcelas em ${dataBR(cs2[0].lanc)}: ${cs2.map(c => c.contrato).join(', ')} — ${cs2[0].n}x, total ${brl(cs2[0].total)} cada. Informativo (comprar várias vezes é permitido).`, 0, {sufixo: cs2.map(c => c.contrato).join('+')});
   }
   for (const [k, bs] of bx) if (bs.length > 1) {
     const p = par.find(x => x.documento + '|' + x.parcela === k);
@@ -686,8 +700,12 @@ $('selComp').addEventListener('change', () => { COMP = $('selComp').value; COMP_
 const kpi = (l, v, n, tipo = '', click = '') => `<div class="card kpi ${tipo} ${click ? 'clic' : ''}" ${click ? `onclick="${click}"` : ''}><div class="l">${l}</div><div class="v">${v}</div>${n ? `<div class="n">${n}</div>` : ''}</div>`;
 const pc = (comp = COMP) => R.porComp.find(c => c.comp === comp) || {comp, folha: false, devido: 0, desc: 0, menos: 0, mais: 0, n: 0, cont: {}, faltam: R.cobertura(comp), dataPag: [], abertas: 0, fech: null};
 const pct = (a, b) => b ? Math.round(a / b * 1000) / 10 : 0;
+// a folha da competência M é paga no 5º dia útil de M+1 (segunda a sexta; feriados não entram na conta)
+function quintoDiaUtil(comp) { const d = new Date(addMes(comp, 1) + '-01T12:00:00'); let n = 0;
+  while (true) { const w = d.getDay(); if (w > 0 && w < 6 && ++n === 5) return d.toISOString().slice(0, 10); d.setDate(d.getDate() + 1); } }
 const pctTxt = v => v.toLocaleString('pt-BR', {maximumFractionDigits: 1}) + '%';
 // números da competência usados no painel, no PDF executivo e nos relatórios
+// % descontado é somado funcionário a funcionário: o desconto a mais de um não cobre o a menos de outro
 function numeros(comp = COMP) {
   const c = pc(comp), ls = R.linhas.filter(l => l.comp === comp);
   const aud = ls.filter(l => l.st !== 'prev'), ok = aud.filter(l => l.st === 'ok').length;
@@ -695,7 +713,7 @@ function numeros(comp = COMP) {
   const vRec = r2(R.par.filter(p => p.rec && p.comp === comp).reduce((s, p) => s + p.valor, 0));
   const parcial = vRec > 0.009 || c.faltam.length > 0, verif = aud.filter(l => l.st === 'verif').length;
   const gravesMes = pend.filter(p => p.grav === 'alta' && p.cat !== 'duplicidade' && p.comp === comp).length;
-  return {c, ls, aud, ok, vRec, parcial, verif, gravesMes, pctFunc: pct(ok, aud.length), pctValor: c.folha ? pct(Math.min(c.desc, c.devido), c.devido) : 0, liquida: r2(c.desc - c.devido), pend,
+  return {c, ls, aud, ok, vRec, parcial, verif, gravesMes, pctFunc: pct(ok, aud.length), pctValor: c.folha ? pct(aud.reduce((t, l) => t + Math.min(l.desc, l.devido), 0), c.devido) : 0, liquida: r2(c.desc - c.devido), pend,
     graves: pend.filter(p => p.grav === 'alta' && p.cat !== 'duplicidade'), dups: pend.filter(p => p.cat === 'duplicidade'),
     nMenos: (c.cont.menos || 0) + (c.cont.nao || 0), nMais: (c.cont.mais || 0) + (c.cont.semcompra || 0)};
 }
@@ -732,7 +750,7 @@ function telaPainel() {
   const corG = N.pctValor >= 99.5 ? '#22c55e' : N.pctValor >= 95 ? '#f5b301' : '#ef4444';
   $('hero').innerHTML = `<div><div class="t">Competência</div><div class="c">${compBR(COMP)}${fechada ? ' <span class="st st-ok">fechada</span>' : ''}</div>
     <div class="f">Devido = parcelas das compras no crediário${N.vRec > 0.009 ? ` <span class="wt">(${brl(N.vRec)} reconstruídos de contratos ainda abertos — compras já quitadas não vêm no arquivo, então é o mínimo)</span>` : c.faltam.length ? ' <span class="wt">(faltam compras de ' + faixas(c.faltam) + ')</span>' : ''}<br>
-    ${c.folha ? `Folha importada · ${c.dataPag.length ? 'paga em <b>' + c.dataPag.map(dataBR).join(', ') + '</b>' : '<span class="wt">sem data de pagamento</span> · <a href="javascript:void(0)" onclick="irPara(\'arq\')">informar</a>'}` : '<span class="wt">Folha ainda não importada</span>'}
+    ${c.folha ? `Folha importada · ${c.dataPag.length ? 'paga em <b>' + c.dataPag.map(dataBR).join(', ') + '</b>' : `<span class="wt">sem data de pagamento</span> (previsto: 5º dia útil, ${dataBR(quintoDiaUtil(COMP))}) · <a href="javascript:void(0)" onclick="irPara(\'arq\')">informar</a>`}` : `<span class="wt">Folha ainda não importada</span> · pagamento previsto no 5º dia útil: ${dataBR(quintoDiaUtil(COMP))}`}
     ${fechada ? `<br>Fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : ''}</div></div>
     <div class="gauge">${c.folha ? `<div class="v" style="color:${corG}">${pctTxt(N.pctValor)}</div><div class="barra"><i style="width:${Math.min(100, N.pctValor)}%;background:${corG}"></i></div>
       <div class="l">do valor devido${N.parcial ? ' (mínimo)' : ''} foi descontado · ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem (${pctTxt(N.pctFunc)})</div>`
@@ -766,7 +784,7 @@ function telaPainel() {
     item(fArqs.length === 1 ? true : fArqs.length > 1 ? null : false, fArqs.length ? `Folha de ${compBR(COMP)} importada (${fArqs.map(a => esc(a.nome)).join(', ')})` : `Folha de ${compBR(COMP)} não importada`, fArqs.length === 1 ? '' : ir('arq')),
     ...(fArqs.length ? [item(c.dataPag.length ? true : false, c.dataPag.length ? `Folha paga em ${c.dataPag.map(dataBR).join(', ')}` : 'Data de pagamento da folha não informada', c.dataPag.length ? '' : ir('arq'))] : []),
     item(!!cad, cad ? `Cadastro de funcionários de ${dtBR(cad.importado_em)} (${esc(cad.nome)})` : 'Cadastro de funcionários não importado', cad ? '' : ir('arq')),
-    item(c.devido > 0 && !c.faltam.length ? true : c.devido > 0 ? null : false, c.devido > 0 ? (c.faltam.length ? `Compras importadas, mas faltam as de ${faixas(c.faltam)} para o devido ficar completo` : 'Compras de todos os meses que geram parcela nesta folha importadas') : `Nenhuma parcela das compras importadas cai em ${compBR(COMP)}`, c.faltam.length || !c.devido ? ir('arq') : ''),
+    item(c.devido > 0 && !c.faltam.length ? true : c.devido > 0 ? null : false, c.devido > 0 ? (c.faltam.length ? (c.faltam.length === 1 && c.faltam[0] === COMP && R.cfg.regra !== 'ciclo' ? 'A carteira importada foi tirada depois do início desta folha: parcelas já pagas não estão no arquivo (devido mínimo)' : `Compras importadas, mas faltam as de ${faixas(c.faltam)} para o devido ficar completo`) : 'Compras de todos os meses que geram parcela nesta folha importadas') : `Nenhuma parcela das compras importadas cai em ${compBR(COMP)}`, c.faltam.length || !c.devido ? ir('arq') : ''),
     item(R.calib ? regraMelhor : null, R.calib ? `Regra de competência explica ${((regraUso ? regraUso.pct : 0) * 100).toFixed(1)}% dos descontos${regraMelhor ? '' : ' — existe regra melhor'}` : 'Regra de competência ainda não conferida com a folha', R.calib && !regraMelhor ? ir('arq') : ''),
     item(D.baixas.length ? true : null, D.baixas.length ? 'Baixas do crediário importadas' : 'Baixas do crediário (opcional) não importadas'),
     item(gravesComp.length === 0, gravesComp.length ? `${gravesComp.length} pendência(s) grave(s) sem tratativa` : 'Nenhuma pendência grave aberta', gravesComp.length ? ir('pend') : ''),
@@ -951,7 +969,7 @@ function telaArquivos() {
   $('cRegra').value = R.cfg.regra; $('cCorte').value = R.cfg.corte; $('cTol').value = R.cfg.tol; $('cMax').value = R.cfg.maxParc;
   const ex = R.par.find(p => p.n_parcelas > 1);
   $('regraTxt').innerHTML = (R.cfg.regra === 'ciclo'
-    ? `Compra feita do dia ${R.cfg.corte + 1} de um mês ao dia ${R.cfg.corte} do mês seguinte entra na folha desse mês seguinte; cada parcela seguinte cai um mês depois.`
+    ? `Compra feita do dia ${R.cfg.corte + 1} de um mês ao dia ${R.cfg.corte} do mês seguinte entra na folha desse mês seguinte (ex.: 21/09 a 20/10 → folha de outubro, paga no 5º dia útil de novembro); cada parcela seguinte cai um mês depois.`
     : R.cfg.regra === 'venc_ant' ? `A parcela que vence do dia ${R.cfg.corte + 1} de um mês ao dia ${R.cfg.corte} do mês seguinte é descontada na folha do primeiro mês (ex.: vencimentos de 21/09 a 20/10 → folha de setembro).`
     : `A parcela entra na folha do mês do vencimento; vencimento depois do dia ${R.cfg.corte} vai para a folha do mês seguinte.`)
     + (R.nRec ? `<br>${qtd(R.nRec)} parcelas já pagas foram <b>reconstruídas</b> a partir dos contratos em aberto (mesmo valor, vencimento a cada 30 dias). Compras já quitadas não aparecem na carteira, então o devido das folhas passadas é um <b>mínimo</b>.` : '')
