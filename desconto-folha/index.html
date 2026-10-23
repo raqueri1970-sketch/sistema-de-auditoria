@@ -143,7 +143,7 @@
     <div class="card">
       <div class="busca">
         <input id="pBusca" placeholder="Buscar nome, CPF, matrícula ou loja">
-        <select id="pCat"><option value="">Todas as categorias</option><option value="desconto">Desconto em folha</option><option value="cadastro">Cadastro</option><option value="integridade">Arquivos e integridade</option></select>
+        <select id="pCat"><option value="">Todas as categorias</option><option value="desconto">Desconto em folha</option><option value="cadastro">Cadastro</option><option value="politica">Política de crédito (parcelamento)</option><option value="integridade">Arquivos e integridade</option></select>
         <select id="pGrav"><option value="">Todas as gravidades</option><option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option></select>
         <select id="pSit"><option value="abertas">Abertas e em tratamento</option><option value="">Todas</option><option value="encerradas">Encerradas</option></select>
         <select id="pComp"><option value="sel">Só a competência selecionada</option><option value="">Todas as competências</option></select>
@@ -232,6 +232,7 @@
           <select id="cRegra"><option value="venc_ant">Vencimento de 21 a 20 → folha do mês em que começa</option><option value="ciclo">Ciclo da compra + nº da parcela</option><option value="venc">Pelo vencimento da parcela (com corte)</option></select></div>
         <div><label>Dia de corte do ciclo</label><input id="cCorte" type="number" min="1" max="31"></div>
         <div><label>Tolerância de arredondamento (R$)</label><input id="cTol" type="number" min="0" step="0.01"></div>
+        <div><label>Máximo de parcelas permitido</label><input id="cMax" type="number" min="1" max="24"></div>
         <div><button class="btn b-pri" onclick="salvarConfig()">Salvar regra</button></div>
       </div>
       <div class="regra" id="regraTxt"></div>
@@ -431,7 +432,7 @@ function faixas(cs) {
    CRUZAMENTO
    ===================================================================================================== */
 function cruzar() {
-  const cfg = {regra: D.cfg.regra, corte: +D.cfg.corte, tol: +D.cfg.tolerancia};
+  const cfg = {regra: D.cfg.regra, corte: +D.cfg.corte, tol: +D.cfg.tolerancia, maxParc: +(D.cfg.max_parcelas || 5)};
   const hoje = hojeISO(), compHoje = cicloDe(hoje, cfg.corte);
   const arqPorId = new Map(D.arquivos.map(a => [a.id, a]));
   const cadAtual = Math.max(0, ...D.arquivos.filter(a => a.tipo === 'cadastro').map(a => a.id));
@@ -449,7 +450,8 @@ function cruzar() {
     const tem = new Set(ps.map(p => p.parcela));
     for (let j = 1; j < pk.parcela; j++) { if (tem.has(j)) continue;
       const d = new Date(pk.vencimento + 'T12:00:00'); d.setDate(d.getDate() - 30 * (pk.parcela - j));
-      rec.push({...pk, chave: 'rec|' + pk.chave + '|' + j, documento: `${pk.contrato}-${j}/${pk.n_parcelas}`, parcela: j, vencimento: d.toISOString().slice(0, 10), valor_anterior: null, rec: true}); }
+      // se a única em aberto é a última, o valor dela leva o arredondamento do contrato: as anteriores ficam aproximadas
+      rec.push({...pk, chave: 'rec|' + pk.chave + '|' + j, documento: `${pk.contrato}-${j}/${pk.n_parcelas}`, parcela: j, vencimento: d.toISOString().slice(0, 10), valor_anterior: null, rec: true, aprox: pk.parcela === pk.n_parcelas}); }
   }
   const par = base.concat(rec).map(p => {
     const x = {...p, comp: compDaParcela(p, cfg.regra, cfg.corte), ck: p.cpf + '|' + p.contrato + '|' + (p.lancamento || '')};
@@ -490,8 +492,10 @@ function cruzar() {
     const [cpf, comp] = k.split('|'); const pe = pessoas.get(cpf);
     c.devido = r2(c.devido); c.desc = r2(c.desc); c.dif = r2(c.desc - c.devido);
     c.faltam = cobertura(comp); c.completa = !c.faltam.length;
+    // parcela reconstruída a partir da última parcela do contrato: aceita até R$ 1 por parcela do contrato de arredondamento
+    c.tolRec = r2(c.parcelas.filter(p => p.aprox).reduce((s, p) => s + (p.n_parcelas || 1), 0));
     if (!compsFolha.has(comp)) c.st = 'prev';
-    else if (Math.abs(c.dif) <= cfg.tol) c.st = 'ok';
+    else if (Math.abs(c.dif) <= cfg.tol || (c.tolRec && Math.abs(c.dif) <= cfg.tol + c.tolRec)) c.st = 'ok';
     else if (c.devido > 0 && c.desc === 0) c.st = 'nao';
     else if (c.dif < 0) c.st = 'menos';
     else if (!c.completa) c.st = 'verif';
@@ -556,7 +560,9 @@ function cruzar() {
   semId.forEach(l => add('integridade', 'media', 'Desconto sem funcionário', '', l.competencia, `${l.arq}: ${l.nome || 'matrícula ' + (l.matricula || '?')} — ${brl(l.valor)} sem CPF/matrícula no cadastro.`, l.valor, {sufixo: l.id, nome: l.nome || l.matricula}));
   // competências que já deviam ter folha
   const compsDevido = [...new Set(par.map(p => p.comp))].sort();
-  compsDevido.filter(c => c < compHoje && !compsFolha.has(c)).forEach(c => {
+  const compsReais = new Set(par.filter(p => !p.rec).map(p => p.comp));
+  const folhaJaPaga = c => hoje > addMes(c, 1) + '-10';
+  compsDevido.filter(c => folhaJaPaga(c) && !compsFolha.has(c) && compsReais.has(c)).forEach(c => {
     const dv = r2(par.filter(p => p.comp === c).reduce((s, p) => s + p.valor, 0));
     add('integridade', 'alta', 'Folha não importada', '', c, `A folha de ${compBR(c)} já passou e não foi importada — ${brl(dv)} deviam ter sido descontados.`, dv, {nome: 'Folha ' + compBR(c)});
   });
@@ -579,6 +585,12 @@ function cruzar() {
     }
   }
 
+  // 3b) política de crédito: compra parcelada acima do limite (ex.: funcionário só pode dividir em até 5x)
+  const acima = new Map();
+  for (const ps of contr.values()) { const n = ps[0].n_parcelas; if (!n || n <= cfg.maxParc) continue;
+    const o = acima.get(ps[0].cpf) || {n: 0, aberto: 0, por: {}, ex: []}; acima.set(ps[0].cpf, o);
+    o.n++; o.por[n] = (o.por[n] || 0) + 1; o.aberto += ps.filter(p => !p.rec).reduce((s, p) => s + p.valor, 0); if (o.ex.length < 3) o.ex.push(`${ps[0].contrato} ${n}x (${dataBR(ps[0].lancamento)})`); }
+  for (const [cpf, o] of acima) add('politica', 'alta', `Parcelado acima de ${cfg.maxParc}x`, cpf, '', `${o.n} compra(s) acima do limite de ${cfg.maxParc}x: ${Object.entries(o.por).map(([n, q]) => `${q} em ${n}x`).join(', ')} — ex.: ${o.ex.join(', ')}. Em aberto ${brl(o.aberto)}.`, o.aberto);
   // 4) duplicidades
   const grp = grpConta;
   for (const [, ls] of grp(folhaOk, l => l.cpf + '|' + l.comp + '|' + (l.evento || ''))) {
@@ -624,12 +636,14 @@ function cruzar() {
   if (folhaOk.length) {
     const desc = new Map(); folhaOk.forEach(l => desc.set(l.cpf + '|' + l.comp, (desc.get(l.cpf + '|' + l.comp) || 0) + l.valor));
     calib = REGRAS.map(rg => {
-      const dev = new Map(); par.forEach(p => { const c = compDaParcela(p, rg.regra, rg.corte); if (compsFolha.has(c)) dev.set(p.cpf + '|' + c, (dev.get(p.cpf + '|' + c) || 0) + p.valor); });
-      let ok = 0, tot = 0; new Set([...dev.keys(), ...desc.keys()]).forEach(k => { tot++; if (Math.abs((dev.get(k) || 0) - (desc.get(k) || 0)) <= cfg.tol) ok++; });
+      const dev = new Map(), tolR = new Map();
+      par.forEach(p => { const c = compDaParcela(p, rg.regra, rg.corte); if (!compsFolha.has(c)) return; const k = p.cpf + '|' + c;
+        dev.set(k, (dev.get(k) || 0) + p.valor); if (p.aprox) tolR.set(k, (tolR.get(k) || 0) + (p.n_parcelas || 1)); });
+      let ok = 0, tot = 0; new Set([...dev.keys(), ...desc.keys()]).forEach(k => { tot++; if (Math.abs((dev.get(k) || 0) - (desc.get(k) || 0)) <= cfg.tol + (tolR.get(k) || 0)) ok++; });
       return {...rg, ok, tot, pct: tot ? ok / tot : 0};
     }).sort((a, b) => b.pct - a.pct);
   }
-  R = {cfg, par, nRec: rec.length, folha: folhaOk, semId, linhas, pessoas, pend, comps, porComp, calib, compsFolha, ciclos, compHoje, cadAtual, arqPorId, cobertura};
+  R = {cfg, par, nRec: rec.length, compsReais, acima, folha: folhaOk, semId, linhas, pessoas, pend, comps, porComp, calib, compsFolha, ciclos, compHoje, cadAtual, arqPorId, cobertura};
 }
 
 /* =====================================================================================================
@@ -655,7 +669,7 @@ async function recarregar() {
     const comDevido = new Set(R.porComp.filter(c => c.devido > 0).map(c => c.comp));
     if (!COMP_ESCOLHIDA || !opts.includes(COMP)) COMP = [...R.compsFolha].filter(c => comDevido.has(c)).sort().pop()
       || [...comDevido].sort().find(c => c >= addMes(R.compHoje, -1)) || [...R.compsFolha].sort().pop() || (opts.includes(R.compHoje) ? R.compHoje : opts[0] || R.compHoje);
-    $('selComp').innerHTML = (opts.length ? opts : [COMP]).map(c => `<option value="${c}" ${c === COMP ? 'selected' : ''}>${compBR(c)}${R.compsFolha.has(c) ? '' : ' (prevista)'}</option>`).join('');
+    $('selComp').innerHTML = (opts.length ? opts : [COMP]).map(c => `<option value="${c}" ${c === COMP ? 'selected' : ''}>${compBR(c)}${R.compsFolha.has(c) ? '' : R.compsReais.has(c) ? ' (prevista)' : ' (só reconstruída)'}</option>`).join('');
     const abertas = R.pend.filter(p => !encerrada(p) && p.cat !== 'duplicidade' && p.grav === 'alta').length;
     const dups = R.pend.filter(p => !encerrada(p) && p.cat === 'duplicidade').length;
     $('nPend').textContent = abertas ? `(${abertas})` : ''; $('nDup').textContent = dups ? `(${dups})` : '';
@@ -679,7 +693,9 @@ function numeros(comp = COMP) {
   const aud = ls.filter(l => l.st !== 'prev'), ok = aud.filter(l => l.st === 'ok').length;
   const pend = R.pend.filter(p => (p.comp === comp || !p.comp) && !encerrada(p));
   const vRec = r2(R.par.filter(p => p.rec && p.comp === comp).reduce((s, p) => s + p.valor, 0));
-  return {c, ls, aud, ok, vRec, pctFunc: pct(ok, aud.length), pctValor: c.folha ? pct(Math.min(c.desc, c.devido), c.devido) : 0, liquida: r2(c.desc - c.devido), pend,
+  const parcial = vRec > 0.009 || c.faltam.length > 0, verif = aud.filter(l => l.st === 'verif').length;
+  const gravesMes = pend.filter(p => p.grav === 'alta' && p.cat !== 'duplicidade' && p.comp === comp).length;
+  return {c, ls, aud, ok, vRec, parcial, verif, gravesMes, pctFunc: pct(ok, aud.length), pctValor: c.folha ? pct(Math.min(c.desc, c.devido), c.devido) : 0, liquida: r2(c.desc - c.devido), pend,
     graves: pend.filter(p => p.grav === 'alta' && p.cat !== 'duplicidade'), dups: pend.filter(p => p.cat === 'duplicidade'),
     nMenos: (c.cont.menos || 0) + (c.cont.nao || 0), nMais: (c.cont.mais || 0) + (c.cont.semcompra || 0)};
 }
@@ -699,6 +715,10 @@ function achados(comp = COMP) {
   if (c.folha && c.devido === 0) a('alta', `A folha de ${compBR(comp)} tem ${brl(c.desc)} descontados, mas nenhuma parcela das compras importadas cai nessa competência.`, 'Importar as compras do período (as parcelas já pagas saem da LISTAGEM DO RH) ou conferir a regra de competência em "Arquivos do mês".');
   const fora = [...tipo('Comprador fora do cadastro'), ...tipo('Saiu do cadastro')];
   if (fora.length) a('alta', `${qtd(fora.length)} comprador(es) não estão no cadastro de funcionários (desligados ou terceiros), com ${brl(soma(fora))} em aberto.`, 'Descontar na rescisão ou cobrar por boleto; bloquear novas compras.');
+  const pol = N.pend.filter(p => p.cat === 'politica');
+  if (pol.length) { const nc = [...R.acima.values()].reduce((s, o) => s + o.n, 0), por = {}; R.acima.forEach(o => Object.entries(o.por).forEach(([n, q]) => por[n] = (por[n] || 0) + q));
+    a('alta', `${qtd(nc)} compra(s) de ${qtd(pol.length)} funcionário(s) parceladas acima do limite de ${R.cfg.maxParc}x (${Object.entries(por).map(([n, q]) => `${qtd(q)} em ${n}x`).join(', ')}), ${brl(soma(pol))} em aberto.`, `Bloquear no sistema do crediário parcelamento acima de ${R.cfg.maxParc}x para funcionário e cobrar das lojas que liberaram.`); }
+  if (c.folha && N.parcial && N.liquida > 0.009) a('media', `${brl(N.liquida)} descontados na folha não têm compra correspondente no arquivo: são compras já quitadas, que o relatório do crediário não traz.`, 'Para fechar centavo a centavo, pedir ao crediário o relatório de parcelas por vencimento (abertas e pagas) do período da folha.');
   const afa = tipo('Afastado sem salário'); if (afa.length) a('alta', `${qtd(afa.length)} afastado(s) sem salário com ${brl(soma(afa))} em aberto — o desconto em folha não acontece.`, 'Combinar cobrança direta ou suspender as parcelas.');
   const nome = tipo('Nome diferente no CPF'); if (nome.length) a('alta', `${qtd(nome.length)} CPF(s) de funcionário com compra em nome de outra pessoa.`, 'Confirmar com a loja quem comprou.');
   if (N.dups.length) a('alta', `${qtd(N.dups.length)} possível(is) duplicidade(s), ${brl(soma(N.dups))} envolvidos.`, 'Conferir em "Duplicidades" e estornar o que for repetido.');
@@ -711,20 +731,22 @@ function telaPainel() {
   const fechada = c.fech && c.fech.status === 'fechada';
   const corG = N.pctValor >= 99.5 ? '#22c55e' : N.pctValor >= 95 ? '#f5b301' : '#ef4444';
   $('hero').innerHTML = `<div><div class="t">Competência</div><div class="c">${compBR(COMP)}${fechada ? ' <span class="st st-ok">fechada</span>' : ''}</div>
-    <div class="f">Devido = parcelas das compras no crediário${c.faltam.length ? ' <span class="wt">(faltam compras de ' + faixas(c.faltam) + ')</span>' : ''}<br>
+    <div class="f">Devido = parcelas das compras no crediário${N.vRec > 0.009 ? ` <span class="wt">(${brl(N.vRec)} reconstruídos de contratos ainda abertos — compras já quitadas não vêm no arquivo, então é o mínimo)</span>` : c.faltam.length ? ' <span class="wt">(faltam compras de ' + faixas(c.faltam) + ')</span>' : ''}<br>
     ${c.folha ? `Folha importada · ${c.dataPag.length ? 'paga em <b>' + c.dataPag.map(dataBR).join(', ') + '</b>' : '<span class="wt">sem data de pagamento</span> · <a href="javascript:void(0)" onclick="irPara(\'arq\')">informar</a>'}` : '<span class="wt">Folha ainda não importada</span>'}
     ${fechada ? `<br>Fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : ''}</div></div>
     <div class="gauge">${c.folha ? `<div class="v" style="color:${corG}">${pctTxt(N.pctValor)}</div><div class="barra"><i style="width:${Math.min(100, N.pctValor)}%;background:${corG}"></i></div>
-      <div class="l">do valor devido foi descontado · ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem (${pctTxt(N.pctFunc)})</div>`
+      <div class="l">do valor devido${N.parcial ? ' (mínimo)' : ''} foi descontado · ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem (${pctTxt(N.pctFunc)})</div>`
       : `<div class="v" style="color:#c4b5fd">${brl(c.devido)}</div><div class="l">a descontar na folha de ${compBR(COMP)} · ${qtd(c.n)} funcionários</div>`}</div>`;
   $('kpis').innerHTML =
     kpi('Total devido', brl(c.devido), c.devido > 0 ? (N.vRec > 0.009 ? `inclui ${brl(N.vRec)} reconstruídos (mínimo)` : 'parcelas das compras no crediário') : '<span class="wt">nenhuma parcela das compras importadas cai nesta competência</span>', c.devido > 0 ? 't-roxo' : 't-laranja', c.devido > 0 ? '' : "irPara('arq')") +
     kpi('Descontado na folha', c.folha ? brl(c.desc) : '—', c.folha ? `${qtd(c.n)} funcionários` : 'folha não importada', c.folha ? 't-verde' : 't-cinza', c.folha ? '' : "irPara('arq')") +
-    kpi('Diferença líquida', c.folha ? brl(N.liquida) : '—', c.folha ? (N.liquida < -0.009 ? 'descontado a menos no total' : N.liquida > 0.009 ? 'descontado a mais no total' : 'confere') : '', !c.folha ? 't-cinza' : Math.abs(N.liquida) > 0.009 ? 't-laranja' : 't-verde') +
-    kpi('Funcionários que batem', c.folha ? `${qtd(N.ok)} de ${qtd(N.aud.length)}` : '—', c.folha ? pctTxt(N.pctFunc) : '', c.folha ? (N.pctFunc >= 99 ? 't-verde' : 't-laranja') : 't-cinza') +
+    (N.parcial && c.folha && N.liquida > 0.009
+      ? kpi('Descontado sem compra no arquivo', brl(N.liquida), 'compras já quitadas não vêm no relatório do crediário — não é erro', 't-cinza', "irPara('arq')")
+      : kpi('Diferença líquida', c.folha ? brl(N.liquida) : '—', c.folha ? (N.liquida < -0.009 ? 'descontado a menos no total' : N.liquida > 0.009 ? 'descontado a mais no total' : 'confere') : '', !c.folha ? 't-cinza' : Math.abs(N.liquida) > 0.009 ? 't-laranja' : 't-verde')) +
+    kpi('Funcionários que batem', c.folha ? `${qtd(N.ok)} de ${qtd(N.aud.length)}` : '—', c.folha ? `${pctTxt(N.pctFunc)}${N.verif ? ` · ${qtd(N.verif)} a verificar (compra quitada fora do arquivo)` : ''}` : '', c.folha ? (N.pctFunc >= 99 ? 't-verde' : N.verif ? 't-cinza' : 't-laranja') : 't-cinza') +
     kpi('Deixou de descontar', brl(c.menos), `${qtd(N.nMenos)} funcionário(s) — perda`, c.menos > 0.009 ? 't-vermelho' : 't-verde', "irPara('pend')") +
     kpi('Descontou a mais', brl(c.mais), `${qtd(N.nMais)} funcionário(s) — devolver`, c.mais > 0.009 ? 't-laranja' : 't-verde', "irPara('pend')") +
-    kpi('Erros e faltas graves', qtd(N.graves.length), 'abertas', N.graves.length ? 't-vermelho' : 't-verde', "irPara('pend')") +
+    kpi('Erros e faltas graves', qtd(N.graves.length), `${qtd(N.gravesMes)} deste mês · ${qtd(N.graves.length - N.gravesMes)} de cadastro e política (valem para todos os meses)`, N.graves.length ? 't-vermelho' : 't-verde', "irPara('pend')") +
     kpi('Duplicidades', qtd(N.dups.length), brl(N.dups.reduce((s, p) => s + Math.abs(p.valor || 0), 0)), N.dups.length ? 't-vermelho' : 't-verde', "irPara('dup')");
 
   // situação dos funcionários
@@ -926,7 +948,7 @@ function telaArquivos() {
       <td class="small">${a.rodape == null ? '' : Math.abs(Number(a.rodape) - Number(a.total)) <= 0.01 ? '<span class="okt">confere com o rodapé</span>' : `<span class="badt">rodapé ${nfm(a.rodape)} não confere</span>`}</td>
       <td class="small">${dtBR(a.importado_em)}<br><span class="mut">${esc(quemCurto(a.importado_por))}</span></td>
       <td class="row">${a.tipo === 'folha' ? `<button class="btn" data-datapag="${a.id}">Data de pagamento</button>` : ''}${a.tipo === 'cadastro' ? '' : `<button class="btn" data-excluir="${a.id}">Excluir</button>`}</td></tr>`).join('') + `</tbody></table>` : `<div class="vazio">Nenhum arquivo importado.</div>`;
-  $('cRegra').value = R.cfg.regra; $('cCorte').value = R.cfg.corte; $('cTol').value = R.cfg.tol;
+  $('cRegra').value = R.cfg.regra; $('cCorte').value = R.cfg.corte; $('cTol').value = R.cfg.tol; $('cMax').value = R.cfg.maxParc;
   const ex = R.par.find(p => p.n_parcelas > 1);
   $('regraTxt').innerHTML = (R.cfg.regra === 'ciclo'
     ? `Compra feita do dia ${R.cfg.corte + 1} de um mês ao dia ${R.cfg.corte} do mês seguinte entra na folha desse mês seguinte; cada parcela seguinte cai um mês depois.`
@@ -941,7 +963,7 @@ function telaArquivos() {
 }
 async function salvarConfig(regra, corte) {
   const u = (await sb.auth.getUser()).data.user;
-  const v = {id: 1, regra: regra || $('cRegra').value, corte: corte || Math.min(31, Math.max(1, +$('cCorte').value || 20)), tolerancia: Math.max(0, +$('cTol').value || 0),
+  const v = {id: 1, regra: regra || $('cRegra').value, corte: corte || Math.min(31, Math.max(1, +$('cCorte').value || 20)), tolerancia: Math.max(0, +$('cTol').value || 0), max_parcelas: Math.min(24, Math.max(1, +$('cMax').value || 5)),
     atualizado_em: new Date().toISOString(), atualizado_por: u ? u.email : null};
   const r = await sb.from('cred_config').upsert(v, {onConflict: 'id'});
   if (r.error) { toast('Não gravou: ' + msgErro(r.error), 6000); return; }
@@ -1141,7 +1163,7 @@ function modeloPendencias(lista) {
   const soma = g => ls.filter(p => p.grav === g).length;
   return {titulo: 'Erros e faltas graves - desconto em folha', subtitulo: `Pendências abertas e em tratamento - todas as competências (selecionada: ${compBR(COMP)})`, marca: MARCA, paisagem: true, arquivo: `pendencias_desconto_folha_${hojeISO()}`,
     resumo: [['Pendências graves', qtd(soma('alta'))], ['Pendências médias', qtd(soma('media'))], ['Pendências baixas', qtd(soma('baixa'))], ['Total em jogo', brl(ls.reduce((s, p) => s + Math.abs(p.valor || 0), 0))]],
-    secoes: ['desconto', 'cadastro', 'integridade'].map(cat => ({titulo: {desconto: 'Desconto em folha', cadastro: 'Cadastro', integridade: 'Arquivos e integridade'}[cat] + ` (${ls.filter(p => p.cat === cat).length})`,
+    secoes: ['desconto', 'cadastro', 'politica', 'integridade'].map(cat => ({titulo: {desconto: 'Desconto em folha', cadastro: 'Cadastro', politica: 'Política de crédito (parcelamento)', integridade: 'Arquivos e integridade'}[cat] + ` (${ls.filter(p => p.cat === cat).length})`,
       cab: CAB_PEND, linhas: ls.filter(p => p.cat === cat).map(linhaPend), direita: [8]})),
     assinaturas: ['Auditoria', 'RH / Departamento Pessoal']};
 }
