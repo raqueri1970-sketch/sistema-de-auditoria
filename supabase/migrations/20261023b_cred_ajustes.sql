@@ -4,3 +4,8 @@
 drop table if exists public.cred_cobranca;
 alter table public.cred_arquivos drop constraint if exists cred_arquivos_tipo_check;
 alter table public.cred_arquivos add constraint cred_arquivos_tipo_check check (tipo in ('compras', 'cadastro', 'folha', 'baixas'));
+
+-- 23/10/2026 (aplicado): nova regra de competência "venc_ant" — parcela que vence de 21 de um mês a 20 do seguinte é
+-- descontada na folha do primeiro mês (vencimentos 21/09 a 20/10 = folha 09/2026), confirmada contra a folha de set/2026.
+alter table public.cred_config drop constraint if exists cred_config_regra_check;
+alter table public.cred_config add constraint cred_config_regra_check check (regra in ('ciclo', 'venc', 'venc_ant'));
