@@ -70,6 +70,7 @@
   .sitb .b{height:14px;border-radius:7px;background:var(--card2);overflow:hidden}.sitb .b i{display:block;height:100%;border-radius:7px}
   .sitb b{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   .achados{display:grid;gap:8px;margin-top:10px}
+  #gLoja svg{max-width:640px;margin:0 auto}
   .obs-graf{margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.22);font-size:12.8px;color:var(--txt2);line-height:1.5}
   .obs-graf b{color:var(--txt)}.obs-graf ul{margin:4px 0 0;padding-left:18px}
   .achados>div{display:grid;grid-template-columns:14px 1fr;gap:10px;font-size:13.5px;line-height:1.45;padding:9px 10px;border-radius:10px;background:var(--card2);border:1px solid var(--line)}
@@ -128,12 +129,12 @@
       <div class="card"><h3>Situação dos funcionários na competência</h3><div class="sitb" id="gSit"></div></div>
     </div>
     <div class="g2" style="margin-top:14px">
-      <div class="card"><h3>Principais achados</h3><div class="achados" id="achados"></div></div>
-      <div class="card"><h3>O que falta para fechar o mês</h3><div class="chk-mes" id="checklist" style="margin-top:10px"></div></div>
-    </div>
-    <div class="g2" style="margin-top:14px">
       <div class="card viz"><h3>Diferença por loja (a menos + a mais)</h3><div id="gLoja"></div></div>
       <div class="card"><h3>Pendências abertas por tipo</h3><div id="gTipo"></div></div>
+    </div>
+    <div class="g2" style="margin-top:14px">
+      <div class="card"><h3>Principais achados</h3><div class="achados" id="achados"></div></div>
+      <div class="card"><h3>O que falta para fechar o mês</h3><div class="chk-mes" id="checklist" style="margin-top:10px"></div></div>
     </div>
     <h2>Maiores diferenças da competência</h2>
     <div class="card tw" id="topDif"></div>
@@ -1082,6 +1083,7 @@ function montarLinhas() {
       if (row.some(c => /^\s*total/i.test(String(c))) && !cpfN(cel(row, map, 'cpf')) && !soDig(cel(row, map, 'matricula'))) continue;  // linha de total
       const v = numero(cel(row, map, 'valor')); if (!isFinite(v) || v === 0) continue;
       let cpf = cpfN(cel(row, map, 'cpf')); const mat = String(cel(row, map, 'matricula') ?? '').trim();
+      if (!cpf && !soDig(mat) && !String(cel(row, map, 'nome') ?? '').trim()) { if (rodape == null) rodape = r2(Math.abs(v)); continue; }  // linha de total do relatório
       if (!cpf && mat && porMat.has(matN(mat))) cpf = porMat.get(matN(mat));
       const comp = compDe(cel(row, map, 'comp')) || IMP.compFixa;
       out.push({cpf: cpf || null, matricula: mat || null, nome: String(cel(row, map, 'nome')).trim() || null, competencia: comp, evento: ev || null, valor: r2(Math.abs(v)), data_pagamento: dataISO(cel(row, map, 'dataPag')) || IMP.dataPagFixa || null});
@@ -1094,6 +1096,11 @@ function montarLinhas() {
     }
   }
   if (tipo === 'folha') {
+    // relatório de compras/parcelas (documento CE..-1/5, parcela, vencimento) colocado no card da folha
+    const dc = detectar(rows, 'compras').map, docs = rows.slice(cab + 1, cab + 60).filter(r => /-\d+\/\d+$/.test(String(dc.doc != null ? r[dc.doc] : ''))).length;
+    if (dc.doc != null && dc.venc != null && dc.parcela != null && docs >= 3) { IMP.ehCompras = true;
+      avisos.unshift('Este arquivo é um relatório de COMPRAS do crediário (tem documento, parcela e vencimento), não o desconto da folha. Importe-o no card "Compras no crediário". Aqui entra a planilha "desconto de FOLHA" (aba crediario).'); }
+    else IMP.ehCompras = false;
     const semComp = out.filter(l => !l.competencia).length; if (semComp) avisos.push(`${semComp} linha(s) sem competência — informe a competência do arquivo.`);
     const semCpf = out.filter(l => !l.cpf).length; if (semCpf) avisos.push(`${semCpf} desconto(s) sem CPF e sem matrícula no cadastro — entram como "Desconto sem funcionário". Importe o cadastro antes da folha.`);
     const semData = out.filter(l => !l.data_pagamento).length; if (semData) avisos.push(`${semData} linha(s) sem data de pagamento — informe a data em que a folha foi paga.`);
@@ -1123,7 +1130,7 @@ function conferir() {
     if (evs.length) h += `<div class="small mut" style="margin-top:6px">Eventos que são desconto do crediário:</div><div class="evs">${evs.map(e => `<label><input type="checkbox" data-iev="1" value="${esc(e)}" ${(IMP.eventos || []).includes(e) ? 'checked' : ''}>${esc(e)}</label>`).join('')}</div>`;
   }
   if (amostra.length) h += `<div class="small mut" style="margin-top:8px">Primeiras linhas como serão gravadas:</div><div class="tw"><table class="pq"><thead><tr>${ks.map(k => `<th>${esc(k)}</th>`).join('')}</tr></thead><tbody>${amostra.map(l => `<tr>${ks.map(k => `<td>${esc(l[k] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  const bloqueia = abaImportada(IMP.aba) || OBRIG[t].some(k => IMP.map[k] == null) || !linhas.length || (t === 'folha' && linhas.some(l => !l.competencia));
+  const bloqueia = (t === 'folha' && IMP.ehCompras) || abaImportada(IMP.aba) || OBRIG[t].some(k => IMP.map[k] == null) || !linhas.length || (t === 'folha' && linhas.some(l => !l.competencia));
   h += `<div class="row" style="margin-top:12px"><button class="btn b-pri" id="bGravar" ${bloqueia ? 'disabled' : ''}>Gravar ${qtd(linhas.length)} linha(s)</button><button class="btn" onclick="fecharModal()">Cancelar</button></div>`;
   abrirModal(h, 'larga');
   $('bGravar').onclick = gravarImportacao;
