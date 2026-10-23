@@ -527,10 +527,13 @@ function cruzar() {
   }
   // 3) integridade dos arquivos e do crediário
   const contr = new Map(); par.forEach(p => { if (!contr.has(p.ck)) contr.set(p.ck, []); contr.get(p.ck).push(p); });
+  const maxVencArq = new Map(); par.forEach(p => { if ((maxVencArq.get(p.arquivo_id) || '') < p.vencimento) maxVencArq.set(p.arquivo_id, p.vencimento); });
   for (const ps of contr.values()) {
     // relatório de parcelas em aberto traz só a parcela do mês: só confere o contrato que veio desde a 1ª parcela
     const n = ps[0].n_parcelas; if (!n || !ps.some(p => p.parcela === 1)) continue;
-    const tem = new Set(ps.map(p => p.parcela)); const falt = []; for (let i = 1; i <= n; i++) if (!tem.has(i)) falt.push(i);
+    // parcela que venceria depois do último vencimento do relatório não "falta": o relatório é que termina antes (ex.: carteira até 31/12)
+    const lim = maxVencArq.get(ps[0].arquivo_id) || '', venceria = i => { const d = new Date(ps[0].lancamento + 'T12:00:00'); d.setDate(d.getDate() + 30 * i); return d.toISOString().slice(0, 10); };
+    const tem = new Set(ps.map(p => p.parcela)); const falt = []; for (let i = 1; i <= n; i++) if (!tem.has(i) && (!ps[0].lancamento || venceria(i) <= lim)) falt.push(i);
     if (falt.length) add('integridade', 'media', 'Parcela faltando no contrato', ps[0].cpf, '', `${ps[0].contrato} de ${dataBR(ps[0].lancamento)}: contrato de ${n} parcelas, falta(m) a(s) parcela(s) ${falt.join(', ')} no relatório — estorno, quitação antecipada ou relatório cortado?`, 0, {sufixo: ps[0].contrato});
   }
   par.filter(p => p.valor_anterior != null).forEach(p => add('integridade', 'media', 'Parcela com valor alterado', p.cpf, p.comp, `${p.documento}: era ${brl(p.valor_anterior)} e um relatório mais novo trouxe ${brl(p.valor)} (${dtBR(p.alterado_em)}).`, p.valor - p.valor_anterior, {sufixo: p.documento}));
