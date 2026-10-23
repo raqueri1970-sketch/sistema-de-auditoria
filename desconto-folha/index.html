@@ -636,7 +636,11 @@ async function recarregar() {
     toast('Carregando…', 20000);
     await carregarDados(); cruzar();
     const opts = [...new Set([...R.comps, ...R.compsFolha])].sort();
-    if (!COMP_ESCOLHIDA || !opts.includes(COMP)) COMP = R.compsFolha.size ? [...R.compsFolha].sort().pop() : (opts.includes(R.compHoje) ? R.compHoje : opts[0] || R.compHoje);
+    // abre na última folha que tem devido para comparar; se nenhuma tiver (ex.: só compras em aberto, de meses depois da folha),
+    // abre na primeira competência com parcela a descontar
+    const comDevido = new Set(R.porComp.filter(c => c.devido > 0).map(c => c.comp));
+    if (!COMP_ESCOLHIDA || !opts.includes(COMP)) COMP = [...R.compsFolha].filter(c => comDevido.has(c)).sort().pop()
+      || [...comDevido].sort().find(c => c >= addMes(R.compHoje, -1)) || [...R.compsFolha].sort().pop() || (opts.includes(R.compHoje) ? R.compHoje : opts[0] || R.compHoje);
     $('selComp').innerHTML = (opts.length ? opts : [COMP]).map(c => `<option value="${c}" ${c === COMP ? 'selected' : ''}>${compBR(c)}${R.compsFolha.has(c) ? '' : ' (prevista)'}</option>`).join('');
     const abertas = R.pend.filter(p => !encerrada(p) && p.cat !== 'duplicidade' && p.grav === 'alta').length;
     const dups = R.pend.filter(p => !encerrada(p) && p.cat === 'duplicidade').length;
@@ -698,7 +702,7 @@ function telaPainel() {
       <div class="l">do valor devido foi descontado · ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem (${pctTxt(N.pctFunc)})</div>`
       : `<div class="v" style="color:#c4b5fd">${brl(c.devido)}</div><div class="l">a descontar na folha de ${compBR(COMP)} · ${qtd(c.n)} funcionários</div>`}</div>`;
   $('kpis').innerHTML =
-    kpi('Total devido', brl(c.devido), 'parcelas das compras no crediário', 't-roxo') +
+    kpi('Total devido', brl(c.devido), c.devido > 0 ? 'parcelas das compras no crediário' : '<span class="wt">nenhuma parcela das compras importadas cai nesta competência</span>', c.devido > 0 ? 't-roxo' : 't-laranja', c.devido > 0 ? '' : "irPara('arq')") +
     kpi('Descontado na folha', c.folha ? brl(c.desc) : '—', c.folha ? `${qtd(c.n)} funcionários` : 'folha não importada', c.folha ? 't-verde' : 't-cinza', c.folha ? '' : "irPara('arq')") +
     kpi('Diferença líquida', c.folha ? brl(N.liquida) : '—', c.folha ? (N.liquida < -0.009 ? 'descontado a menos no total' : N.liquida > 0.009 ? 'descontado a mais no total' : 'confere') : '', !c.folha ? 't-cinza' : Math.abs(N.liquida) > 0.009 ? 't-laranja' : 't-verde') +
     kpi('Funcionários que batem', c.folha ? `${qtd(N.ok)} de ${qtd(N.aud.length)}` : '—', c.folha ? pctTxt(N.pctFunc) : '', c.folha ? (N.pctFunc >= 99 ? 't-verde' : 't-laranja') : 't-cinza') +
