@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Desconto em Folha · Crediário</title>
+<meta name="theme-color" content="#0b1020">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261016-6">
+<style>
+  .fonte{display:flex;flex-direction:column;gap:6px}
+  .fonte h3{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .fonte .o{font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+  .drop{border:1.5px dashed var(--line2);border-radius:12px;padding:16px 10px;text-align:center;color:var(--txt2);font-size:13.5px;cursor:pointer;background:rgba(148,163,184,.04)}
+  .drop:hover,.drop.on{border-color:var(--pri);background:rgba(59,130,246,.08)}
+  .drop input{display:none}
+  .arq{font-size:12.5px;color:var(--txt2);border-top:1px solid var(--line);padding:6px 0;display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+  .arq span{min-width:0;overflow-wrap:anywhere}.arq button{background:none;border:0;color:#fca5a5;cursor:pointer;font-size:13px;padding:0 2px}
+  .okt{color:#86efac}.badt{color:#fca5a5}.wt{color:#fcd34d}
+  .regra{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:12px;padding:10px 12px;font-size:13.5px;color:#bfdbfe;margin:10px 0}
+  .aviso{background:rgba(245,179,1,.08);border:1px solid rgba(245,179,1,.28);border-radius:12px;padding:10px 12px;font-size:13.5px;color:#fde68a;margin:10px 0}
+  .cfg{display:grid;gap:10px 14px;grid-template-columns:repeat(auto-fill,minmax(min(200px,100%),1fr));align-items:end}
+  .cfg input,.cfg select{margin:4px 0 0}
+  .map{display:grid;gap:8px 12px;grid-template-columns:repeat(auto-fill,minmax(min(170px,100%),1fr));margin-top:8px}
+  .map select,.map input{margin:3px 0 0;padding:8px 10px;font-size:14px}
+  .evs{display:flex;flex-wrap:wrap;gap:6px 14px;margin:6px 0}
+  .evs label{display:flex;gap:6px;align-items:center;color:var(--txt2);font-size:13px}
+  .evs input{width:16px;height:16px;margin:0}
+  .st{font-size:11.5px;padding:2px 9px;border-radius:999px;font-weight:700;white-space:nowrap;display:inline-block;border:1px solid transparent}
+  .st-ok{background:rgba(34,197,94,.13);color:#86efac;border-color:rgba(34,197,94,.3)}
+  .st-menos,.st-nao{background:rgba(239,68,68,.14);color:#fca5a5;border-color:rgba(239,68,68,.34)}
+  .st-mais,.st-semcompra{background:rgba(249,115,22,.15);color:#fdba74;border-color:rgba(249,115,22,.35)}
+  .st-verif{background:rgba(245,179,1,.13);color:#fcd34d;border-color:rgba(245,179,1,.32)}
+  .st-prev{background:rgba(148,163,184,.12);color:#cbd5e1;border-color:rgba(148,163,184,.25)}
+  .mtz{font-size:12.5px}
+  .mtz th,.mtz td{padding:6px 7px;white-space:nowrap}
+  .mtz th:first-child,.mtz td:first-child{position:sticky;left:0;background:var(--card);z-index:1;white-space:normal;min-width:170px;max-width:240px}
+  .mtz td.c{text-align:right;font-variant-numeric:tabular-nums;cursor:pointer;border-left:1px solid var(--line)}
+  .mtz td.c small{display:block;color:var(--mut);font-size:11px}
+  .mtz td.c-ok{background:rgba(34,197,94,.07)}.mtz td.c-menos,.mtz td.c-nao{background:rgba(239,68,68,.12)}
+  .mtz td.c-mais,.mtz td.c-semcompra{background:rgba(249,115,22,.12)}.mtz td.c-verif{background:rgba(245,179,1,.09)}
+  tr.clicavel{cursor:pointer}
+  .leg{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  .busca{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .busca input,.busca select{width:auto;flex:1;min-width:180px;margin:0}
+  .vista{display:none}.vista.on{display:block}
+  .pq{font-size:12.5px}
+  .mbox.larga{max-width:980px}
+  .kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(160px,100%),1fr));gap:6px 14px;font-size:13px;margin:6px 0 10px}
+  .kv span{color:var(--mut);display:block;font-size:11.5px}
+  .met ol{margin:6px 0 0;padding-left:20px;line-height:1.6;font-size:14px;color:var(--txt2)}
+  .met b{color:var(--txt)}
+  @media (max-width:620px){.busca input,.busca select{min-width:0;width:100%;flex:auto}}
+</style>
+</head>
+<body>
+<div class="top">
+  <div>
+    <h1>Desconto em Folha · Crediário</h1>
+    <div class="sub">Compras dos funcionários no crediário × cadastro × descontos da folha × baixas — mês a mês</div>
+  </div>
+  <div class="row">
+    <button class="btn" id="bLimpar">Limpar base</button>
+    <button class="btn b-pri" id="bExport">Exportar Excel</button>
+  </div>
+</div>
+
+<nav class="nav" id="nav">
+  <a data-v="importar" class="on">1 · Arquivos</a>
+  <a data-v="resumo">2 · Mês a mês</a>
+  <a data-v="func">3 · Funcionários</a>
+  <a data-v="div">4 · Divergências</a>
+  <a data-v="alertas">5 · Alertas</a>
+</nav>
+
+<!-- ============ 1. ARQUIVOS ============ -->
+<section class="vista on" id="v-importar">
+  <h2>Fontes do cruzamento</h2>
+  <div class="pgrid">
+    <div class="card fonte">
+      <h3>Compras no crediário <span class="o">obrigatório</span></h3>
+      <div class="small mut">Relatório "COMPRA EM LOJA" (CSV ou Excel). Pode carregar vários períodos — as parcelas repetidas são unificadas.</div>
+      <label class="drop" data-tipo="compras">Soltar ou escolher arquivos<input type="file" multiple accept=".csv,.txt,.xlsx,.xls"></label>
+      <div id="l-compras"></div>
+    </div>
+    <div class="card fonte">
+      <h3>Cadastro de funcionários <span class="o">obrigatório</span></h3>
+      <div class="small mut">Planilha de ativos/afastados (CPF, matrícula, loja, situação). O último arquivo carregado substitui o anterior.</div>
+      <label class="drop" data-tipo="cadastro">Soltar ou escolher arquivo<input type="file" accept=".csv,.txt,.xlsx,.xls"></label>
+      <div id="l-cadastro"></div>
+    </div>
+    <div class="card fonte">
+      <h3>Descontos da folha <span class="o">para auditar</span></h3>
+      <div class="small mut">Relatório da folha com o evento de desconto do crediário (CPF ou matrícula, competência, valor, data de pagamento). Um arquivo por competência ou vários meses juntos.</div>
+      <label class="drop" data-tipo="folha">Soltar ou escolher arquivos<input type="file" multiple accept=".csv,.txt,.xlsx,.xls"></label>
+      <div id="l-folha"></div>
+    </div>
+    <div class="card fonte">
+      <h3>Baixas do crediário <span class="o">opcional</span></h3>
+      <div class="small mut">Parcelas recebidas/baixadas (documento, parcela, data da baixa, valor). Mostra quando cada parcela foi efetivamente quitada.</div>
+      <label class="drop" data-tipo="baixas">Soltar ou escolher arquivos<input type="file" multiple accept=".csv,.txt,.xlsx,.xls"></label>
+      <div id="l-baixas"></div>
+    </div>
+  </div>
+
+  <h2>Regra de competência</h2>
+  <div class="card">
+    <div class="cfg">
+      <div><label>Como a parcela cai na folha</label>
+        <select id="cRegra">
+          <option value="ciclo">Ciclo da compra + nº da parcela</option>
+          <option value="venc">Pelo vencimento da parcela (com corte)</option>
+        </select></div>
+      <div><label>Dia de corte do ciclo</label><input id="cCorte" type="number" min="1" max="31" value="20"></div>
+      <div><label>Tolerância de arredondamento (R$)</label><input id="cTol" type="number" min="0" step="0.01" value="0.05"></div>
+    </div>
+    <div class="regra" id="regraTxt"></div>
+    <div id="calib"></div>
+  </div>
+
+  <h2>Método</h2>
+  <div class="card met">
+    <ol>
+      <li><b>Devido</b> — cada parcela do crediário é atribuída a uma competência da folha pela regra acima (o relatório de 21/09 a 20/10 indica ciclo com corte no dia 20).</li>
+      <li><b>Descontado</b> — soma do evento de desconto do crediário na folha, por CPF (ou matrícula) e competência.</li>
+      <li><b>Pago efetivamente</b> — data de pagamento da folha daquela competência e, se houver o arquivo de baixas, a data em que cada parcela foi baixada no crediário.</li>
+      <li><b>Conferência</b> — devido × descontado por funcionário e mês: descontou a menos (perda da empresa), a mais (risco trabalhista), não descontou, descontou sem compra.</li>
+      <li><b>Cobertura</b> — uma competência só fica "completa" quando estão carregadas as compras de todos os ciclos que ainda geram parcela nela; sem isso, desconto acima do previsto vira "verificar" e não erro.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============ 2. MÊS A MÊS ============ -->
+<section class="vista" id="v-resumo">
+  <div id="kpis" class="grid" style="margin-top:16px"></div>
+  <h2>Competências</h2>
+  <div class="card"><div class="tw" id="tComp"></div></div>
+</section>
+
+<!-- ============ 3. FUNCIONÁRIOS ============ -->
+<section class="vista" id="v-func">
+  <h2>Funcionário × competência</h2>
+  <div class="card">
+    <div class="busca">
+      <input id="fBusca" placeholder="Buscar nome, CPF, matrícula ou loja">
+      <select id="fLoja"><option value="">Todas as lojas</option></select>
+      <select id="fSt">
+        <option value="">Todos</option>
+        <option value="div">Só com divergência</option>
+        <option value="alerta">Só com alerta cadastral</option>
+      </select>
+    </div>
+    <div class="leg" id="legenda"></div>
+    <div class="small mut">Em cada célula: <b>devido</b> em cima e <b>descontado</b> embaixo. Clique para ver as parcelas.</div>
+    <div class="tw" id="tFunc"></div>
+  </div>
+</section>
+
+<!-- ============ 4. DIVERGÊNCIAS ============ -->
+<section class="vista" id="v-div">
+  <h2>Divergências de desconto</h2>
+  <div class="card">
+    <div class="busca">
+      <select id="dSt"></select>
+      <select id="dComp"><option value="">Todas as competências</option></select>
+    </div>
+    <div class="tw" id="tDiv"></div>
+  </div>
+</section>
+
+<!-- ============ 5. ALERTAS ============ -->
+<section class="vista" id="v-alertas">
+  <h2>Alertas cadastrais e de integridade</h2>
+  <div class="card"><div class="tw" id="tAlertas"></div></div>
+</section>
+
+<div class="modal" id="modal"><div class="mbox larga" id="mbox"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const brl = v => Number(v || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+const nfm = v => Number(v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const r2 = v => Math.round(v * 100) / 100;
+const dBR = iso => iso ? iso.split('-').reverse().join('/') : '';
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const compBR = c => c ? MESES[+c.slice(5, 7) - 1] + '/' + c.slice(0, 4) : '';
+const addMes = (c, n) => { const t = +c.slice(0, 4) * 12 + (+c.slice(5, 7) - 1) + n; return Math.floor(t / 12) + '-' + String(t % 12 + 1).padStart(2, '0'); };
+const difMes = (a, b) => (+b.slice(0, 4) * 12 + +b.slice(5, 7)) - (+a.slice(0, 4) * 12 + +a.slice(5, 7));
+const soDig = s => String(s ?? '').replace(/\D/g, '');
+const cpfN = s => { const d = soDig(s); return d ? d.padStart(11, '0') : ''; };
+const cpfF = c => c && c.length === 11 ? `${c.slice(0, 3)}.${c.slice(3, 6)}.${c.slice(6, 9)}-${c.slice(9)}` : c;
+const semAc = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+const nomeN = s => semAc(s).toUpperCase().replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim();
+function toast(m, ms = 4500) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', ms); }
+
+/* ---------- leitura de números e datas ---------- */
+function num(v) {
+  if (typeof v === 'number') return v;
+  let s = String(v ?? '').trim().replace(/[R$\s]/g, '');
+  if (!s) return NaN;
+  let neg = /^\(.*\)$/.test(s) || /-$/.test(s); s = s.replace(/[()]/g, '').replace(/-$/, '');
+  if (/,\d{1,2}$/.test(s) || (/,/.test(s) && !/\./.test(s))) s = s.replace(/\./g, '').replace(',', '.');
+  else s = s.replace(/,/g, '');
+  const n = Number(s); return isFinite(n) ? (neg ? -n : n) : NaN;
+}
+const iso = (y, m, d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+function serialISO(n) { const p = XLSX.SSF.parse_date_code(n); return p ? iso(p.y, p.m, p.d) : ''; }
+function dataISO(v) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number') return v > 20000 && v < 80000 ? serialISO(v) : '';
+  if (v instanceof Date) return iso(v.getFullYear(), v.getMonth() + 1, v.getDate());
+  const s = String(v).trim();
+  let m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+  if (m) { let y = +m[3]; if (y < 100) y += 2000; return iso(y, +m[2], +m[1]); }
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return iso(+m[1], +m[2], +m[3]);
+  if (/^\d{5}$/.test(s)) return serialISO(+s);
+  return '';
+}
+const MESN = {jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6, jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12};
+function compDe(v) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number') {
+    if (v > 20000 && v < 80000) return serialISO(v).slice(0, 7);
+    if (v >= 190001 && v <= 210012) return String(v).slice(0, 4) + '-' + String(v).slice(4, 6);
+    return '';
+  }
+  const s = semAc(String(v).trim().toLowerCase());
+  let m = s.match(/^(\d{1,2})[\/.-](\d{4})$/); if (m) return m[2] + '-' + m[1].padStart(2, '0');
+  m = s.match(/^(\d{4})[\/.-](\d{1,2})$/); if (m) return m[1] + '-' + m[2].padStart(2, '0');
+  m = s.match(/^(\d{4})(\d{2})$/); if (m && +m[2] <= 12) return m[1] + '-' + m[2];
+  m = s.match(/^([a-z]{3})[a-z]*[\s\/.-]*(\d{2,4})$/); if (m && MESN[m[1]]) { let y = +m[2]; if (y < 100) y += 2000; return y + '-' + String(MESN[m[1]]).padStart(2, '0'); }
+  const d = dataISO(v); return d ? d.slice(0, 7) : '';
+}
+
+/* ---------- leitura de arquivos ---------- */
+function decodificar(buf) {
+  try { return new TextDecoder('utf-8', {fatal: true}).decode(buf); } catch (e) { return new TextDecoder('windows-1252').decode(buf); }
+}
+function lerCSV(txt) {
+  const linhas = txt.replace(/^﻿/, '').split(/\r?\n/);
+  const amostra = linhas.slice(0, 10).join('\n');
+  const sep = [';', '\t', ',', '|'].map(s => [s, amostra.split(s).length]).sort((a, b) => b[1] - a[1])[0][0];
+  return linhas.map(l => {
+    const out = []; let cur = '', q = false;
+    for (let i = 0; i < l.length; i++) {
+      const ch = l[i];
+      if (q) { if (ch === '"') { if (l[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+      else if (ch === '"') q = true; else if (ch === sep) { out.push(cur); cur = ''; } else cur += ch;
+    }
+    out.push(cur); return out.map(x => x.trim());
+  });
+}
+async function lerArquivo(file) {
+  const buf = await file.arrayBuffer();
+  if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
+    const wb = XLSX.read(buf, {type: 'array', cellDates: false});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws, {header: 1, raw: true, defval: ''});
+  }
+  return lerCSV(decodificar(buf));
+}
+
+/* acha a linha de cabeçalho e as colunas pelos nomes */
+const COLS = {
+  compras: {cpf: /cpf/, nome: /^nome|cliente/, doc: /documento|^doc|titulo|contrato/, parcela: /^parc/, lanc: /lanc|emiss|compra|data venda/, venc: /venc/, valor: /valor|vlr/},
+  cadastro: {cpf: /^cpf/, matricula: /matr|chapa|registro|cod.*func/, nome: /^nome$|^nome func|^funcion/, loja: /ccusto|centro|loja|setor|lotac/, cidade: /cidade/, funcao: /func[aã]o|cargo/, admissao: /admiss/, situacao: /situa/},
+  folha: {cpf: /cpf/, matricula: /matr|chapa|registro|cod.*func/, nome: /^nome|funcion|colaborador/, comp: /compet|^m[eê]s|per[ií]odo|mes.?ano|ano.?mes/, evento: /evento|rubrica|verba|descri|hist/, valor: /valor|desconto|vlr|total/, dataPag: /pagamento|dt.*pag|data.*pag|cr[eé]dito|liquid/},
+  baixas: {cpf: /cpf/, doc: /documento|^doc|titulo|contrato/, parcela: /^parc/, dataBaixa: /baixa|pagamento|receb|liquid|dt.*pag|data.*pag/, valor: /valor.*(pago|receb|baixa)|^valor|vlr/, venc: /venc/}
+};
+const OBRIG = {compras: ['cpf', 'doc', 'valor', 'venc'], cadastro: ['cpf'], folha: ['valor'], baixas: ['doc']};
+const ROT = {cpf: 'CPF', matricula: 'Matrícula', nome: 'Nome', comp: 'Competência', evento: 'Evento/rubrica', valor: 'Valor', dataPag: 'Data do pagamento', doc: 'Documento', parcela: 'Parcela', dataBaixa: 'Data da baixa', venc: 'Vencimento', lanc: 'Lançamento', loja: 'Loja/C.Custo', cidade: 'Cidade', funcao: 'Função', admissao: 'Admissão', situacao: 'Situação'};
+function detectar(rows, tipo) {
+  const pad = COLS[tipo];
+  let melhor = {i: 0, map: {}, n: 0};
+  for (let i = 0; i < Math.min(rows.length, 40); i++) {
+    const cab = rows[i].map(c => semAc(String(c ?? '')).toLowerCase().trim());
+    const map = {}; const usados = new Set();
+    for (const [k, re] of Object.entries(pad)) {
+      const j = cab.findIndex((c, jj) => c && !usados.has(jj) && re.test(c));
+      if (j >= 0) { map[k] = j; usados.add(j); }
+    }
+    const n = Object.keys(map).length;
+    if (n > melhor.n) melhor = {i, map, n};
+  }
+  return {cab: melhor.i, map: melhor.map, header: (rows[melhor.i] || []).map(String)};
+}
+
+/* ---------- estado (fica só neste navegador: IndexedDB) ---------- */
+let S = {compras: [], cadastro: null, folha: [], baixas: [], cfg: {regra: 'ciclo', corte: 20, tol: 0.05}};
+let R = null; // resultado do cruzamento
+const DB = 'auditoria-desconto-folha';
+function idb() { return new Promise((ok, er) => { const r = indexedDB.open(DB, 1); r.onupgradeneeded = () => r.result.createObjectStore('s'); r.onsuccess = () => ok(r.result); r.onerror = () => er(r.error); }); }
+async function salvar() {
+  try { const db = await idb(); await new Promise((ok, er) => { const t = db.transaction('s', 'readwrite'); t.objectStore('s').put(S, 'estado'); t.oncomplete = ok; t.onerror = () => er(t.error); }); }
+  catch (e) { console.warn('não salvou no navegador', e); }
+}
+async function carregar() {
+  try { const db = await idb(); return await new Promise(ok => { const r = db.transaction('s').objectStore('s').get('estado'); r.onsuccess = () => ok(r.result); r.onerror = () => ok(null); }); }
+  catch (e) { return null; }
+}
+
+/* ---------- importação ---------- */
+async function importar(tipo, files) {
+  for (const f of files) {
+    try {
+      const rows = await lerArquivo(f);
+      const det = detectar(rows, tipo);
+      const falta = OBRIG[tipo].filter(k => det.map[k] == null);
+      const arq = {nome: f.name, rows, cab: det.cab, map: det.map, header: det.header, quando: new Date().toISOString()};
+      if (tipo === 'folha') {
+        arq.compFixa = det.map.comp == null ? compDoNome(f.name) : '';
+        arq.dataPagFixa = '';
+        arq.eventos = null;
+      }
+      if (tipo === 'cadastro') S.cadastro = arq;
+      else { S[tipo] = S[tipo].filter(a => a.nome !== f.name); S[tipo].push(arq); }
+      if (falta.length) toast(`${f.name}: não achei a coluna ${falta.map(k => ROT[k]).join(', ')} — ajuste no quadro do arquivo.`, 8000);
+    } catch (e) { toast(`${f.name}: não consegui ler (${e.message})`, 8000); }
+  }
+  await salvar(); tudo();
+}
+function compDoNome(n) {
+  const s = semAc(n.toLowerCase());
+  let m = s.match(/(\d{2})[._-](\d{4})/); if (m && +m[1] <= 12) return m[2] + '-' + m[1];
+  m = s.match(/(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-z]*[._ -]*(\d{4})/); if (m) return m[2] + '-' + String(MESN[m[1]]).padStart(2, '0');
+  return '';
+}
+const cel = (row, map, k) => map[k] == null ? '' : row[map[k]];
+
+function parseCompras() {
+  const par = new Map(); const arqs = []; const alter = [];
+  S.compras.forEach((a, ai) => {
+    let soma = 0, n = 0, rodape = null;
+    for (let i = a.cab + 1; i < a.rows.length; i++) {
+      const row = a.rows[i];
+      const cpf = cpfN(cel(row, a.map, 'cpf')); const v = num(cel(row, a.map, 'valor'));
+      if (!cpf) { if (isFinite(v) && v > 0 && rodape == null) rodape = v; continue; }
+      const venc = dataISO(cel(row, a.map, 'venc')); if (!venc || !isFinite(v)) continue;
+      const doc = String(cel(row, a.map, 'doc')).trim();
+      const lanc = dataISO(cel(row, a.map, 'lanc')) || '';
+      const m = doc.match(/^(.*?)-(\d+)\/(\d+)$/);
+      const parcela = +cel(row, a.map, 'parcela') || (m ? +m[2] : 1);
+      const nParc = m ? +m[3] : null;
+      const contrato = m ? m[1] : (doc.match(/^[A-Za-z]+/) || [doc])[0];
+      const p = {cpf, nome: String(cel(row, a.map, 'nome')).trim(), doc, contrato, ck: cpf + '|' + contrato + '|' + lanc, parcela, nParc, lanc, venc, valor: r2(v), arq: a.nome};
+      const k = cpf + '|' + doc + '|' + parcela + '|' + lanc + '|' + venc;
+      const ant = par.get(k);
+      if (ant && Math.abs(ant.valor - p.valor) > 0.009) alter.push({ant, novo: p});
+      par.set(k, p); soma += v; n++;
+    }
+    arqs.push({nome: a.nome, n, soma: r2(soma), rodape: rodape == null ? null : r2(rodape), falta: OBRIG.compras.filter(k => a.map[k] == null)});
+  });
+  return {parcelas: [...par.values()], arqs, alter};
+}
+function parseCadastro() {
+  const porCpf = new Map(), porMat = new Map();
+  const a = S.cadastro; if (!a) return {porCpf, porMat};
+  for (let i = a.cab + 1; i < a.rows.length; i++) {
+    const row = a.rows[i]; const cpf = cpfN(cel(row, a.map, 'cpf')); if (!cpf) continue;
+    const f = {cpf, matricula: soDig(cel(row, a.map, 'matricula')) || String(cel(row, a.map, 'matricula')).trim(), nome: String(cel(row, a.map, 'nome')).trim(),
+      loja: String(cel(row, a.map, 'loja')).trim(), cidade: String(cel(row, a.map, 'cidade')).trim(), funcao: String(cel(row, a.map, 'funcao')).trim(),
+      admissao: dataISO(cel(row, a.map, 'admissao')), situacao: String(cel(row, a.map, 'situacao')).trim() || 'Ativo'};
+    porCpf.set(cpf, f); if (f.matricula) porMat.set(f.matricula.replace(/^0+/, ''), f);
+  }
+  return {porCpf, porMat};
+}
+function eventosDe(a) {
+  if (a.map.evento == null) return [];
+  const s = new Map();
+  for (let i = a.cab + 1; i < a.rows.length; i++) { const e = String(a.rows[i][a.map.evento] ?? '').trim(); if (e) s.set(e, (s.get(e) || 0) + 1); }
+  return [...s.entries()].sort((x, y) => y[1] - x[1]).map(x => x[0]);
+}
+const EV_CRED = /cred|loja|compra|conv|merc|esposende|calc|vale/i;
+function parseFolha(cad) {
+  const lin = []; const semId = [];
+  for (const a of S.folha) {
+    const evs = eventosDe(a);
+    if (evs.length && !a.eventos) { const sel = evs.filter(e => EV_CRED.test(e)); a.eventos = sel.length ? sel : evs.slice(); }
+    const okEv = a.eventos ? new Set(a.eventos) : null;
+    for (let i = a.cab + 1; i < a.rows.length; i++) {
+      const row = a.rows[i];
+      if (okEv && a.map.evento != null && !okEv.has(String(row[a.map.evento] ?? '').trim())) continue;
+      const v = num(cel(row, a.map, 'valor')); if (!isFinite(v) || v === 0) continue;
+      let cpf = cpfN(cel(row, a.map, 'cpf'));
+      const mat = soDig(cel(row, a.map, 'matricula')).replace(/^0+/, '');
+      const nome = String(cel(row, a.map, 'nome')).trim();
+      if (!cpf && mat && cad.porMat.has(mat)) cpf = cad.porMat.get(mat).cpf;
+      if (!cpf && nome) { const nn = nomeN(nome); for (const f of cad.porCpf.values()) if (nomeN(f.nome) === nn) { cpf = f.cpf; break; } }
+      const comp = compDe(cel(row, a.map, 'comp')) || a.compFixa;
+      const dataPag = dataISO(cel(row, a.map, 'dataPag')) || a.dataPagFixa || '';
+      const l = {cpf, mat, nome, comp, valor: r2(Math.abs(v)), dataPag, evento: a.map.evento != null ? String(row[a.map.evento]).trim() : '', arq: a.nome};
+      if (!cpf || !comp) { semId.push(l); continue; }
+      lin.push(l);
+    }
+  }
+  return {lin, semId};
+}
+function parseBaixas() {
+  const m = new Map();
+  for (const a of S.baixas) for (let i = a.cab + 1; i < a.rows.length; i++) {
+    const row = a.rows[i]; const doc = String(cel(row, a.map, 'doc')).trim(); if (!doc) continue;
+    const mm = doc.match(/^(.*?)-(\d+)\/(\d+)$/);
+    const parcela = +cel(row, a.map, 'parcela') || (mm ? +mm[2] : 1);
+    const cpf = cpfN(cel(row, a.map, 'cpf'));
+    const b = {doc, parcela, cpf, data: dataISO(cel(row, a.map, 'dataBaixa')), valor: r2(Math.abs(num(cel(row, a.map, 'valor')) || 0)), venc: dataISO(cel(row, a.map, 'venc')), arq: a.nome};
+    const base = mm ? mm[1] : doc;
+    for (const k of [doc + '|' + parcela, base + '|' + parcela + '|' + cpf]) { if (!m.has(k)) m.set(k, []); m.get(k).push(b); }
+  }
+  return m;
+}
+
+/* ---------- regra de competência ---------- */
+const cicloDe = (d, corte) => +d.slice(8, 10) > corte ? addMes(d.slice(0, 7), 1) : d.slice(0, 7);
+function compDaParcela(p, regra, corte) {
+  if (regra === 'venc') return cicloDe(p.venc, corte);
+  return addMes(cicloDe(p.lanc || p.venc, corte), (p.parcela || 1) - 1);
+}
+const REGRAS = [
+  {regra: 'ciclo', corte: 20, txt: 'Ciclo da compra (corte dia 20) + parcela'},
+  {regra: 'venc', corte: 20, txt: 'Vencimento com corte no dia 20'},
+  {regra: 'venc', corte: 31, txt: 'Mês do vencimento (calendário)'},
+  {regra: 'ciclo', corte: 31, txt: 'Mês da compra + parcela'}
+];
+
+/* ---------- cruzamento ---------- */
+const SEM_SAL = /doen|acid|invalid|aposent|resc|susp|inss/i;
+const STAT = {
+  ok: ['OK', 'st-ok'], menos: ['Descontou a menos', 'st-menos'], nao: ['Não descontou', 'st-nao'], mais: ['Descontou a mais', 'st-mais'],
+  semcompra: ['Desconto sem compra', 'st-semcompra'], verif: ['Verificar (faltam compras anteriores)', 'st-verif'], prev: ['Previsto (sem folha)', 'st-prev']
+};
+/* "dez/2025 a set/2026, nov/2026" */
+function faixas(cs) {
+  const out = []; let ini = null, ant = null;
+  for (const c of cs.slice().sort()) { if (ant && difMes(ant, c) === 1) { ant = c; continue; } if (ini) out.push(ini === ant ? compBR(ini) : compBR(ini) + ' a ' + compBR(ant)); ini = ant = c; }
+  if (ini) out.push(ini === ant ? compBR(ini) : compBR(ini) + ' a ' + compBR(ant));
+  return out.join(', ');
+}
+const stChip = s => `<span class="st ${STAT[s][1]}">${STAT[s][0]}</span>`;
+
+function cruzar() {
+  const cfg = S.cfg;
+  const C = parseCompras(), cad = parseCadastro(), F = parseFolha(cad), B = parseBaixas();
+  const par = C.parcelas;
+  par.forEach(p => {
+    p.comp = compDaParcela(p, cfg.regra, cfg.corte);
+    const bx = B.get(p.doc + '|' + p.parcela) || B.get(p.contrato + '|' + p.parcela + '|' + p.cpf);
+    p.baixa = bx && bx.length ? bx[0] : null;
+  });
+  // cobertura: ciclos de compra carregados
+  const ciclos = new Set(par.map(p => cicloDe(p.lanc || p.venc, cfg.corte)));
+  const maxParc = Math.max(1, ...par.map(p => p.nParc || p.parcela || 1));
+  const cobertura = comp => { const falt = []; for (let k = maxParc; k >= 0; k--) { const c = addMes(comp, -k); if (!ciclos.has(c)) falt.push(c); } return falt; };
+  const compsFolha = new Set(F.lin.map(l => l.comp));
+  const dataPagComp = {};
+  F.lin.forEach(l => { if (l.dataPag) { (dataPagComp[l.comp] = dataPagComp[l.comp] || new Set()).add(l.dataPag); } });
+
+  // agrega por funcionário x competência
+  const cel2 = new Map(); const G = k => { if (!cel2.has(k)) cel2.set(k, {devido: 0, desc: 0, parcelas: [], folha: []}); return cel2.get(k); };
+  par.forEach(p => { const c = G(p.cpf + '|' + p.comp); c.devido += p.valor; c.parcelas.push(p); });
+  F.lin.forEach(l => { const c = G(l.cpf + '|' + l.comp); c.desc += l.valor; c.folha.push(l); });
+
+  const pessoas = new Map();
+  const P = (cpf, nome) => {
+    if (!pessoas.has(cpf)) { const f = cad.porCpf.get(cpf); pessoas.set(cpf, {cpf, nome: f ? f.nome : nome, nomeCred: '', cad: f || null, celulas: {}, alertas: [], devido: 0, desc: 0, menos: 0, mais: 0, verif: 0, nDiv: 0}); }
+    const x = pessoas.get(cpf); if (nome && !x.nomeCred) x.nomeCred = nome; if (!x.nome) x.nome = nome; return x;
+  };
+  par.forEach(p => P(p.cpf, p.nome)); F.lin.forEach(l => P(l.cpf, l.nome));
+
+  const linhas = []; const tol = +cfg.tol || 0;
+  for (const [k, c] of cel2) {
+    const [cpf, comp] = k.split('|'); const pe = pessoas.get(cpf);
+    c.devido = r2(c.devido); c.desc = r2(c.desc); c.dif = r2(c.desc - c.devido);
+    const falt = cobertura(comp); c.completa = !falt.length; c.faltam = falt;
+    if (!compsFolha.has(comp)) c.st = 'prev';
+    else if (Math.abs(c.dif) <= tol) c.st = 'ok';
+    else if (c.devido > 0 && c.desc === 0) c.st = 'nao';
+    else if (c.dif < 0) c.st = 'menos';
+    else if (!c.completa) c.st = 'verif';
+    else c.st = c.devido === 0 ? 'semcompra' : 'mais';
+    c.dataPag = [...new Set(c.folha.map(l => l.dataPag).filter(Boolean))].sort().join(', ') || [...(dataPagComp[comp] || [])].sort().join(', ');
+    c.baixadas = c.parcelas.filter(p => p.baixa).length;
+    c.dataBaixa = [...new Set(c.parcelas.map(p => p.baixa && p.baixa.data).filter(Boolean))].sort();
+    pe.celulas[comp] = c;
+    if (c.st !== 'prev') { pe.devido += c.devido; pe.desc += c.desc; }
+    if (['menos', 'nao'].includes(c.st)) { pe.menos += -c.dif; pe.nDiv++; }
+    if (['mais', 'semcompra'].includes(c.st)) { pe.mais += c.dif; pe.nDiv++; }
+    if (c.st === 'verif') { pe.verif += c.dif; pe.nDiv++; }
+    linhas.push({cpf, comp, ...c});
+  }
+
+  // alertas
+  const alertas = [];
+  const A = (cpf, tipo, grav, txt, valor = 0) => { const pe = pessoas.get(cpf); const a = {cpf, nome: pe ? pe.nome : '', loja: pe && pe.cad ? pe.cad.loja : '', tipo, grav, txt, valor: r2(valor)}; alertas.push(a); if (pe) pe.alertas.push(a); };
+  const ultFolha = [...compsFolha].sort().pop() || '';
+  for (const pe of pessoas.values()) {
+    const ps = par.filter(p => p.cpf === pe.cpf);
+    const aberto = r2(ps.filter(p => !p.baixa && (!ultFolha || p.comp > ultFolha)).reduce((s, p) => s + p.valor, 0));
+    if (!S.cadastro) continue;
+    if (!pe.cad) { if (ps.length) A(pe.cpf, 'Comprador fora do cadastro', 'alta', `CPF não está no cadastro de funcionários (desligado ou terceiro?). Sem folha, o desconto não acontece — cobrar na rescisão ou por boleto. Saldo em aberto ${brl(aberto)}.`, aberto); continue; }
+    if (SEM_SAL.test(pe.cad.situacao)) A(pe.cpf, 'Afastado sem salário', 'alta', `Situação "${pe.cad.situacao}" — sem remuneração na empresa o desconto em folha não cobre a parcela. Saldo em aberto ${brl(aberto)}.`, aberto);
+    else if (!/^ativo$/i.test(pe.cad.situacao)) A(pe.cpf, 'Situação especial', 'baixa', `Situação "${pe.cad.situacao}" — conferir se o desconto entrou na folha do mês.`, aberto);
+    if (pe.nomeCred && simNome(pe.nomeCred, pe.cad.nome) < 0.6) A(pe.cpf, 'Nome diferente no CPF', 'alta', `Crediário: "${pe.nomeCred}" × Cadastro: "${pe.cad.nome}". Possível compra de outra pessoa no CPF do funcionário.`);
+    const antes = ps.filter(p => p.lanc && pe.cad.admissao && p.lanc < pe.cad.admissao);
+    if (antes.length) A(pe.cpf, 'Compra antes da admissão', 'media', `${antes.length} parcela(s) de compra anterior à admissão (${dBR(pe.cad.admissao)}).`);
+  }
+  // contratos com parcela faltando
+  const contr = new Map(); par.forEach(p => { if (!p.nParc) return; if (!contr.has(p.ck)) contr.set(p.ck, []); contr.get(p.ck).push(p); });
+  for (const [, ps] of contr) {
+    const n = ps[0].nParc; const tem = new Set(ps.map(p => p.parcela)); const falt = []; for (let i = 1; i <= n; i++) if (!tem.has(i)) falt.push(i);
+    if (falt.length) A(ps[0].cpf, 'Parcela faltando no contrato', 'media', `${ps[0].contrato} (${dBR(ps[0].lanc)}): ${n} parcelas no contrato, falta(m) ${falt.join(', ')} no relatório — estorno, quitação antecipada ou erro de exportação?`);
+  }
+  C.alter.forEach(x => A(x.novo.cpf, 'Parcela com valor alterado', 'media', `${x.novo.doc}: ${brl(x.ant.valor)} em "${x.ant.arq}" e ${brl(x.novo.valor)} em "${x.novo.arq}".`, x.novo.valor - x.ant.valor));
+  C.arqs.forEach(a => { if (a.rodape != null && Math.abs(a.rodape - a.soma) > 0.01) alertas.push({cpf: '', nome: '', loja: '', tipo: 'Arquivo incompleto', grav: 'alta', txt: `${a.nome}: soma das linhas ${brl(a.soma)} ≠ total do rodapé ${brl(a.rodape)}.`, valor: r2(a.rodape - a.soma)}); });
+  F.semId.forEach(l => alertas.push({cpf: '', nome: l.nome, loja: '', tipo: 'Desconto sem funcionário/competência', grav: 'media', txt: `${l.arq}: ${l.nome || l.mat || 'sem identificação'} ${brl(l.valor)} — ${!l.cpf ? 'CPF/matrícula não encontrado no cadastro' : 'sem competência (informe no quadro do arquivo)'}.`, valor: l.valor}));
+  // baixa sem desconto / desconto sem baixa
+  const compsComBaixa = new Set(par.filter(p => p.baixa).map(p => p.comp)); // só cobra baixa nos meses que o arquivo de baixas cobre
+  if (S.baixas.length) for (const l of linhas) if (l.st !== 'prev' && compsComBaixa.has(l.comp)) {
+    const naoBx = l.parcelas.filter(p => !p.baixa);
+    if (l.desc > 0 && naoBx.length) A(l.cpf, 'Descontado e não baixado', 'alta', `${compBR(l.comp)}: descontou ${brl(l.desc)} na folha, mas ${naoBx.length} parcela(s) seguem em aberto no crediário — risco de cobrar duas vezes.`, naoBx.reduce((s, p) => s + p.valor, 0));
+    if (l.desc === 0 && l.baixadas) A(l.cpf, 'Baixado sem desconto', 'media', `${compBR(l.comp)}: ${l.baixadas} parcela(s) baixada(s) no crediário sem desconto em folha — confirmar o recebimento (caixa/PIX).`, l.parcelas.filter(p => p.baixa).reduce((s, p) => s + p.valor, 0));
+  }
+
+  // resumo por competência
+  const comps = [...new Set(linhas.map(l => l.comp))].sort();
+  const porComp = comps.map(comp => {
+    const ls = linhas.filter(l => l.comp === comp); const o = {comp, folha: compsFolha.has(comp), devido: 0, desc: 0, menos: 0, mais: 0, n: new Set(ls.map(l => l.cpf)).size, cont: {}};
+    ls.forEach(l => { o.devido += l.devido; o.desc += l.desc; o.cont[l.st] = (o.cont[l.st] || 0) + 1; if (['menos', 'nao'].includes(l.st)) o.menos += -l.dif; if (['mais', 'semcompra'].includes(l.st)) o.mais += l.dif; });
+    o.faltam = cobertura(comp); o.dataPag = [...(dataPagComp[comp] || [])].sort();
+    return o;
+  });
+
+  // calibração da regra
+  let calib = null;
+  if (F.lin.length) {
+    const desc = new Map(); F.lin.forEach(l => desc.set(l.cpf + '|' + l.comp, (desc.get(l.cpf + '|' + l.comp) || 0) + l.valor));
+    calib = REGRAS.map(rg => {
+      const dev = new Map(); par.forEach(p => { const c = compDaParcela(p, rg.regra, rg.corte); if (compsFolha.has(c)) dev.set(p.cpf + '|' + c, (dev.get(p.cpf + '|' + c) || 0) + p.valor); });
+      let ok = 0, tot = 0; const ks = new Set([...dev.keys(), ...desc.keys()]);
+      ks.forEach(k => { tot++; if (Math.abs((dev.get(k) || 0) - (desc.get(k) || 0)) <= tol) ok++; });
+      return {...rg, ok, tot, pct: tot ? ok / tot : 0};
+    }).sort((a, b) => b.pct - a.pct);
+  }
+  R = {C, cad, F, par, linhas, pessoas, alertas, comps, porComp, calib, compsFolha, maxParc};
+}
+
+/* semelhança de nomes (tolera erro de digitação e abreviação) */
+function lev1(a, b) {
+  if (a === b) return true; if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, e = 0;
+  while (i < a.length && j < b.length) { if (a[i] === b[j]) { i++; j++; continue; } if (++e > 1) return false; if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; } }
+  return e + (a.length - i) + (b.length - j) <= 1;
+}
+function simNome(x, y) {
+  const st = new Set(['DA', 'DE', 'DO', 'DAS', 'DOS', 'E']);
+  const a = nomeN(x).split(' ').filter(t => !st.has(t)), b = nomeN(y).split(' ').filter(t => !st.has(t));
+  if (!a.length || !b.length) return 1;
+  const [m, M] = a.length <= b.length ? [a, b] : [b, a];
+  const hit = m.filter(t => M.some(u => lev1(t, u) || (t.length === 1 && u[0] === t) || (u.length === 1 && t[0] === u))).length;
+  return hit / m.length;
+}
+
+/* ---------- telas ---------- */
+function tudo() { cruzar(); telaArquivos(); telaResumo(); telaFunc(); telaDiv(); telaAlertas(); }
+
+function blocoMapa(tipo, a, idx) {
+  const opts = j => `<option value="">—</option>` + a.header.map((h, i) => `<option value="${i}" ${j === i ? 'selected' : ''}>${esc(h || 'coluna ' + (i + 1))}</option>`).join('');
+  let h = `<details ${OBRIG[tipo].some(k => a.map[k] == null) ? 'open' : ''}><summary class="small" style="cursor:pointer;color:#93c5fd">Colunas e opções</summary><div class="map">`;
+  for (const k of Object.keys(COLS[tipo])) h += `<label>${ROT[k]}<select data-map="${tipo}|${idx}|${k}">${opts(a.map[k])}</select></label>`;
+  if (tipo === 'folha') {
+    h += `<label>Competência do arquivo<input type="month" data-fx="${idx}|compFixa" value="${esc(a.compFixa || '')}"></label>`;
+    h += `<label>Data de pagamento da folha<input type="date" data-fx="${idx}|dataPagFixa" value="${esc(a.dataPagFixa || '')}"></label>`;
+  }
+  h += `</div>`;
+  if (tipo === 'folha' && a.map.evento != null) {
+    const evs = eventosDe(a); const sel = new Set(a.eventos || evs);
+    h += `<div class="small mut" style="margin-top:6px">Eventos considerados como desconto do crediário:</div><div class="evs">` +
+      evs.map(e => `<label><input type="checkbox" data-ev="${idx}" value="${esc(e)}" ${sel.has(e) ? 'checked' : ''}>${esc(e)}</label>`).join('') + `</div>`;
+  }
+  return h + `</details>`;
+}
+function telaArquivos() {
+  const lc = R.C.arqs.map((x, i) => {
+    const integ = x.rodape == null ? '' : Math.abs(x.rodape - x.soma) <= 0.01 ? ` · <span class="okt">confere com o rodapé</span>` : ` · <span class="badt">rodapé ${brl(x.rodape)} não confere</span>`;
+    return `<div class="arq"><span><b>${esc(x.nome)}</b><br>${x.n} parcelas · ${brl(x.soma)}${integ}</span><button data-del="compras|${i}" title="Remover">✕</button></div>${blocoMapa('compras', S.compras[i], i)}`;
+  }).join('');
+  $('l-compras').innerHTML = lc + (R.par.length ? `<div class="small" style="margin-top:6px">Total: <b>${R.par.length}</b> parcelas de <b>${new Set(R.par.map(p => p.cpf)).size}</b> funcionários · ${brl(R.par.reduce((s, p) => s + p.valor, 0))}</div>` : '');
+  $('l-cadastro').innerHTML = S.cadastro ? `<div class="arq"><span><b>${esc(S.cadastro.nome)}</b><br>${R.cad.porCpf.size} funcionários · ${[...R.cad.porCpf.values()].filter(f => !/^ativo$/i.test(f.situacao)).length} não ativos</span><button data-del="cadastro|0">✕</button></div>${blocoMapa('cadastro', S.cadastro, 0)}` : '';
+  $('l-folha').innerHTML = S.folha.map((a, i) => {
+    const ls = R.F.lin.filter(l => l.arq === a.nome); const cs = [...new Set(ls.map(l => l.comp))].sort().map(compBR).join(', ');
+    return `<div class="arq"><span><b>${esc(a.nome)}</b><br>${ls.length} descontos · ${brl(ls.reduce((s, l) => s + l.valor, 0))}${cs ? ' · ' + cs : ' · <span class="wt">informe a competência</span>'}</span><button data-del="folha|${i}">✕</button></div>${blocoMapa('folha', a, i)}`;
+  }).join('');
+  $('l-baixas').innerHTML = S.baixas.map((a, i) => `<div class="arq"><span><b>${esc(a.nome)}</b><br>${a.rows.length - a.cab - 1} linhas · ${R.par.filter(p => p.baixa && p.baixa.arq === a.nome).length} parcelas casadas</span><button data-del="baixas|${i}">✕</button></div>${blocoMapa('baixas', a, i)}`).join('');
+
+  $('cRegra').value = S.cfg.regra; $('cCorte').value = S.cfg.corte; $('cTol').value = S.cfg.tol;
+  const ex = R.par.find(p => p.nParc > 1);
+  $('regraTxt').innerHTML = (S.cfg.regra === 'ciclo'
+    ? `Compra feita do dia ${S.cfg.corte + 1} de um mês ao dia ${S.cfg.corte} do mês seguinte entra na folha desse mês seguinte; cada parcela seguinte cai um mês depois.`
+    : `A parcela entra na folha do mês do vencimento; vencimento depois do dia ${S.cfg.corte} vai para a folha do mês seguinte.`)
+    + (ex ? `<br>Exemplo: ${esc(ex.doc)} comprada em ${dBR(ex.lanc)}, vence ${dBR(ex.venc)} → folha de <b>${compBR(ex.comp)}</b>.` : '');
+  $('calib').innerHTML = R.calib ? `<div class="small mut" style="margin-top:6px">Qual regra explica melhor a folha carregada (funcionário × mês batendo exatamente):</div>
+    <div class="tw"><table><tr><th>Regra</th><th class="r">Batem</th><th class="r">%</th><th></th></tr>${R.calib.map((c, i) => `<tr><td>${c.txt}${i === 0 ? ' <span class="st st-ok">melhor</span>' : ''}</td><td class="r">${c.ok}/${c.tot}</td><td class="r">${(c.pct * 100).toFixed(1)}%</td><td class="r">${c.regra === S.cfg.regra && c.corte === +S.cfg.corte ? '<span class="mut small">em uso</span>' : `<button class="btn" data-usar="${c.regra}|${c.corte}">Usar</button>`}</td></tr>`).join('')}</table></div>`
+    : `<div class="aviso">Carregue a folha para o sistema medir qual regra a empresa realmente usa. Sem folha, a tela mostra só a <b>previsão</b> do desconto mês a mês.</div>`;
+}
+
+function kpi(l, v, n, t) { return `<div class="card kpi ${t}"><div class="l">${l}</div><div class="v">${v}</div><div class="n">${n}</div></div>`; }
+function telaResumo() {
+  const aud = R.porComp.filter(c => c.folha); const prev = R.porComp.filter(c => !c.folha);
+  const sum = (arr, k) => arr.reduce((s, c) => s + c[k], 0);
+  const pes = [...R.pessoas.values()];
+  const altas = R.alertas.filter(a => a.grav === 'alta');
+  $('kpis').innerHTML = aud.length
+    ? kpi('Devido nas folhas auditadas', brl(sum(aud, 'devido')), `${aud.length} competência(s)`, 't-azul') +
+      kpi('Descontado em folha', brl(sum(aud, 'desc')), `${(sum(aud, 'devido') ? sum(aud, 'desc') / sum(aud, 'devido') * 100 : 0).toFixed(1)}% do devido`, 't-verde') +
+      kpi('Deixou de descontar', brl(sum(aud, 'menos')), `${pes.filter(p => p.menos > 0.009).length} funcionário(s) — perda`, 't-vermelho') +
+      kpi('Descontou a mais', brl(sum(aud, 'mais')), `${pes.filter(p => p.mais > 0.009).length} funcionário(s) — devolver`, 't-laranja') +
+      kpi('Alertas graves', altas.length, 'cadastro / integridade', 't-roxo')
+    : kpi('Parcelas carregadas', R.par.length, `${R.pessoas.size} funcionários`, 't-azul') +
+      kpi('Total a descontar', brl(sum(prev, 'devido')), `${prev.length} competência(s) previstas`, 't-verde') +
+      kpi('Próxima folha', prev[0] ? brl(prev[0].devido) : '—', prev[0] ? compBR(prev[0].comp) : '', 't-laranja') +
+      kpi('Alertas graves', altas.length, 'cadastro / integridade', 't-roxo');
+  if (!R.porComp.length) { $('tComp').innerHTML = `<div class="vazio">Carregue o relatório de compras para começar.</div>`; return; }
+  $('tComp').innerHTML = `<table><tr><th>Competência</th><th class="r">Funcionários</th><th class="r">Devido</th><th class="r">Descontado</th><th class="r">A menos</th><th class="r">A mais</th><th>Situação</th><th>Pago em</th><th>Cobertura das compras</th></tr>` +
+    R.porComp.map(c => `<tr class="clicavel" data-comp="${c.comp}"><td><b>${compBR(c.comp)}</b></td><td class="r">${c.n}</td><td class="r">${nfm(c.devido)}</td><td class="r">${c.folha ? nfm(c.desc) : '—'}</td>
+      <td class="r ${c.menos > 0.009 ? 'badt' : ''}">${c.folha ? nfm(c.menos) : '—'}</td><td class="r ${c.mais > 0.009 ? 'wt' : ''}">${c.folha ? nfm(c.mais) : '—'}</td>
+      <td>${Object.entries(c.cont).map(([s, n]) => `<span class="st ${STAT[s][1]}">${n} ${STAT[s][0].toLowerCase()}</span>`).join(' ')}</td>
+      <td>${c.dataPag.map(dBR).join(', ') || (c.folha ? '<span class="wt">sem data</span>' : '—')}</td>
+      <td>${c.faltam.length ? `<span class="wt">parcial</span> <span class="mut small">faltam compras de ${faixas(c.faltam)}</span>` : '<span class="okt">completa</span>'}</td></tr>`).join('') +
+    `<tfoot><tr><td>Total</td><td></td><td class="r">${nfm(sum(R.porComp, 'devido'))}</td><td class="r">${nfm(sum(aud, 'desc'))}</td><td class="r">${nfm(sum(aud, 'menos'))}</td><td class="r">${nfm(sum(aud, 'mais'))}</td><td colspan="3"></td></tr></tfoot></table>`;
+}
+
+function filtroPessoas() {
+  const q = nomeN($('fBusca').value), qd = soDig($('fBusca').value), loja = $('fLoja').value, st = $('fSt').value;
+  return [...R.pessoas.values()].filter(p => {
+    if (loja && (p.cad ? p.cad.loja : '(fora do cadastro)') !== loja) return false;
+    if (st === 'div' && !p.nDiv) return false;
+    if (st === 'alerta' && !p.alertas.length) return false;
+    if (!q && !qd) return true;
+    return (q && nomeN(p.nome + ' ' + p.nomeCred + ' ' + (p.cad ? p.cad.loja : '')).includes(q)) || (qd && (p.cpf.includes(qd) || (p.cad && p.cad.matricula.includes(qd))));
+  }).sort((a, b) => (b.menos + b.mais + b.verif) - (a.menos + a.mais + a.verif) || a.nome.localeCompare(b.nome));
+}
+function telaFunc() {
+  const lojas = [...new Set([...R.pessoas.values()].map(p => p.cad ? p.cad.loja : '(fora do cadastro)'))].sort();
+  const sel = $('fLoja').value;
+  $('fLoja').innerHTML = `<option value="">Todas as lojas</option>` + lojas.map(l => `<option ${l === sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  $('legenda').innerHTML = Object.keys(STAT).map(stChip).join('');
+  const ps = filtroPessoas(); const comps = R.comps;
+  if (!ps.length) { $('tFunc').innerHTML = `<div class="vazio">Nenhum funcionário.</div>`; return; }
+  const lim = ps.slice(0, 400);
+  $('tFunc').innerHTML = `<table class="mtz"><tr><th>Funcionário</th>${comps.map(c => `<th class="r">${compBR(c)}</th>`).join('')}<th class="r">Diferença</th></tr>` +
+    lim.map(p => `<tr><td><a href="javascript:void(0)" data-pes="${p.cpf}"><b>${esc(p.nome)}</b></a><br><span class="mut small">${cpfF(p.cpf)}${p.cad ? ' · ' + esc(p.cad.matricula) + ' · ' + esc(p.cad.loja) : ' · <span class="badt">fora do cadastro</span>'}</span>${p.alertas.length ? ` <span class="st st-verif">${p.alertas.length} alerta(s)</span>` : ''}</td>` +
+      comps.map(c => { const x = p.celulas[c]; if (!x) return `<td class="c"></td>`; return `<td class="c c-${x.st}" data-pes="${p.cpf}" data-c="${c}" title="${STAT[x.st][0]}">${nfm(x.devido)}<small>${x.st === 'prev' ? '—' : nfm(x.desc)}</small></td>`; }).join('') +
+      `<td class="r ${p.menos > 0.009 ? 'badt' : p.mais + p.verif > 0.009 ? 'wt' : ''}">${p.menos > 0.009 ? '−' + nfm(p.menos) : p.mais + p.verif > 0.009 ? '+' + nfm(p.mais + p.verif) : '—'}</td></tr>`).join('') + `</table>` +
+    (ps.length > lim.length ? `<div class="small mut">Mostrando ${lim.length} de ${ps.length}. Use a busca ou exporte o Excel.</div>` : '');
+}
+function telaDiv() {
+  const opcoes = [['', 'Todas as divergências'], ['menos', STAT.menos[0]], ['nao', STAT.nao[0]], ['mais', STAT.mais[0]], ['semcompra', STAT.semcompra[0]], ['verif', STAT.verif[0]]];
+  const sv = $('dSt').value, cv = $('dComp').value;
+  $('dSt').innerHTML = opcoes.map(([v, t]) => `<option value="${v}" ${v === sv ? 'selected' : ''}>${t}</option>`).join('');
+  $('dComp').innerHTML = `<option value="">Todas as competências</option>` + [...R.compsFolha].sort().map(c => `<option value="${c}" ${c === cv ? 'selected' : ''}>${compBR(c)}</option>`).join('');
+  const ls = R.linhas.filter(l => !['ok', 'prev'].includes(l.st) && (!sv || l.st === sv) && (!cv || l.comp === cv)).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
+  if (!R.compsFolha.size) { $('tDiv').innerHTML = `<div class="vazio">Carregue o relatório de descontos da folha para auditar.</div>`; return; }
+  if (!ls.length) { $('tDiv').innerHTML = `<div class="vazio">Nenhuma divergência com esse filtro. 👍</div>`; return; }
+  $('tDiv').innerHTML = `<table><tr><th>Competência</th><th>Funcionário</th><th>Loja</th><th class="r">Devido</th><th class="r">Descontado</th><th class="r">Diferença</th><th>Situação</th><th>Pago em</th></tr>` +
+    ls.map(l => { const p = R.pessoas.get(l.cpf); return `<tr class="clicavel" data-pes="${l.cpf}" data-c="${l.comp}"><td>${compBR(l.comp)}</td><td><b>${esc(p.nome)}</b><br><span class="mut small">${cpfF(l.cpf)}${p.cad ? ' · ' + esc(p.cad.situacao) : ''}</span></td><td class="small">${p.cad ? esc(p.cad.loja) : '<span class="badt">fora do cadastro</span>'}</td>
+      <td class="r">${nfm(l.devido)}</td><td class="r">${nfm(l.desc)}</td><td class="r ${l.dif < 0 ? 'badt' : 'wt'}">${l.dif > 0 ? '+' : ''}${nfm(l.dif)}</td><td>${stChip(l.st)}</td><td class="small">${esc(l.dataPag.split(', ').map(dBR).join(', '))}</td></tr>`; }).join('') +
+    `<tfoot><tr><td colspan="5">${ls.length} caso(s)</td><td class="r">${nfm(ls.reduce((s, l) => s + l.dif, 0))}</td><td colspan="2"></td></tr></tfoot></table>`;
+}
+function telaAlertas() {
+  if (!R.alertas.length) { $('tAlertas').innerHTML = `<div class="vazio">${S.cadastro ? 'Nenhum alerta.' : 'Carregue o cadastro de funcionários para cruzar.'}</div>`; return; }
+  const ord = {alta: 0, media: 1, baixa: 2};
+  const as = R.alertas.slice().sort((a, b) => ord[a.grav] - ord[b.grav] || a.tipo.localeCompare(b.tipo) || b.valor - a.valor);
+  const cont = {}; as.forEach(a => cont[a.tipo] = (cont[a.tipo] || 0) + 1);
+  $('tAlertas').innerHTML = `<div class="leg">${Object.entries(cont).map(([t, n]) => `<span class="chip s-cinza">${esc(t)}: ${n}</span>`).join('')}</div>` +
+    `<table><tr><th>Gravidade</th><th>Tipo</th><th>Funcionário</th><th>Detalhe</th><th class="r">Valor</th></tr>` +
+    as.map(a => `<tr ${a.cpf ? `class="clicavel" data-pes="${a.cpf}"` : ''}><td><span class="st ${a.grav === 'alta' ? 'st-nao' : a.grav === 'media' ? 'st-verif' : 'st-prev'}">${a.grav}</span></td><td><b>${esc(a.tipo)}</b></td><td>${esc(a.nome)}${a.cpf ? `<br><span class="mut small">${cpfF(a.cpf)}${a.loja ? ' · ' + esc(a.loja) : ''}</span>` : ''}</td><td class="small">${esc(a.txt)}</td><td class="r">${a.valor ? nfm(a.valor) : ''}</td></tr>`).join('') + `</table>`;
+}
+
+function abrirPessoa(cpf, foco) {
+  const p = R.pessoas.get(cpf); if (!p) return;
+  const comps = Object.keys(p.celulas).sort();
+  const f = p.cad;
+  let h = `<div class="row" style="justify-content:space-between"><h3>${esc(p.nome)}</h3><button class="btn" onclick="fechar()">Fechar</button></div>
+  <div class="kv"><div><span>CPF</span>${cpfF(cpf)}</div><div><span>Matrícula</span>${f ? esc(f.matricula) : '—'}</div><div><span>Loja</span>${f ? esc(f.loja) : '<span class="badt">fora do cadastro</span>'}</div>
+  <div><span>Função</span>${f ? esc(f.funcao) : '—'}</div><div><span>Admissão</span>${f ? dBR(f.admissao) : '—'}</div><div><span>Situação</span>${f ? esc(f.situacao) : '—'}</div>
+  ${p.nomeCred && f && nomeN(p.nomeCred) !== nomeN(f.nome) ? `<div><span>Nome no crediário</span>${esc(p.nomeCred)}</div>` : ''}</div>`;
+  if (p.alertas.length) h += p.alertas.map(a => `<div class="aviso"><b>${esc(a.tipo)}:</b> ${esc(a.txt)}</div>`).join('');
+  h += `<div class="tw"><table><tr><th>Competência</th><th class="r">Devido</th><th class="r">Descontado</th><th class="r">Diferença</th><th>Situação</th><th>Pago na folha</th>${S.baixas.length ? '<th>Baixa no crediário</th>' : ''}</tr>` +
+    comps.map(c => { const x = p.celulas[c]; return `<tr ${c === foco ? 'style="outline:1px solid var(--pri)"' : ''}><td><b>${compBR(c)}</b></td><td class="r">${nfm(x.devido)}</td><td class="r">${x.st === 'prev' ? '—' : nfm(x.desc)}</td><td class="r">${x.st === 'prev' ? '' : nfm(x.dif)}</td><td>${stChip(x.st)}</td><td class="small">${esc(x.dataPag.split(', ').map(dBR).join(', '))}</td>${S.baixas.length ? `<td class="small">${x.baixadas}/${x.parcelas.length} ${x.dataBaixa.map(dBR).join(', ')}</td>` : ''}</tr>`; }).join('') + `</table></div>`;
+  h += `<h2>Parcelas do crediário</h2><div class="tw"><table class="pq"><tr><th>Folha</th><th>Documento</th><th>Compra</th><th>Vencimento</th><th class="r">Valor</th>${S.baixas.length ? '<th>Baixa</th>' : ''}<th>Arquivo</th></tr>` +
+    R.par.filter(x => x.cpf === cpf).sort((a, b) => a.comp.localeCompare(b.comp) || a.doc.localeCompare(b.doc)).map(x => `<tr ${x.comp === foco ? 'style="background:rgba(59,130,246,.08)"' : ''}><td>${compBR(x.comp)}</td><td>${esc(x.doc)}</td><td>${dBR(x.lanc)}</td><td>${dBR(x.venc)}</td><td class="r">${nfm(x.valor)}</td>${S.baixas.length ? `<td>${x.baixa ? dBR(x.baixa.data) + ' · ' + nfm(x.baixa.valor) : '<span class="wt">em aberto</span>'}</td>` : ''}<td class="small mut">${esc(x.arq)}</td></tr>`).join('') + `</table></div>`;
+  const fl = R.F.lin.filter(l => l.cpf === cpf);
+  if (fl.length) h += `<h2>Lançamentos na folha</h2><div class="tw"><table class="pq"><tr><th>Competência</th><th>Evento</th><th class="r">Valor</th><th>Pago em</th><th>Arquivo</th></tr>` +
+    fl.sort((a, b) => a.comp.localeCompare(b.comp)).map(l => `<tr><td>${compBR(l.comp)}</td><td>${esc(l.evento)}</td><td class="r">${nfm(l.valor)}</td><td>${dBR(l.dataPag)}</td><td class="small mut">${esc(l.arq)}</td></tr>`).join('') + `</table></div>`;
+  $('mbox').innerHTML = h; $('modal').style.display = 'flex';
+}
+function fechar() { $('modal').style.display = 'none'; }
+
+/* ---------- Excel ---------- */
+function exportar() {
+  if (!R || !R.par.length) { toast('Carregue os arquivos primeiro.'); return; }
+  const wb = XLSX.utils.book_new();
+  const add = (nome, linhas, larg) => { const ws = XLSX.utils.json_to_sheet(linhas); if (larg) ws['!cols'] = larg.map(w => ({wch: w})); XLSX.utils.book_append_sheet(wb, ws, nome); };
+  const pes = cpf => R.pessoas.get(cpf) || {};
+  add('Resumo por competência', R.porComp.map(c => ({'Competência': compBR(c.comp), 'Folha carregada': c.folha ? 'Sim' : 'Não (previsão)', 'Funcionários': c.n, 'Devido': r2(c.devido), 'Descontado': c.folha ? r2(c.desc) : null,
+    'Descontou a menos': c.folha ? r2(c.menos) : null, 'Descontou a mais': c.folha ? r2(c.mais) : null, 'OK': c.cont.ok || 0, 'Divergências': (c.cont.menos || 0) + (c.cont.nao || 0) + (c.cont.mais || 0) + (c.cont.semcompra || 0), 'Verificar': c.cont.verif || 0,
+    'Pago em': c.dataPag.map(dBR).join(', '), 'Cobertura': c.faltam.length ? 'Parcial — faltam compras de ' + faixas(c.faltam) : 'Completa'})), [14, 16, 12, 12, 12, 16, 16, 6, 12, 10, 14, 50]);
+  add('Funcionário x mês', R.linhas.slice().sort((a, b) => (pes(a.cpf).nome || '').localeCompare(pes(b.cpf).nome || '') || a.comp.localeCompare(b.comp)).map(l => { const p = pes(l.cpf); return {
+    'CPF': cpfF(l.cpf), 'Matrícula': p.cad ? p.cad.matricula : '', 'Nome': p.nome, 'Loja': p.cad ? p.cad.loja : 'FORA DO CADASTRO', 'Situação cadastro': p.cad ? p.cad.situacao : '', 'Competência': compBR(l.comp),
+    'Devido': l.devido, 'Descontado': l.st === 'prev' ? null : l.desc, 'Diferença': l.st === 'prev' ? null : l.dif, 'Status': STAT[l.st][0], 'Pago na folha em': l.dataPag.split(', ').map(dBR).join(', '),
+    'Parcelas': l.parcelas.length, 'Parcelas baixadas': S.baixas.length ? l.baixadas : '', 'Data da baixa': l.dataBaixa.map(dBR).join(', '), 'Documentos': l.parcelas.map(p => p.doc).join(' ')}; }), [15, 11, 34, 28, 14, 11, 10, 11, 10, 30, 14, 8, 9, 14, 40]);
+  const mtz = [...R.pessoas.values()].sort((a, b) => a.nome.localeCompare(b.nome)).map(p => { const o = {'CPF': cpfF(p.cpf), 'Matrícula': p.cad ? p.cad.matricula : '', 'Nome': p.nome, 'Loja': p.cad ? p.cad.loja : 'FORA DO CADASTRO'};
+    R.comps.forEach(c => { const x = p.celulas[c]; o['Devido ' + compBR(c)] = x ? x.devido : null; if (R.compsFolha.has(c)) o['Desc. ' + compBR(c)] = x ? x.desc : null; }); o['A menos'] = r2(p.menos); o['A mais'] = r2(p.mais); o['A verificar'] = r2(p.verif); return o; });
+  add('Matriz mensal', mtz);
+  add('Divergências', R.linhas.filter(l => !['ok', 'prev'].includes(l.st)).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif)).map(l => { const p = pes(l.cpf); return {'Competência': compBR(l.comp), 'CPF': cpfF(l.cpf), 'Matrícula': p.cad ? p.cad.matricula : '', 'Nome': p.nome, 'Loja': p.cad ? p.cad.loja : 'FORA DO CADASTRO', 'Situação': p.cad ? p.cad.situacao : '', 'Devido': l.devido, 'Descontado': l.desc, 'Diferença': l.dif, 'Status': STAT[l.st][0], 'Pago em': l.dataPag.split(', ').map(dBR).join(', ')}; }), [11, 15, 11, 34, 28, 14, 10, 11, 10, 30, 14]);
+  add('Alertas', R.alertas.map(a => ({'Gravidade': a.grav, 'Tipo': a.tipo, 'CPF': cpfF(a.cpf), 'Nome': a.nome, 'Loja': a.loja, 'Detalhe': a.txt, 'Valor': a.valor || null})), [9, 28, 15, 34, 28, 100, 10]);
+  add('Parcelas', R.par.slice().sort((a, b) => a.cpf.localeCompare(b.cpf) || a.comp.localeCompare(b.comp)).map(p => ({'CPF': cpfF(p.cpf), 'Nome': p.nome, 'Documento': p.doc, 'Parcela': p.parcela, 'Lançamento': dBR(p.lanc), 'Vencimento': dBR(p.venc), 'Valor': p.valor, 'Competência folha': compBR(p.comp), 'Baixa': p.baixa ? dBR(p.baixa.data) : '', 'Valor baixado': p.baixa ? p.baixa.valor : null, 'Arquivo': p.arq})), [15, 34, 16, 8, 11, 11, 9, 12, 11, 11, 40]);
+  if (R.F.lin.length) add('Folha importada', R.F.lin.map(l => ({'CPF': cpfF(l.cpf), 'Matrícula': l.mat, 'Nome': l.nome || pes(l.cpf).nome, 'Competência': compBR(l.comp), 'Evento': l.evento, 'Valor': l.valor, 'Pago em': dBR(l.dataPag), 'Arquivo': l.arq})));
+  const rg = REGRAS.find(x => x.regra === S.cfg.regra && x.corte === +S.cfg.corte);
+  add('Parâmetros', [{'Parâmetro': 'Regra de competência', 'Valor': rg ? rg.txt : S.cfg.regra + ' / corte ' + S.cfg.corte}, {'Parâmetro': 'Tolerância (R$)', 'Valor': S.cfg.tol}, {'Parâmetro': 'Gerado em', 'Valor': new Date().toLocaleString('pt-BR')},
+    ...S.compras.map(a => ({'Parâmetro': 'Compras', 'Valor': a.nome})), ...(S.cadastro ? [{'Parâmetro': 'Cadastro', 'Valor': S.cadastro.nome}] : []), ...S.folha.map(a => ({'Parâmetro': 'Folha', 'Valor': a.nome})), ...S.baixas.map(a => ({'Parâmetro': 'Baixas', 'Valor': a.nome}))], [24, 60]);
+  const hoje = new Date().toLocaleDateString('en-CA');
+  XLSX.writeFile(wb, `auditoria_desconto_folha_${hoje}.xlsx`);
+}
+
+/* ---------- eventos ---------- */
+document.querySelectorAll('.drop').forEach(d => {
+  const tipo = d.dataset.tipo, inp = d.querySelector('input');
+  inp.addEventListener('change', () => { importar(tipo, [...inp.files]); inp.value = ''; });
+  d.addEventListener('dragover', e => { e.preventDefault(); d.classList.add('on'); });
+  d.addEventListener('dragleave', () => d.classList.remove('on'));
+  d.addEventListener('drop', e => { e.preventDefault(); d.classList.remove('on'); importar(tipo, [...e.dataTransfer.files]); });
+});
+$('nav').addEventListener('click', e => {
+  const a = e.target.closest('a[data-v]'); if (!a) return;
+  document.querySelectorAll('#nav a').forEach(x => x.classList.toggle('on', x === a));
+  document.querySelectorAll('.vista').forEach(v => v.classList.toggle('on', v.id === 'v-' + a.dataset.v));
+});
+const irPara = v => document.querySelector(`#nav a[data-v="${v}"]`).click();
+document.body.addEventListener('click', async e => {
+  const del = e.target.closest('[data-del]');
+  if (del) { const [t, i] = del.dataset.del.split('|'); if (t === 'cadastro') S.cadastro = null; else S[t].splice(+i, 1); await salvar(); tudo(); return; }
+  const us = e.target.closest('[data-usar]');
+  if (us) { const [r, c] = us.dataset.usar.split('|'); S.cfg.regra = r; S.cfg.corte = +c; await salvar(); tudo(); toast('Regra aplicada.'); return; }
+  const cp = e.target.closest('tr[data-comp]');
+  if (cp) { $('dComp').value = R.compsFolha.has(cp.dataset.comp) ? cp.dataset.comp : ''; telaDiv(); irPara(R.compsFolha.has(cp.dataset.comp) ? 'div' : 'func'); return; }
+  const pe = e.target.closest('[data-pes]');
+  if (pe) { abrirPessoa(pe.dataset.pes, pe.dataset.c); return; }
+  if (e.target === $('modal')) fechar();
+});
+document.body.addEventListener('change', async e => {
+  const t = e.target;
+  if (t.dataset.map) { const [tipo, i, k] = t.dataset.map.split('|'); const a = tipo === 'cadastro' ? S.cadastro : S[tipo][+i]; if (t.value === '') delete a.map[k]; else a.map[k] = +t.value; if (k === 'evento') a.eventos = null; await salvar(); tudo(); }
+  else if (t.dataset.fx) { const [i, k] = t.dataset.fx.split('|'); S.folha[+i][k] = t.value; await salvar(); tudo(); }
+  else if (t.dataset.ev) { const a = S.folha[+t.dataset.ev]; a.eventos = [...document.querySelectorAll(`[data-ev="${t.dataset.ev}"]:checked`)].map(x => x.value); await salvar(); tudo(); }
+});
+['cRegra', 'cCorte', 'cTol'].forEach(id => $(id).addEventListener('change', async () => {
+  S.cfg = {regra: $('cRegra').value, corte: Math.min(31, Math.max(1, +$('cCorte').value || 20)), tol: Math.max(0, +$('cTol').value || 0)}; await salvar(); tudo();
+}));
+['fBusca', 'fLoja', 'fSt'].forEach(id => $(id).addEventListener('input', telaFunc));
+['dSt', 'dComp'].forEach(id => $(id).addEventListener('change', telaDiv));
+$('bExport').onclick = exportar;
+$('bLimpar').onclick = async () => { if (!confirm('Apagar todos os arquivos carregados neste navegador?')) return; S = {compras: [], cadastro: null, folha: [], baixas: [], cfg: S.cfg}; await salvar(); tudo(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fechar(); });
+
+(async () => { const s = await carregar(); if (s && s.compras) S = Object.assign(S, s); tudo(); })();
+</script>
+</body>
+</html>
