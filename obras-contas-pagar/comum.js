@@ -544,7 +544,7 @@ function tomResumo(rotulo, valor) {
   if (/despesa|gasto|total|valor/.test(l)) return 'roxo';
   return 'cinza';
 }
-// doc = {titulo, subtitulo, resumo: [[rótulo, valor]], graficos: [ver svgGrafico], secoes: [{titulo, cab, linhas, rodape, direita: [índices de colunas numéricas], nota}], assinaturas: [..], arquivo, paisagem}
+// doc = {titulo, subtitulo, resumo: [[rótulo, valor]], graficos: [ver svgGrafico], secoes: [{titulo, cab, linhas, rodape, direita: [índices de colunas numéricas], nota}], assinaturas: [..], arquivo, paisagem, marca (rodapé da página)}
 async function gerarPDF(doc) {
   const JsPDF = await pdfLib();
   const pdf = new JsPDF({orientation: doc.paisagem ? 'landscape' : 'portrait', unit: 'pt', format: 'a4'});
@@ -619,7 +619,7 @@ async function gerarPDF(doc) {
   const n = pdf.internal.getNumberOfPages();
   for (let i = 1; i <= n; i++) { pdf.setPage(i); pdf.setFontSize(8); pdf.setTextColor(120);
     const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
-    pdf.text(`Pagina ${i} de ${n}`, W - M, H - 18, {align: 'right'}); pdf.text('Esposende - Obras & Reformas', M, H - 18); }
+    pdf.text(`Pagina ${i} de ${n}`, W - M, H - 18, {align: 'right'}); pdf.text(pdfTxt(doc.marca || 'Esposende - Obras & Reformas'), M, H - 18); }
   pdf.save((doc.arquivo || doc.titulo).normalize('NFD').replace(/[^A-Za-z0-9._-]+/g, '_') + '.pdf');
 }
 

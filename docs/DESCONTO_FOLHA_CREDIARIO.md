@@ -1,51 +1,48 @@
-# Auditoria · Desconto em Folha do Crediário
+# Auditoria · Desconto em Folha do Crediário (revisão de 23/10/2026)
 
-Objetivo: saber, **funcionário por funcionário e mês a mês**, quanto deveria ser descontado na folha pelas compras no crediário, quanto foi descontado de fato e quando foi pago.
+Objetivo: todo mês, saber **funcionário por funcionário** quanto deveria ser descontado na folha pelas compras no crediário, quanto foi descontado de fato e quando foi pago — e apontar erros, faltas graves e duplicidades.
 
-- Tela: `desconto-folha/` (publicada com o restante do site). Tudo é processado **no navegador**: os arquivos (com CPF) não são enviados para nenhum servidor e ficam guardados só naquele computador (IndexedDB). O botão "Limpar base" apaga tudo.
+- Tela: `desconto-folha/` (Portal → menu **RH → Desconto em Folha · Crediário**, ou direto em `/desconto-folha/`). Login do Portal; acesso só para perfis administrador, controladoria e diretoria (`cred_pode_auditar`).
+- Banco: `supabase/migrations/20261023_cred_desconto_folha.sql` (tabelas `cred_*`, RLS, função `cred_importar`). Aplicada em produção em 23/10/2026.
+- PDF e gráficos: os mesmos dos módulos de Obras (`obras-contas-pagar/comum.js` → `gerarPDF`, `svgGrafico`), com logo e assinaturas.
 
-## Fontes
+## Rotina do mês (aba "Arquivos do mês")
 
-| Arquivo | Obrigatório | Colunas usadas |
+| Arquivo | Quando | O que a tela confere ao importar |
 |---|---|---|
-| Compras no crediário ("COMPRA EM LOJA", CSV/Excel) | sim | Cpfcnpj, Nome, Documento (`CE003612-1/5`), Parcela, Lançamento, Vencimento, Valor. Pode carregar vários períodos; parcelas repetidas são unificadas. O total do rodapé é conferido com a soma das linhas. |
-| Cadastro de funcionários (Ativos, Excel) | sim | CPF, Matrícula, Nome, Nome CCusto (loja), Cidade, Função, Data Admissão, Situação. |
-| Descontos da folha (Excel/CSV) | para auditar | CPF **ou** Matrícula (ou Nome), Competência, Evento/Rubrica, Valor, Data de pagamento. Se o arquivo não tiver competência ou data de pagamento, informa-se no quadro do arquivo. Os eventos que contam como desconto do crediário são marcados na tela. |
-| Baixas do crediário (Excel/CSV) | opcional | Documento, Parcela, CPF, Data da baixa/pagamento, Valor pago. |
+| Compras no crediário ("COMPRA EM LOJA", CSV/Excel) | todo ciclo (21 a 20) | soma das linhas × total do rodapé; parcela repetida entre relatórios vira uma só; valor diferente vira alerta |
+| Cadastro de funcionários (Ativos, Excel) | todo mês | quem saiu do cadastro passa a ser tratado como desligado |
+| Descontos da folha (relatório de eventos) | depois que a folha fecha | só os eventos marcados (padrão: "Compra Loja", evento 1260); CPF pela matrícula do cadastro; competência e data de pagamento pela coluna ou informadas na tela |
+| Baixas do crediário | opcional | data em que cada parcela foi quitada |
 
-As colunas são reconhecidas pelo nome do cabeçalho; dá para corrigir em "Colunas e opções".
+Antes de gravar, a tela mostra o que leu (colunas, totais, primeiras linhas) para conferir. O mesmo arquivo (mesmo SHA-256) não entra duas vezes. A gravação é uma transação só (`cred_importar`): entra tudo ou nada. Um arquivo errado pode ser excluído (as linhas que vieram dele saem da base); o cadastro não se exclui — importa-se um mais novo.
 
 ## Como o cruzamento funciona
 
-1. **Devido**: cada parcela vai para uma competência da folha.
-   - *Ciclo da compra + parcela* (padrão): compra de 21/09 a 20/10 → folha de outubro na 1ª parcela, novembro na 2ª, e assim por diante (o relatório "21-09 a 20-10" mostra o corte no dia 20).
-   - *Vencimento com corte*: a parcela entra na folha do mês do vencimento (vencimento depois do corte vai para o mês seguinte).
-   - Com a folha carregada, a tela mede qual regra explica mais descontos (funcionário × mês batendo exato) e permite trocar.
-2. **Descontado**: soma do(s) evento(s) do crediário na folha por CPF e competência (matrícula e nome são usados quando a folha não traz CPF).
-3. **Pago efetivamente**: data de pagamento da folha da competência e, com o arquivo de baixas, a data em que cada parcela foi baixada no crediário.
-4. **Situação por funcionário × mês** (tolerância de arredondamento configurável, padrão R$ 0,05):
+1. **Devido**: cada parcela cai numa competência da folha. Regra padrão: *ciclo da compra (corte dia 20) + parcela* — compra de 21/09 a 20/10 → 1ª parcela na folha de outubro, 2ª em novembro… Com a folha importada, a tela mede qual regra explica mais descontos (com a folha de teste, 97,8% pela regra padrão) e permite trocar.
+2. **Descontado**: soma do evento por CPF e competência.
+3. **Pago efetivamente**: data de pagamento da folha e, com baixas, a data de baixa de cada parcela.
+4. **Situação por funcionário × mês** (tolerância padrão R$ 0,05): OK · Não descontou · Descontou a menos · Descontou a mais · Desconto sem compra · Verificar (faltam compras de ciclos anteriores) · Previsto (folha ainda não importada).
+5. **Cobertura**: a competência só fica "completa" quando estão importadas as compras de todos os ciclos que ainda geram parcela nela (até 12 parcelas).
 
-| Situação | Significado |
-|---|---|
-| OK | descontado = devido |
-| Não descontou | havia parcela e nada foi descontado — perda para a empresa |
-| Descontou a menos | descontado < devido — perda para a empresa |
-| Descontou a mais | descontado > devido com todas as compras carregadas — devolver ao funcionário (risco trabalhista) |
-| Desconto sem compra | desconto na folha sem parcela no crediário |
-| Verificar | desconto acima do previsto, mas faltam compras de ciclos anteriores para fechar a conta |
-| Previsto | competência sem folha carregada (previsão) |
+## O que a tela aponta
 
-5. **Cobertura**: uma competência só é "completa" quando estão carregadas as compras de todos os ciclos que ainda geram parcela nela (até o maior número de parcelas visto, hoje 10). Para auditar uma folha com segurança, carregue os relatórios de compras dos ~10 ciclos anteriores.
+**Erros e faltas graves** — não descontou / a menos / a mais / sem compra; comprador fora do cadastro; saiu do cadastro (desligado com saldo); afastado sem salário (doença, acidente, aposentadoria por invalidez, rescisão); nome do crediário diferente do cadastro no mesmo CPF; compra antes da admissão; parcela faltando no contrato; parcela com valor alterado entre relatórios; relatório incompleto (rodapé); desconto sem funcionário; folha de competência já passada não importada; ciclo de compras sem relatório; descontado e não baixado; baixado sem desconto; baixas parciais.
 
-## Alertas
+**Duplicidades** — desconto lançado 2x na folha; mais de um desconto no mês; folha da mesma competência em dois arquivos; mesma parcela com dois vencimentos; compra repetida no mesmo dia (mesmo valor e parcelas); parcela baixada 2x.
 
-- **Comprador fora do cadastro** — CPF não está entre os funcionários (desligado ou terceiro): sem folha não há desconto; cobrar na rescisão/boleto. Mostra o saldo em aberto.
-- **Afastado sem salário** (doença, acidente, aposentadoria por invalidez, rescisão) — o desconto em folha não cobre a parcela.
-- **Situação especial** (férias, maternidade, licença) — conferir se o desconto entrou.
-- **Nome diferente no CPF** — nome do crediário muito diferente do cadastro (tolerando erros de digitação e abreviações): possível compra de outra pessoa no CPF do funcionário.
-- **Parcela faltando no contrato**, **parcela com valor alterado** entre relatórios, **compra antes da admissão**, **arquivo incompleto** (soma ≠ rodapé).
-- Com baixas: **descontado e não baixado** (risco de cobrar duas vezes) e **baixado sem desconto** (confirmar o recebimento).
+Cada pendência recebe **tratativa** (pendente, cobrar, devolver, justificado, resolvido) com observação, usuário e data (`cred_tratativas`). Justificado/resolvido exige observação.
 
-## Exportação
+## Fechamento mensal
 
-"Exportar Excel" gera: Resumo por competência, Funcionário x mês, Matriz mensal, Divergências, Alertas, Parcelas (com a competência atribuída e a baixa), Folha importada e Parâmetros.
+Em "Mês a mês" o auditor **fecha a competência**: devido, descontado, a menos, a mais, pendências e a lista de divergências ficam gravados (`cred_fechamentos`). Se os números mudarem depois (arquivo novo, regra trocada), a tela avisa "números mudaram depois do fechamento". Dá para reabrir.
+
+## Relatórios (PDF, impressão e Excel)
+
+- Auditoria da competência (resumo, gráficos, divergências, duplicidades, faltas graves, resumo por loja, assinaturas Auditoria / RH / Controladoria)
+- Erros e faltas graves · Duplicidades · Divergências por loja (para o gerente)
+- Lista para o RH lançar na folha (matrícula, nome, loja, valor da competência) — PDF e Excel
+- Extrato do funcionário (na ficha de cada um)
+- Excel completo (resumo, funcionário × mês, matriz, pendências, duplicidades, parcelas, folha, arquivos)
+
+O botão **Imprimir** do Portal imprime a tela; o **Imprimir** de cada relatório gera a versão branca com logo, igual ao PDF.
