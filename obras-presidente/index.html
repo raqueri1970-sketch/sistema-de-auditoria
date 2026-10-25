@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261025-8">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261025-9">
 </head>
 <body>
 
@@ -57,7 +57,7 @@
 
 <input type="file" id="arquivo" accept="image/*,application/pdf" class="hidden">
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js?v=20261025-8"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261025-9"></script>
 <script>
 let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], FLUXO = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = false;  // fundo fixo: o reembolso não desconta o adiantamento (25/10/2026)
 let ORCS = [], ACEITOS = new Map(), VENDO_ORC = false, OBRAS = [], SEM_INICIAL = null, DUPS = [], CC_DESP = {};
@@ -125,24 +125,17 @@ function renderMain() {
   const lista = SALDOS.filter(prestVisivel).sort((a, b) => b.saldo_devedor - a.saldo_devedor || b.com_financeiro - a.com_financeiro || a.prestador.localeCompare(b.prestador));
   $('cards').innerHTML = lista.map((s, i) => {
     const emDia = Number(s.em_aberto) === 0 && Number(s.com_financeiro) === 0;
-    const f = fundoPrestador(s, ADIS);
+    const ci = cicloAtual(s.prestador, DESP, PAGS, ADIS, s);
     const dupsP = DUPS.filter(x => x.d.prestador === s.prestador), dupSomP = dupsP.filter(x => x.caso.startsWith('somada'));
     const pctR = Number(s.total_despesas) > 0 ? Math.min(100, Math.round(Number(s.total_pago) / Number(s.total_despesas) * 100)) : 100;
     return `<div class="card clic pc" onclick="abrirPrestador(SALDOS_ORD[${i}])"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${emDia ? '<span class="chip r-normal">EM DIA</span>' : riscoChip(s.risco)}</div>
-      <div class="pc-caixa"><div class="l">${f.reembolso > 0.004 ? 'REEMBOLSAR para o fundo voltar a ' + brl(f.fundo) : 'Fundo completo'}</div>
-        <div class="v" style="color:${f.reembolso > 0.004 ? '#fcd34d' : '#86efac'}">${brl(f.reembolso)}</div>
-        <div class="n">${f.falta > 0.004 ? 'recebeu ' + brl(f.recebido) : 'fundo ' + brl(f.fundo)} − gastou ${brl(f.gasto)} = ${brl(f.saldo)} com ele</div></div>
-      <div class="pc-3">
-        <div><span>Fundo</span><b style="color:#93c5fd">${brl(f.fundo)}</b><span>adiantamento</span></div>
-        <div><span>Gastou</span><b style="color:#fdba74">${brl(f.gasto)}</b><span>${s.itens_abertos} despesa(s)</span></div>
-        <div><span>Saldo com ele</span><b style="color:${f.saldo < 0 ? '#fca5a5' : '#86efac'}">${brl(f.saldo)}</b><span>${f.saldo < 0 ? 'gastou além do fundo' : 'ainda pode usar'}</span></div>
-      </div>
+      ${cartaoCicloHTML(ci, s)}
       ${s.semana_mais_antiga && s.itens_abertos ? `<div class="pc-per">Em aberto desde <b>${dBR(s.semana_mais_antiga)}</b> · ${s.semanas_abertas} semana(s)</div>` : ''}
       <div class="pc-per">Reembolsado até hoje <b>${brl(s.total_pago)}</b> de ${brl(s.total_despesas)} (${pctR}%)<div class="progresso" style="max-width:none;margin:6px 0 0"><i style="width:${pctR}%"></i></div></div>
       ${Number(s.com_financeiro) ? `<div class="warn" style="margin-top:8px">Aprovado, aguardando pagamento: <b>${brl(s.com_financeiro)}</b></div>` : ''}
       ${dupsP.length ? `<div class="${dupSomP.length ? 'crit' : 'warn'}" style="margin-top:6px">⚠ ${dupsP.length} duplicidade(s) para decidir${dupSomP.length ? ` · ${dupSomP.length} SOMADA(S) no total` : ' · nenhuma somada'}</div>` : ''}
       ${s.criticos ? `<div class="crit">⚠ ${s.criticos} ponto(s) crítico(s) do Auditor</div>` : ''}
-      <div class="row" style="margin-top:12px"><span class="btn ${f.reembolso > 0.004 ? 'b-pri' : ''}">${emDia ? 'Ver histórico' : f.reembolso > 0.004 ? 'Ver despesas e reembolsar' : 'Ver despesas'} ›</span></div></div>`;
+      <div class="row" style="margin-top:12px"><span class="btn ${Number(s.saldo_devedor) > 0.004 ? 'b-pri' : ''}">${emDia ? 'Ver histórico' : Number(s.saldo_devedor) > 0.004 ? 'Ver despesas e recarregar' : 'Ver despesas'} ›</span></div></div>`;
   }).join('') || '<div class="card vazio">Nenhum prestador com despesas.</div>';
   window.SALDOS_ORD = lista.map(s => s.prestador);
   renderPagamentos($('pagamentos'), PAGS.slice(0, 25));
@@ -296,7 +289,7 @@ async function carregarContaCorrente(nome) {
 }
 window.ccRedesenhar = () => {
   const el = $('ccDet');
-  if (el && ATUAL && CC_DESP[ATUAL]) el.innerHTML = blocoFundoHTML(saldoDe(ATUAL), ADIS, livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, saldoDe(ATUAL), CC_PER));
+  if (el && ATUAL && CC_DESP[ATUAL]) el.innerHTML = blocoFundoHTML(saldoDe(ATUAL), ADIS, livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, saldoDe(ATUAL), CC_PER), CC_DESP[ATUAL], PAGS);
 };
 function fecharPrestador() { ATUAL = null; ABERTO = null; SEL = {}; if (location.search) history.replaceState(null, '', location.pathname); renderMain(); topo(); }
 
@@ -312,7 +305,7 @@ function renderDet() {
   $('vDet').innerHTML = `<button class="voltar" onclick="fecharPrestador()">‹ Voltar para todos os prestadores</button>
     <div class="card" style="margin-top:6px"><div class="row" style="justify-content:space-between"><div><div class="pname" style="font-size:22px">${esc(ATUAL)}</div>
       <div class="small mut">${pix}</div></div>${riscoChip(s.risco)}</div>
-      <div id="ccDet">${blocoFundoHTML(s, ADIS, CC_DESP[ATUAL] && livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, s, CC_PER))}</div>
+      <div id="ccDet">${blocoFundoHTML(s, ADIS, CC_DESP[ATUAL] && livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, s, CC_PER), CC_DESP[ATUAL], PAGS)}</div>
       <div class="row">${pode ? `<button class="btn" onclick="modalAdiantamento()">Registrar adiantamento</button><button class="btn" onclick="modalPix()">PIX / conta</button>` : ''}
         <button class="btn" onclick="pdfExtratoAtual()">PDF do extrato</button></div></div>
     ${!pode ? '<div class="card warn" style="margin-top:12px">Você pode consultar, mas só o Presidente aprova e paga.</div>' : ''}

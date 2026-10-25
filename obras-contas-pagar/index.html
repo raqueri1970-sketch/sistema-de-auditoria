@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="comum.css?v=20261025-8">
+<link rel="stylesheet" href="comum.css?v=20261025-9">
 </head>
 <body>
 
@@ -63,7 +63,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="comum.js?v=20261025-8"></script>
+<script src="comum.js?v=20261025-9"></script>
 <script>
 let D = null, TIMER = null, VER_HISTORICO = false, PAP = {};
 let F = {p: '30', obra: '', prest: '', ...lerFiltro('obras-visao-filtro')};
@@ -319,14 +319,7 @@ function renderPessoas(int, ds) {
     const dups = (D.dupl || []).filter(x => x.d.prestador === s.prestador), dupSom = dups.filter(x => x.caso.startsWith('somada'));
     const pagoTot = Number(s.total_pago) - dir, gastoTot = Number(s.total_despesas) - dir, pctR = gastoTot > 0 ? Math.min(100, Math.round(pagoTot / gastoTot * 100)) : 100;
     return `<div class="card pc"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${nAlert ? riscoChip(c.abertas.some(d => d.criticos) ? 'critico' : 'atencao') : '<span class="chip r-normal">SEM ALERTA</span>'}</div>
-      <div class="pc-caixa"><div class="l">${res >= 0 ? 'Saldo com ele hoje' : 'Gastou além do saldo'}</div>
-        <div class="v" style="color:${res >= 0 ? '#86efac' : '#fcd34d'}">${brl(Math.abs(res))}</div>
-        <div class="n">crédito ${brl(cred)} − gasto em aberto ${brl(em)}</div></div>
-      <div class="pc-3">
-        <div><span>Crédito</span><b style="color:#93c5fd">${brl(cred)}</b><span>adiantado ${brl(s.total_adiantado)}</span></div>
-        <div><span>Gasto em aberto</span><b style="color:#fdba74">${brl(em)}</b><span>${s.itens_abertos} despesa(s)</span></div>
-        <div><span>Recarga</span><b style="color:${Number(s.saldo_devedor) > 0.005 ? '#fcd34d' : '#86efac'}">${brl(s.saldo_devedor)}</b><span>volta a R$ 10 mil</span></div>
-      </div>
+      ${cartaoCicloHTML(cicloAtual(s.prestador, D.desp, D.pags, D.adis, s), s)}
       <div class="pc-per">${esc(int.rotulo)}: gastou <b>${brl(soma(per, 'valor'))}</b> em ${per.length} despesa(s)</div>
       <div class="pc-per">Reembolsado até hoje <b>${brl(pagoTot)}</b> de ${brl(gastoTot)} gastos (${pctR}%)${dir ? ` · + ${brl(dir)} pagos direto pela empresa` : ''}
         <div class="progresso" style="max-width:none;margin:6px 0 0"><i style="width:${pctR}%"></i></div></div>
@@ -381,7 +374,7 @@ function mostrarConta() {
   const sal = D.saldos.find(s => s.prestador === CONTA_ABERTA) || {prestador: CONTA_ABERTA};
   box.innerHTML = `<div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between"><div class="pname">Conta de ${esc(CONTA_ABERTA)}</div>
     <button class="btn" onclick="CONTA_ABERTA=null;mostrarConta()">Fechar ✕</button></div>
-    ${blocoFundoHTML(sal, D.adis, livroCaixa(CONTA_ABERTA, D.desp, D.pags, D.adis, sal, CC_PER))}
+    ${blocoFundoHTML(sal, D.adis, livroCaixa(CONTA_ABERTA, D.desp, D.pags, D.adis, sal, CC_PER), D.desp, D.pags)}
     <details style="margin:4px 0 8px"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver as despesas em aberto foto a foto</summary>${contaExtratoHTML(c)}</details></div>`;
 }
 

@@ -527,9 +527,28 @@ function contaCorrenteHTML(lc) {
       <tr><td></td><td><b>Saldo inicial</b></td><td></td><td></td><td class="r"><b>${brl(lc.saldoInicial)}</b></td></tr>${lin}
       <tfoot><tr><td></td><td>Saldo final</td><td class="r">${brl(lc.entradas)}</td><td class="r">${brl(lc.saidas)}</td><td class="r">${brl(lc.saldoFinal)}</td></tr></tfoot></table></div>`;
 }
-// Bloco da tela: o fundo (simples) em cima e o extrato escondido em "Ver extrato"
-function blocoFundoHTML(s, adis, lc) {
-  return `${fundoHTML(fundoPrestador(s, adis))}
+// Ciclo desde a última recarga, igual ao extrato (25/10/2026): Saldo inicial · Faltou no PIX · Entrada · Saída · Saldo · Recarga
+function cicloHTML(ci, s) {
+  if (!ci) { const sal = r2(Number(s.adiantamento_disponivel || 0) - Number(s.em_aberto || 0) - Number(s.com_financeiro || 0));
+    ci = {ini: 0, faltou: 0, entrada: Number(s.adiantamento_disponivel || 0), saida: r2(Number(s.em_aberto || 0) + Number(s.com_financeiro || 0)), saldo: sal, recarga: Number(s.saldo_devedor || 0), n: Number(s.itens_abertos || 0)}; }
+  const cx = (l, v, c, sub) => `<div><b style="color:${c}">${brl(v)}</b><span>${l}${sub ? ' · ' + sub : ''}</span></div>`;
+  return `<div class="mini">${cx('saldo inicial', ci.ini, '#e2e8f0')}${ci.faltou > 0.004 ? cx('faltou no PIX', -ci.faltou, '#fca5a5') : ''}${cx('entrada', ci.entrada, '#86efac')}
+      ${cx('saída', ci.saida, '#fdba74', ci.n + ' recibo(s)')}${cx('saldo', ci.saldo, ci.saldo < 0 ? '#fca5a5' : '#86efac')}${cx('recarga', ci.recarga, '#93c5fd')}</div>
+    ${ci.pix ? `<div class="small mut" style="margin:-4px 0 6px">desde a recarga de ${dBR(ci.desde.slice(0, 10))} às ${ci.desde.slice(11)} (${brl(ci.pix.valor_pago)})</div>` : ''}`;
+}
+// Cartão do prestador nas listas: Recarga em destaque e Saldo inicial · Saída · Saldo
+function cartaoCicloHTML(ci, s) {
+  const rec = ci ? ci.recarga : Number(s.saldo_devedor || 0), sal = ci ? ci.saldo : r2(Number(s.adiantamento_disponivel || 0) - Number(s.em_aberto || 0));
+  return `<div class="pc-caixa"><div class="l">Recarga</div><div class="v" style="color:${rec > 0.004 ? '#fcd34d' : '#86efac'}">${brl(rec)}</div>
+      <div class="n">${ci && ci.pix ? `desde a recarga de ${dBR(ci.desde.slice(0, 10))} às ${ci.desde.slice(11)}` : ''}</div></div>
+    <div class="pc-3">
+      <div><span>Saldo inicial</span><b>${brl(ci ? ci.ini : 0)}</b><span>${ci && ci.faltou > 0.004 ? 'faltou no PIX ' + brl(ci.faltou) : '&nbsp;'}</span></div>
+      <div><span>Saída</span><b style="color:#fdba74">${brl(ci ? ci.saida : s.em_aberto)}</b><span>${ci ? ci.n : s.itens_abertos} recibo(s)</span></div>
+      <div><span>Saldo</span><b style="color:${sal < 0 ? '#fca5a5' : '#86efac'}">${brl(sal)}</b><span>&nbsp;</span></div></div>`;
+}
+// Bloco da tela: o ciclo (igual ao extrato) em cima e o extrato escondido em "Ver extrato"
+function blocoFundoHTML(s, adis, lc, desp, pags) {
+  return `${desp ? cicloHTML(cicloAtual(s.prestador, desp, pags, adis, s), s) : '<div class="small mut">Carregando…</div>'}
     <details style="margin:4px 0 8px" ${CC_EXT ? 'open' : ''} ontoggle="CC_EXT=this.open"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver extrato (entradas, saídas e saldo dia a dia)</summary>
       ${lc ? contaCorrenteHTML(lc) : '<div class="small mut">Carregando o extrato…</div>'}</details>`;
 }
