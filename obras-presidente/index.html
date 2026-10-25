@@ -291,9 +291,12 @@ async function carregarContaCorrente(nome) {
   if (CC_DESP[nome]) return;
   try { CC_DESP[nome] = await carregarDespesas(q => q.eq('prestador', nome).eq('status', 'lancado')); }
   catch (e) { const el = $('ccDet'); if (el && ATUAL === nome) el.innerHTML = `<div class="crit">Não carregou a conta corrente: ${esc(msgErro(e))}</div>`; return; }
-  const el = $('ccDet');
-  if (el && ATUAL === nome) el.innerHTML = contaCorrenteHTML(livroCaixa(nome, CC_DESP[nome], PAGS, ADIS, saldoDe(nome)));
+  if (ATUAL === nome) ccRedesenhar();
 }
+window.ccRedesenhar = () => {
+  const el = $('ccDet');
+  if (el && ATUAL && CC_DESP[ATUAL]) el.innerHTML = contaCorrenteHTML(livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, saldoDe(ATUAL), CC_PER));
+};
 function fecharPrestador() { ATUAL = null; ABERTO = null; SEL = {}; if (location.search) history.replaceState(null, '', location.pathname); renderMain(); topo(); }
 
 function renderDet() {
@@ -309,7 +312,7 @@ function renderDet() {
     <div class="card" style="margin-top:6px"><div class="row" style="justify-content:space-between"><div><div class="pname" style="font-size:22px">${esc(ATUAL)}</div>
       <div class="small mut">${pix}</div></div>${riscoChip(s.risco)}</div>
       <div class="small" style="margin-top:10px;font-weight:600">Conta corrente</div>
-      <div id="ccDet">${CC_DESP[ATUAL] ? contaCorrenteHTML(livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, s)) : '<div class="small mut">Carregando a conta corrente…</div>'}</div>
+      <div id="ccDet">${CC_DESP[ATUAL] ? contaCorrenteHTML(livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, s, CC_PER)) : '<div class="small mut">Carregando a conta corrente…</div>'}</div>
       <details style="margin:4px 0 8px"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver a conta foto a foto (adiantamento − despesas)</summary>${contaExtratoHTML(contaPrestador(s, DESP, ADIS, PAGS))}</details>
       <div class="mini">
         <div><b>${brl(s.em_aberto)}</b><span>despesas em aberto</span></div>
@@ -567,7 +570,7 @@ async function pixOk() {
 async function pdfExtratoAtual() {
   try { toast('Gerando PDF…');
     const desp = await carregarDespesas(q => q.eq('prestador', ATUAL));
-    await pdfExtrato(ATUAL, desp, PAGS.filter(p => p.prestador === ATUAL), ADIS.filter(a => a.prestador === ATUAL), saldoDe(ATUAL));
+    await pdfExtrato(ATUAL, desp, PAGS.filter(p => p.prestador === ATUAL), ADIS.filter(a => a.prestador === ATUAL), saldoDe(ATUAL), CC_PER);
   } catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); }
 }
 

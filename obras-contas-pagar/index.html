@@ -374,13 +374,14 @@ function verConta(i) {
   CONTA_ABERTA = p; mostrarConta();
   box.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
+window.ccRedesenhar = () => mostrarConta();
 function mostrarConta() {
   const box = $('contaDet'), c = CONTA_ABERTA && CONTAS[CONTA_ABERTA];
   if (!c) { box.innerHTML = ''; return; }
   box.innerHTML = `<div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between"><div class="pname">Conta de ${esc(CONTA_ABERTA)}</div>
     <button class="btn" onclick="CONTA_ABERTA=null;mostrarConta()">Fechar ✕</button></div>
     <div class="small" style="margin-top:8px;font-weight:600">Conta corrente</div>
-    ${contaCorrenteHTML(livroCaixa(CONTA_ABERTA, D.desp, D.pags, D.adis, D.saldos.find(s => s.prestador === CONTA_ABERTA) || {}))}
+    ${contaCorrenteHTML(livroCaixa(CONTA_ABERTA, D.desp, D.pags, D.adis, D.saldos.find(s => s.prestador === CONTA_ABERTA) || {}, CC_PER))}
     <div class="small" style="margin-top:8px;font-weight:600">Foto a foto: crédito − despesas em aberto</div>${contaResumoHTML(c)}${contaExtratoHTML(c)}</div>`;
 }
 

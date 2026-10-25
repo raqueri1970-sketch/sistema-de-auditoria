@@ -456,18 +456,45 @@ function livroCaixa(prestador, desp, pags, adis, saldo, periodo = {}) {
 }
 const auditoriaConta = lc => lc.confere ? 'Conta conferida: o saldo final bate com o sistema.'
   : `ATENÇÃO: a conta não fecha. Extrato ${brl(lc.saldoTotal)} × sistema ${brl(lc.hoje)} (diferença ${brl(lc.diferenca)}).`;
+// Período da conta corrente nas telas (lembrado no aparelho). Cada tela define window.ccRedesenhar para refazer o bloco.
+let CC_PER = (() => { try { return JSON.parse(localStorage.getItem('obras_cc_periodo') || 'null') || {}; } catch (e) { return {}; } })();
+let CC_EXT = false;  // extrato linha a linha aberto
+function ccPeriodo(de, ate) {
+  CC_PER = {de: de || null, ate: ate || null};
+  if (CC_PER.de && CC_PER.ate && CC_PER.de > CC_PER.ate) CC_PER = {de: CC_PER.ate, ate: CC_PER.de};
+  try { localStorage.setItem('obras_cc_periodo', JSON.stringify(CC_PER)); } catch (e) {}
+  if (window.ccRedesenhar) window.ccRedesenhar();
+}
+function ccAtalho(k) {
+  const hoje = hojeISO(), seg = segundaDe(hoje);
+  if (k === 'semana') ccPeriodo(seg, somaDias(seg, 6));
+  else if (k === 'semana_ant') ccPeriodo(somaDias(seg, -7), somaDias(seg, -1));
+  else if (k === 'mes') ccPeriodo(hoje.slice(0, 8) + '01', hoje);
+  else if (k === '30') ccPeriodo(somaDias(hoje, -29), hoje);
+  else ccPeriodo(null, null);
+}
+function ccBuscadorHTML() {
+  const p = CC_PER, at = (k, t, on) => `<button class="btn${on ? ' b-pri' : ''}" style="padding:4px 10px;font-size:12px" onclick="ccAtalho('${k}')">${t}</button>`;
+  const seg = segundaDe(hojeISO()), tudo = !p.de && !p.ate;
+  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0;max-width:420px">
+    <label class="small">De<input type="date" id="ccDe" value="${p.de || ''}" style="width:100%;margin:2px 0 0" onchange="ccPeriodo(this.value, $('ccAte').value)"></label>
+    <label class="small">Até<input type="date" id="ccAte" value="${p.ate || ''}" style="width:100%;margin:2px 0 0" onchange="ccPeriodo($('ccDe').value, this.value)"></label></div>
+    <div class="row" style="gap:6px;flex-wrap:wrap;margin:0 0 6px">${at('semana', 'Esta semana', p.de === seg && p.ate === somaDias(seg, 6))}${at('semana_ant', 'Semana passada', p.de === somaDias(seg, -7) && p.ate === somaDias(seg, -1))}
+    ${at('mes', 'Este mês', p.de === hojeISO().slice(0, 8) + '01' && p.ate === hojeISO())}${at('30', '30 dias', p.de === somaDias(hojeISO(), -29) && p.ate === hojeISO())}${at('tudo', 'Tudo', tudo)}</div>
+    <div class="small mut">${tudo ? 'Todo o período' : `Período ${p.de ? dBRano(p.de) : 'início'} a ${p.ate ? dBRano(p.ate) : 'hoje'}`}</div>`;
+}
 function contaCorrenteHTML(lc) {
   const cor = v => v < 0 ? '#fcd34d' : '#86efac';
   const lin = lc.linhas.slice(1).map(l => `<tr><td>${dBR(l.data)}</td><td>${esc(l.hist)}</td>
     <td class="r">${l.ent ? '+ ' + brl(l.ent) : ''}</td><td class="r">${l.sai ? '− ' + brl(l.sai) : ''}</td><td class="r"><b style="color:${cor(l.saldo)}">${brl(l.saldo)}</b></td></tr>`).join('');
-  return `<div class="mini">
+  return `${ccBuscadorHTML()}<div class="mini">
       <div><b>${brl(lc.saldoInicial)}</b><span>saldo inicial</span></div>
       <div><b style="color:#93c5fd">+ ${brl(lc.adiantamentos)}</b><span>adiantamentos</span></div>
       <div><b style="color:#86efac">+ ${brl(lc.depositos)}</b><span>depósitos (reembolsos)</span></div>
       <div><b style="color:#fdba74">− ${brl(lc.despesas)}</b><span>despesas</span></div>
       <div><b style="color:${cor(lc.saldoFinal)}">${brl(lc.saldoFinal)}</b><span>${lc.saldoFinal < 0 ? 'saldo final · empresa deve a ele' : 'saldo final · com o prestador'}</span></div></div>
     <div class="small ${lc.confere ? 'mut' : 'crit'}" style="margin:-4px 0 6px">${lc.confere ? '✔' : '⚠'} ${esc(auditoriaConta(lc))}</div>
-    <details style="margin:4px 0 8px"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver o extrato linha a linha (${lc.linhas.length - 1} lançamentos)</summary>
+    <details style="margin:4px 0 8px" ${CC_EXT ? 'open' : ''} ontoggle="CC_EXT=this.open"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver o extrato linha a linha (${lc.linhas.length - 1} lançamentos${lc.de || lc.ate ? ' no período' : ''})</summary>
       <div class="tw"><table><tr><th>Data</th><th>Histórico</th><th class="r">Entrada</th><th class="r">Saída</th><th class="r">Saldo</th></tr>
         <tr><td></td><td><b>Saldo inicial</b></td><td></td><td></td><td class="r"><b>${brl(lc.saldoInicial)}</b></td></tr>${lin}
         <tfoot><tr><td></td><td>Saldo final</td><td class="r">${brl(lc.entradas)}</td><td class="r">${brl(lc.saidas)}</td><td class="r">${brl(lc.saldoFinal)}</td></tr></tfoot></table></div></details>`;
