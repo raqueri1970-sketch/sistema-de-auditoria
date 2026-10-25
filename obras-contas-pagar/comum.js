@@ -533,6 +533,25 @@ function blocoFundoHTML(s, adis, lc) {
     <details style="margin:4px 0 8px" ${CC_EXT ? 'open' : ''} ontoggle="CC_EXT=this.open"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver extrato (entradas, saídas e saldo dia a dia)</summary>
       ${lc ? contaCorrenteHTML(lc) : '<div class="small mut">Carregando o extrato…</div>'}</details>`;
 }
+// Conta corrente por semana (segunda a domingo): o saldo final de uma semana é o saldo inicial da seguinte
+const recargaDe = saldoFim => r2(Math.max(FUNDO_FIXO - saldoFim, 0));
+function contaSemanal(prestador, desp, pags, adis, saldo, periodo = {}) {
+  const lc = livroCaixa(prestador, desp, pags, adis, saldo), m = new Map();
+  for (const l of lc.linhas.slice(1)) {
+    const s = segundaDe(l.data), w = m.get(s) || {sem: s, ent: 0, sai: 0};
+    w.ent += l.ent; w.sai += l.sai; m.set(s, w);
+  }
+  let corr = 0;
+  const sem = [...m.values()].sort((a, b) => a.sem.localeCompare(b.sem)).map(w => {
+    const ini = corr; corr = r2(corr + w.ent - w.sai);
+    return {sem: w.sem, fim: somaDias(w.sem, 6), ini, ent: r2(w.ent), sai: r2(w.sai), saldo: corr, recarga: recargaDe(corr)};
+  });
+  return sem.filter(w => (!periodo.de || w.fim >= periodo.de) && (!periodo.ate || w.sem <= periodo.ate));
+}
+function secaoSemanas(sem) {
+  return {titulo: 'Conta corrente por semana', cab: ['Semana', 'Saldo inicial', 'Entrada', 'Saída', 'Saldo', 'Recarga'], direita: [1, 2, 3, 4, 5],
+    linhas: sem.map(w => [`${dBR(w.sem)} a ${dBR(w.fim)}`, V(w.ini), V(w.ent), V(w.sai), V(w.saldo), V(w.recarga)])};
+}
 function secaoLivroCaixa(lc) {
   return {titulo: 'Conta corrente', nota: lc.confere ? '' : auditoriaConta(lc),
     cab: ['Data', 'Histórico', 'Entrada', 'Saída', 'Saldo'], direita: [2, 3, 4],
@@ -628,7 +647,8 @@ function tomResumo(rotulo, valor) {
   if (l === 'entrada') return 'verde';
   if (l === 'saída') return 'laranja';
   if (l === 'saldo') return neg ? 'vermelho' : 'verde';
-  if (l === 'saldo anterior') return 'cinza';
+  if (l === 'saldo anterior' || l === 'saldo inicial') return 'cinza';
+  if (l === 'recarga') return 'azul';
   if (/caixa/.test(l)) return neg ? 'vermelho' : 'verde';
   if (/duplic|pago a mais|crític|pendênc|recusad/.test(l)) return zero ? 'verde' : 'vermelho';
   if (/a pagar|em aberto|aberto|aguardando|atenção|com ponto/.test(l)) return zero ? 'verde' : 'laranja';
@@ -763,10 +783,12 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   return {titulo: `Extrato do prestador - ${prestador}`, subtitulo: `Obras & Reformas - Esposende - ${per}`,
     graficos: [{titulo: 'Caixa com o prestador dia a dia', tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'},
       {titulo: 'Despesas do período por categoria', tipo: 'barras', itens: Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({rotulo: k, a: v}))}],
-    // Conta corrente simples (25/10/2026, pedido do Ricardo): só entrada, saída e saldo; saldo anterior só quando há período
-    resumo: [...(lc.de ? [['Saldo anterior', brl(lc.saldoInicial)]] : []),
-      ['Entrada', brl(lc.entradas)], ['Saída', brl(lc.saidas)], ['Saldo', brl(lc.saldoFinal)]],
+    // Fundo fixo de R$ 10 mil (25/10/2026, pedido do Ricardo): saldo inicial + entrada (recarga) − saída (gastos) = saldo;
+    // a próxima recarga é o que falta para voltar a 10 mil (gastou 8 → saldo 2 → recarga 8; gastou 12 → saldo −2 → recarga 12)
+    resumo: [['Saldo inicial', brl(lc.saldoInicial)], ['Entrada', brl(lc.entradas)], ['Saída', brl(lc.saidas)], ['Saldo', brl(lc.saldoFinal)],
+      ['Recarga', brl(recargaDe(lc.saldoFinal))]],
     secoes: [
+      secaoSemanas(contaSemanal(prestador, desp, pags, adis, saldo, periodo)),
       secaoLivroCaixa(lc),
       {titulo: `Contas a pagar em aberto (${abertos.length})`, nota: 'Saldo acumulado de todas as semanas ainda não pagas.', cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Situação'],
         linhas: abertos.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total', V(soma(abertos, 'valor')), V(soma(abertos, 'valor_pago')), V(soma(abertos, 'saldo')), '']},
