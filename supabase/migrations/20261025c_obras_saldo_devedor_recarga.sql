@@ -1,0 +1,5 @@
+-- 25/10/2026 (pedido do Ricardo) — JÁ APLICADA no projeto "sistema de auditoria" (registro).
+-- obras_saldo_prestador.saldo_devedor passa a ser a RECARGA do fundo fixo de R$ 10 mil:
+--   com fundo (crédito > 0): greatest(10000 − (crédito − em aberto − com o financeiro), 0)
+--   sem fundo: o gasto em aberto (+ com o financeiro).
+-- Antes era greatest(em aberto − crédito, 0) (só o que passava do fundo).

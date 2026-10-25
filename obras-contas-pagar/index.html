@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="comum.css?v=20261025-5">
+<link rel="stylesheet" href="comum.css?v=20261025-6">
 </head>
 <body>
 
@@ -63,7 +63,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="comum.js?v=20261025-5"></script>
+<script src="comum.js?v=20261025-6"></script>
 <script>
 let D = null, TIMER = null, VER_HISTORICO = false, PAP = {};
 let F = {p: '30', obra: '', prest: '', ...lerFiltro('obras-visao-filtro')};
@@ -156,7 +156,7 @@ function render() {
   const k = (cls, l, v, n, acao) => `<div class="card kpi ${cls} ${acao ? 'clic' : ''}" ${acao ? `onclick="${acao}" role="button" tabindex="0"` : ''}><div class="l">${l}</div><div class="v">${v}</div>${n ? `<div class="n">${n}</div>` : ''}</div>`;
   // o PDF usa a mesma lista, na mesma ordem da tela
   window.KPIS_PDF = [['Crédito de adiantamento', brl(credito), 'adiantado e ainda não usado'], ['Gasto em aberto', brl(gastoAberto), `${nAbertas} despesa(s) ainda não reembolsada(s)`],
-    ['Caixa com os prestadores', brl(caixa), comCaixa.map(s => `${s.prestador.split(' ')[0]} ${brl(caixaPrestador(s))}`).join(' · ')], ['A pagar hoje', brl(aPagar), aPagar > 0.005 ? 'gasto maior que o crédito' : 'o crédito cobre todo o gasto'],
+    ['Saldo com os prestadores', brl(caixa), comCaixa.map(s => `${s.prestador.split(' ')[0]} ${brl(caixaPrestador(s))}`).join(' · ')], ['Recarga a pagar', brl(aPagar), aPagar > 0.005 ? 'para cada um voltar a R$ 10 mil' : 'fundos completos'],
     [`Despesas · ${int.rotulo}`, brl(soma(ds, 'valor')), `${ds.length} despesa(s)`], ['Já pago dessas despesas', brl(pago), `${pct}% quitado`],
     ['Em aberto no período', brl(aberto), `${semanas.length - quitadas} semana(s) em aberto`], ['Semanas quitadas', `${quitadas} de ${semanas.length}`, ''],
     ['Duplicidades para decidir', String(D.dupl.length), dupSomadas.length ? `${dupSomadas.length} somada(s) no total` : 'nenhuma somada no total']];
@@ -172,8 +172,8 @@ function render() {
       <div class="conta">
         ${k('k-azul', 'Crédito de adiantamento', brl(credito), 'adiantado e ainda não usado')}<div class="op">−</div>
         ${k('k-lar', 'Gasto em aberto', brl(gastoAberto), `${nAbertas} despesa(s) ainda não reembolsada(s)`)}<div class="op">=</div>
-        ${k(caixa >= 0 ? 'k-ok' : 'k-bad', 'Caixa com os prestadores', brl(caixa), comCaixa.map(s => `${esc(s.prestador.split(' ')[0])} ${brl(caixaPrestador(s))}`).join(' · ') || 'nenhum adiantamento', "irPara('tPrest')")}
-        ${k((aPagar > 0.005 ? 'k-pagar' : 'k-ok') + ' destaque', 'A pagar hoje', brl(aPagar), aPagar > 0.005 ? '<b>gasto maior que o crédito · toque para pagar</b>' : 'o crédito cobre todo o gasto', "location.href='../obras-presidente/'")}
+        ${k(caixa >= 0 ? 'k-ok' : 'k-bad', 'Saldo com os prestadores', brl(caixa), comCaixa.map(s => `${esc(s.prestador.split(' ')[0])} ${brl(caixaPrestador(s))}`).join(' · ') || 'nenhum adiantamento', "irPara('tPrest')")}
+        ${k((aPagar > 0.005 ? 'k-pagar' : 'k-ok') + ' destaque', 'Recarga a pagar', brl(aPagar), aPagar > 0.005 ? '<b>para cada um voltar a R$ 10 mil · toque para pagar</b>' : 'fundos completos', "location.href='../obras-presidente/'")}
       </div>
       <div class="pend">${pend.length ? '<span class="small mut" style="align-self:center">Para resolver:</span>' + pend.join('') : '<span class="ok">✔ Nada pendente para resolver</span>'}</div>
     </section>
@@ -213,7 +213,7 @@ async function pdfVisaoGeral() {
     const lista = D.saldos.filter(prestVisivel).filter(s => !semPrestador(s.prestador) && (!F.prest || s.prestador === F.prest))
       .sort((a, b) => b.em_aberto - a.em_aberto || a.prestador.localeCompare(b.prestador));
     const secoes = [{titulo: 'Prestadores', nota: 'Caixa = dinheiro da empresa com o prestador hoje (crédito de adiantamento − gasto em aberto). Negativo = a empresa deve a ele.',
-        cab: ['Prestador', 'Gastou no período', 'Desp.', 'Gasto em aberto', 'Crédito adiant.', 'Caixa com ele', 'A pagar', 'Já reembolsado'], direita: [1, 2, 3, 4, 5, 6, 7],
+        cab: ['Prestador', 'Gastou no período', 'Desp.', 'Gasto em aberto', 'Crédito adiant.', 'Saldo com ele', 'Recarga', 'Já reembolsado'], direita: [1, 2, 3, 4, 5, 6, 7],
         linhas: lista.map(s => { const per = ds.filter(d => d.prestador === s.prestador), cx = caixaPrestador(s);
           return [s.prestador, brl(soma(per, 'valor')), String(per.length), brl(s.em_aberto), brl(s.adiantamento_disponivel), (cx < 0 ? '−' : '') + brl(Math.abs(cx)), brl(s.saldo_devedor), brl(s.total_pago)]; }),
         rodape: ['TOTAL', brl(soma(ds.filter(d => lista.some(s => s.prestador === d.prestador)), 'valor')), String(ds.filter(d => lista.some(s => s.prestador === d.prestador)).length),
@@ -319,13 +319,13 @@ function renderPessoas(int, ds) {
     const dups = (D.dupl || []).filter(x => x.d.prestador === s.prestador), dupSom = dups.filter(x => x.caso.startsWith('somada'));
     const pagoTot = Number(s.total_pago) - dir, gastoTot = Number(s.total_despesas) - dir, pctR = gastoTot > 0 ? Math.min(100, Math.round(pagoTot / gastoTot * 100)) : 100;
     return `<div class="card pc"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${nAlert ? riscoChip(c.abertas.some(d => d.criticos) ? 'critico' : 'atencao') : '<span class="chip r-normal">SEM ALERTA</span>'}</div>
-      <div class="pc-caixa"><div class="l">${res >= 0 ? 'Caixa com ele hoje (dinheiro da empresa)' : 'A empresa deve a ele hoje'}</div>
+      <div class="pc-caixa"><div class="l">${res >= 0 ? 'Saldo com ele hoje' : 'Gastou além do saldo'}</div>
         <div class="v" style="color:${res >= 0 ? '#86efac' : '#fcd34d'}">${brl(Math.abs(res))}</div>
         <div class="n">crédito ${brl(cred)} − gasto em aberto ${brl(em)}</div></div>
       <div class="pc-3">
         <div><span>Crédito</span><b style="color:#93c5fd">${brl(cred)}</b><span>adiantado ${brl(s.total_adiantado)}</span></div>
         <div><span>Gasto em aberto</span><b style="color:#fdba74">${brl(em)}</b><span>${s.itens_abertos} despesa(s)</span></div>
-        <div><span>A pagar</span><b style="color:${res < 0 ? '#fcd34d' : '#86efac'}">${brl(res < 0 ? -res : 0)}</b><span>${res < 0 ? 'gasto − crédito' : 'crédito cobre'}</span></div>
+        <div><span>Recarga</span><b style="color:${Number(s.saldo_devedor) > 0.005 ? '#fcd34d' : '#86efac'}">${brl(s.saldo_devedor)}</b><span>volta a R$ 10 mil</span></div>
       </div>
       <div class="pc-per">${esc(int.rotulo)}: gastou <b>${brl(soma(per, 'valor'))}</b> em ${per.length} despesa(s)</div>
       <div class="pc-per">Reembolsado até hoje <b>${brl(pagoTot)}</b> de ${brl(gastoTot)} gastos (${pctR}%)${dir ? ` · + ${brl(dir)} pagos direto pela empresa` : ''}

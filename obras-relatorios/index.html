@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261025-5">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261025-6">
 </head>
 <body>
 
@@ -51,7 +51,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js?v=20261025-5"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261025-6"></script>
 <script>
 let D = null, REL = 'aberto', MODELO = null;
 const RELS = {aberto: 'Contas a pagar em aberto', caixa: 'Caixa dos prestadores', semanas: 'Fechamento por semana', duplicadas: 'Duplicidades já pagas', extrato: 'Extrato do prestador', fluxo: 'Fluxo de caixa semanal', pagamentos: 'Pagamentos realizados',
@@ -113,13 +113,13 @@ const MODELOS = {
   aberto(f) {
     const sal = D.saldos.filter(f.doPrest), abertos = D.desp.filter(d => Number(d.saldo) > 0 && f.doPrest(d));
     return {titulo: 'Contas a pagar em aberto', subtitulo: `Obras & Reformas - Esposende - posição de ${dBRano(hojeISO())}${f.prest ? ' - ' + f.prest : ''}`,
-      resumo: [['Total a pagar', brl(soma(sal, 'saldo_devedor'))], ['Gasto em aberto', brl(soma(sal, 'em_aberto'))], ['Crédito de adiantamento', brl(soma(sal, 'adiantamento_disponivel'))],
+      resumo: [['Recarga a pagar', brl(soma(sal, 'saldo_devedor'))], ['Gasto em aberto', brl(soma(sal, 'em_aberto'))], ['Crédito de adiantamento', brl(soma(sal, 'adiantamento_disponivel'))],
         ['Caixa com os prestadores', brl(soma(sal, s => caixaPrestador(s)))]],
       graficos: [{titulo: 'Gasto em aberto × crédito por prestador', tipo: 'barras', series: ['Gasto em aberto', 'Crédito'],
           itens: sal.filter(x => Number(x.em_aberto) || Number(x.adiantamento_disponivel)).map(x => ({rotulo: x.prestador, a: Number(x.em_aberto), b: Number(x.adiantamento_disponivel)}))},
         {titulo: 'Em aberto por semana', tipo: 'colunas', itens: porSemana(abertos).map(x => ({rotulo: x.rotulo, a: x.a - x.b})), nota: 'valor ainda não reembolsado de cada semana'}],
       secoes: [{titulo: 'Por prestador', nota: 'Caixa = crédito de adiantamento − gasto em aberto (dinheiro da empresa com o prestador). A pagar = o gasto que passa do crédito.',
-          cab: ['Prestador', 'Despesas', 'Gasto em aberto', 'Crédito adiant.', 'Caixa com ele', 'A pagar', 'Desde', 'Risco'], direita: [1, 2, 3, 4, 5],
+          cab: ['Prestador', 'Despesas', 'Gasto em aberto', 'Crédito adiant.', 'Saldo com ele', 'Recarga', 'Desde', 'Risco'], direita: [1, 2, 3, 4, 5],
           linhas: sal.map(s => [s.prestador, s.itens_abertos, V(s.em_aberto), V(s.adiantamento_disponivel), V(caixaPrestador(s)), V(s.saldo_devedor), dBRano(s.semana_mais_antiga), (RISCO[s.risco] || [''])[0]]),
           rodape: ['Total', soma(sal, 'itens_abertos'), V(soma(sal, 'em_aberto')), V(soma(sal, 'adiantamento_disponivel')), V(soma(sal, s => caixaPrestador(s))), V(soma(sal, 'saldo_devedor')), '', '']},
         {titulo: `Despesas em aberto (${abertos.length})`, nota: 'Inclui o que sobrou de pagamentos parciais. Acumula todas as semanas.',
@@ -188,7 +188,7 @@ const MODELOS = {
     const livros = sal.map(s => [s, livroCaixa(s.prestador, D.desp.filter(d => d.prestador === s.prestador), D.pags.filter(p => p.prestador === s.prestador), D.adis.filter(a => a.prestador === s.prestador), s, {de: f.de, ate: f.ate})]);
     return {titulo: 'Caixa dos prestadores (extrato)', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
       resumo: [['Caixa com os prestadores hoje', brl(soma(sal, s => caixaPrestador(s)))], ['Crédito de adiantamento', brl(soma(sal, 'adiantamento_disponivel'))],
-        ['Gasto em aberto', brl(soma(sal, 'em_aberto'))], ['A pagar hoje', brl(soma(sal, 'saldo_devedor'))]],
+        ['Gasto em aberto', brl(soma(sal, 'em_aberto'))], ['Recarga a pagar', brl(soma(sal, 'saldo_devedor'))]],
       graficos: [{titulo: 'Caixa hoje por prestador', tipo: 'barras', series: ['Crédito', 'Gasto em aberto'],
           itens: sal.map(x => ({rotulo: `${x.prestador} (${brlCurto(caixaPrestador(x))})`, a: Number(x.adiantamento_disponivel), b: Number(x.em_aberto)}))},
         ...livros.slice(0, 5).map(([x, lc]) => ({titulo: 'Caixa dia a dia · ' + x.prestador, tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'}))],
@@ -248,7 +248,7 @@ const MODELOS = {
     return {titulo: 'Despesas por categoria e obra', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
       // Mesmos números dos cards da Visão geral: em aberto, crédito de adiantamento e o que falta pagar hoje
       resumo: [['Total de despesas', brl(tot)], ['Recibos', String(ds.length)], ['Pago', brl(soma(ds, 'valor_pago'))], ['Em aberto no período', brl(soma(ds, 'saldo'))],
-        ['Crédito de adiantamento (hoje)', brl(soma(sal, 'adiantamento_disponivel'))], ['A pagar hoje', brl(soma(sal, 'saldo_devedor'))],
+        ['Crédito de adiantamento (hoje)', brl(soma(sal, 'adiantamento_disponivel'))], ['Recarga a pagar', brl(soma(sal, 'saldo_devedor'))],
         ...(diretos.length ? [['Pago direto pela empresa', brl(soma(diretos, 'valor'))]] : [])],
       graficos: [{titulo: 'Despesas por categoria', tipo: 'barras', itens: somaPor(ds, d => CATS[d.categoria] || d.categoria)},
         {titulo: 'Despesas por obra (10 maiores)', tipo: 'barras', itens: somaPor(ds, d => nomeObra(d.obra))},
@@ -266,7 +266,7 @@ const MODELOS = {
     const sal = p => D.saldos.find(s => s.prestador === p) || {};
     const res = s => Number(s.adiantamento_disponivel || 0) - Number(s.em_aberto || 0);
     const linhaRes = p => { const s = sal(p), l = ds.filter(d => d.prestador === p);
-      return [p, l.length, V(soma(l, 'valor')), V(s.em_aberto), V(s.adiantamento_disponivel), res(s) < 0 ? V(-res(s)) : V(0), res(s) > 0 ? V(res(s)) : V(0)]; };
+      return [p, l.length, V(soma(l, 'valor')), V(s.em_aberto), V(s.adiantamento_disponivel), V(s.saldo_devedor), V(res(s))]; };
     const secP = p => { const l = ds.filter(d => d.prestador === p), fs = porFornecedor(l), tot = soma(l, 'valor');
       return {titulo: `${p} — ${fs.length} fornecedor(es) · ${brl(tot)}`, cab: ['Fornecedor', 'Qtd', 'Total', '%', 'Pago', 'Em aberto'], direita: [1, 2, 3, 4, 5],
         linhas: fs.map(x => { const ld = l.filter(d => chaveForn(d.fornecedor) === chaveForn(x.nome));
@@ -274,13 +274,13 @@ const MODELOS = {
         rodape: ['Total', l.length, V(tot), '100%', V(soma(l, 'valor_pago')), V(soma(l, 'saldo'))]}; };
     return {titulo: 'Fornecedores de cada prestador', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
       resumo: [['Gasto no período', brl(soma(ds, 'valor'))], ['Despesas', String(ds.length)], ['Fornecedores', String(porFornecedor(ds).length)],
-        ['A pagar (hoje)', brl(soma(D.saldos.filter(f.doPrest), 'saldo_devedor'))]],
+        ['Recarga a pagar', brl(soma(D.saldos.filter(f.doPrest), 'saldo_devedor'))]],
       graficos: [{titulo: 'Maiores fornecedores (10)', tipo: 'barras', itens: porFornecedor(ds).sort((a, b) => b.valor - a.valor).map(x => ({rotulo: x.nome, a: x.valor}))},
         {titulo: 'Gasto no período por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador)}],
-      secoes: [{titulo: 'Resumo por prestador', nota: 'Gasto em aberto = despesas das fotos ainda não acertadas (hoje). Crédito = adiantamento que ainda está com o prestador. A pagar = gasto em aberto − crédito; Sobra = crédito − gasto em aberto.',
-          cab: ['Prestador', 'Despesas', 'Gasto no período', 'Gasto em aberto', 'Crédito adiant.', 'A pagar', 'Sobra crédito'], direita: [1, 2, 3, 4, 5, 6],
+      secoes: [{titulo: 'Resumo por prestador', nota: 'Gasto em aberto = despesas das fotos ainda não acertadas (hoje). Crédito = adiantamento que ainda está com o prestador. Recarga = quanto pagar para ele voltar a ter R$ 10 mil; Saldo = crédito − gasto em aberto.',
+          cab: ['Prestador', 'Despesas', 'Gasto no período', 'Gasto em aberto', 'Crédito adiant.', 'Recarga', 'Saldo com ele'], direita: [1, 2, 3, 4, 5, 6],
           linhas: prests.map(linhaRes), rodape: ['Total', ds.length, V(soma(ds, 'valor')), V(prests.reduce((t, p) => t + Number(sal(p).em_aberto || 0), 0)),
-            V(prests.reduce((t, p) => t + Number(sal(p).adiantamento_disponivel || 0), 0)), V(prests.reduce((t, p) => t + Math.max(0, -res(sal(p))), 0)), V(prests.reduce((t, p) => t + Math.max(0, res(sal(p))), 0))]},
+            V(prests.reduce((t, p) => t + Number(sal(p).adiantamento_disponivel || 0), 0)), V(prests.reduce((t, p) => t + Number(sal(p).saldo_devedor || 0), 0)), V(prests.reduce((t, p) => t + res(sal(p)), 0))]},
         ...prests.map(secP)],
       paisagem: true, arquivo: `fornecedores_por_prestador_${f.prest || 'todos'}_${hojeISO()}`};
   },

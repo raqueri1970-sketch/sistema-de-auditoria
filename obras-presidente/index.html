@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261025-5">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261025-6">
 </head>
 <body>
 
@@ -57,7 +57,7 @@
 
 <input type="file" id="arquivo" accept="image/*,application/pdf" class="hidden">
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js?v=20261025-5"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261025-6"></script>
 <script>
 let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], FLUXO = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = false;  // fundo fixo: o reembolso não desconta o adiantamento (25/10/2026)
 let ORCS = [], ACEITOS = new Map(), VENDO_ORC = false, OBRAS = [], SEM_INICIAL = null, DUPS = [], CC_DESP = {};
@@ -109,8 +109,8 @@ function renderMain() {
       <div class="conta">
         ${k('k-azul', 'Crédito de adiantamento', brl(credito), 'adiantado e ainda não usado', "irPara('cards')")}<div class="op">−</div>
         ${k('k-lar', 'Gasto em aberto', brl(gasto), `${soma(SALDOS, 'itens_abertos')} despesa(s) ainda não reembolsada(s)`, "irPara('cards')")}<div class="op">=</div>
-        ${k(caixa >= 0 ? 'k-ok' : 'k-bad', 'Caixa com os prestadores', brl(caixa), comCaixa.map(s => `${esc(s.prestador.split(' ')[0])} ${brl(caixaPrestador(s))}`).join(' · ') || 'nenhum adiantamento', "irPara('cards')")}
-        ${k((aPagar > 0.005 ? 'k-pagar' : 'k-ok') + ' destaque', 'Total a pagar', brl(aPagar), aPagar > 0.005 ? '<b>gasto maior que o crédito · toque no prestador para pagar</b>' : 'o crédito cobre todo o gasto', "irPara('cards')")}
+        ${k(caixa >= 0 ? 'k-ok' : 'k-bad', 'Saldo com os prestadores', brl(caixa), comCaixa.map(s => `${esc(s.prestador.split(' ')[0])} ${brl(caixaPrestador(s))}`).join(' · ') || 'nenhum adiantamento', "irPara('cards')")}
+        ${k((aPagar > 0.005 ? 'k-pagar' : 'k-ok') + ' destaque', 'Recarga a pagar', brl(aPagar), aPagar > 0.005 ? '<b>para cada um voltar a R$ 10 mil · toque no prestador</b>' : 'fundos completos', "irPara('cards')")}
       </div>
       <div class="pend">${pendLista.length ? '<span class="small mut" style="align-self:center">Para decidir:</span>' + pendLista.join('') : '<span class="ok">✔ Nada pendente para decidir</span>'}</div>
     </section>
@@ -149,7 +149,7 @@ function renderMain() {
   const comGasto = lista.filter(s => Number(s.em_aberto) > 0);
   graficoRosca($('gPrest'), comGasto.map(s => ({rotulo: s.prestador, valor: Number(s.em_aberto),
     det: `<div><span>Despesas em aberto</span><span>${s.itens_abertos}</span></div><div><span>Crédito de adiantamento</span><span>${brl(s.adiantamento_disponivel)}</span></div>
-      <div><span>A pagar</span><span>${brl(s.saldo_devedor)}</span></div>`})),
+      <div><span>Recarga</span><span>${brl(s.saldo_devedor)}</span></div>`})),
     {vazio: 'Nenhum prestador com gasto em aberto.', centro: 'Gasto em aberto', aoClicar: i => abrirPrestador(comGasto[i].prestador)});
   $('gAGLeg').innerHTML = legendaAG();
   graficoAdiantGasto($('gAG'), lista.map(s => ({rotulo: s.prestador, credito: Number(s.adiantamento_disponivel), gasto: Number(s.em_aberto),
@@ -577,8 +577,8 @@ async function pdfResumoPresidente() {
     const gasto = soma(SALDOS, 'em_aberto'), credUsado = SALDOS.reduce((t, s) => t + Math.min(Number(s.adiantamento_disponivel), Number(s.em_aberto)), 0);
     const caixa = SALDOS.reduce((t, s) => t + caixaPrestador(s), 0);
     const lista = SALDOS.filter(prestVisivel).sort((a, b) => b.saldo_devedor - a.saldo_devedor || a.prestador.localeCompare(b.prestador));
-    const secoes = [{titulo: 'Situação de cada prestador', nota: 'Caixa = dinheiro da empresa com o prestador hoje (adiantado − gasto em aberto). Negativo = a empresa deve a ele.',
-      cab: ['Prestador', 'Gasto em aberto', 'Despesas', 'Crédito adiant.', 'A pagar', 'Caixa com ele', 'Já pago', 'Gasto no total'], direita: [1, 2, 3, 4, 5, 6, 7],
+    const secoes = [{titulo: 'Situação de cada prestador', nota: 'Recarga = quanto pagar para ele voltar a ter R$ 10 mil (10 mil − saldo).',
+      cab: ['Prestador', 'Gasto em aberto', 'Despesas', 'Crédito adiant.', 'Recarga', 'Saldo com ele', 'Já pago', 'Gasto no total'], direita: [1, 2, 3, 4, 5, 6, 7],
       linhas: lista.map(s => [s.prestador, brl(s.em_aberto), String(s.itens_abertos || 0), brl(s.adiantamento_disponivel), brl(s.saldo_devedor),
         (caixaPrestador(s) < 0 ? '−' : '') + brl(Math.abs(caixaPrestador(s))), brl(s.total_pago), brl(s.total_despesas)]),
       rodape: ['TOTAL', brl(soma(lista, 'em_aberto')), String(soma(lista, 'itens_abertos')), brl(soma(lista, 'adiantamento_disponivel')), brl(soma(lista, 'saldo_devedor')),
@@ -596,7 +596,7 @@ async function pdfResumoPresidente() {
       {titulo: 'Pago neste mês por prestador', tipo: 'barras', itens: Object.entries(pagosMes.reduce((m, p) => (m[p.prestador] = (m[p.prestador] || 0) + Number(p.valor_pago || 0), m), {})).sort((a, b) => b[1] - a[1]).map(([rotulo, a]) => ({rotulo, a}))}];
     for (const sec of secoes.filter(x => x.lc)) graficos.push({titulo: 'Caixa dia a dia · ' + sec.prest, tipo: 'linha', itens: serieCaixa(sec.lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'});
     await gerarPDF({graficos, titulo: 'Pagamentos · Presidente — resumo final', subtitulo: 'Obras & Reformas · posição de ' + dBR(hojeISO()), paisagem: true,
-      resumo: [['Total a pagar', brl(soma(SALDOS, 'saldo_devedor'))], ['Gasto em aberto', brl(gasto)], ['Crédito de adiantamento', brl(soma(SALDOS, 'adiantamento_disponivel'))],
+      resumo: [['Recarga a pagar', brl(soma(SALDOS, 'saldo_devedor'))], ['Gasto em aberto', brl(gasto)], ['Crédito de adiantamento', brl(soma(SALDOS, 'adiantamento_disponivel'))],
         ['Crédito usado', brl(credUsado)], ['Caixa com os prestadores', brl(caixa)], ['Duplicidades p/ decidir', String(DUPS.length)],
         ['Pago neste mês', brl(soma(pagosMes, 'valor_pago')) + ' (' + pagosMes.length + ')'], ['Pendências', String(PAGS.filter(p => p.status === 'pendencia').length)]],
       secoes, arquivo: 'resumo-presidente-' + hojeISO() + '.pdf'});
