@@ -863,11 +863,6 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}, itens =
   const noPer = d => (!periodo.de || d >= periodo.de) && (!periodo.ate || d <= periodo.ate);
   const lancTodos = desp.filter(d => d.status === 'lancado' && noPer(d.data_despesa || ''));
   const lanc = lancTodos.filter(d => !pagoDireto(d)), diretos = lancTodos.filter(pagoDireto);
-  const abertos = desp.filter(d => Number(d.saldo) > 0);
-  const linhaD = d => [dBRano(d.data_despesa), d.fornecedor || '', CATS[d.categoria] || d.categoria || '', V(d.valor), V(d.valor_pago), V(d.saldo), (SIT[d.situacao] || [d.situacao])[0]];
-  const soma = (a, f) => a.reduce((t, x) => t + Number(x[f] || 0), 0);
-  const pg = pags.filter(p => p.status !== 'cancelado' && noPer((p.pago_em || p.created_at || '').slice(0, 10)));
-  const ad = adis.filter(a => !a.cancelado && noPer(a.data));
   const per = periodo.de || periodo.ate ? `Período ${periodo.de ? dBRano(periodo.de) : 'início'} a ${periodo.ate ? dBRano(periodo.ate) : 'hoje'}` : 'Todo o período';
   const lc = livroCaixa(prestador, desp, pags, adis, saldo, periodo, itens), porCat = {};
   const ci = cicloAtual(prestador, desp, pags, adis, {prestador, ...saldo});
@@ -883,26 +878,8 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}, itens =
       ? [['Saldo inicial', brl(ci.ini)], ['Entrada', brl(ci.entrada)], ['Saída', brl(ci.saida)], ['Saldo', brl(ci.saldo)], ['Recarga', brl(ci.recarga)],
         ...(Math.abs(ci.glosa) > 0.004 ? [['Divergência', brl(ci.glosa)]] : [])]
       : [['Saldo inicial', brl(lc.saldoInicial)], ['Entrada', brl(lc.entradas)], ['Saída', brl(lc.saidas)], ['Saldo', brl(lc.saldoFinal)], ['Recarga', brl(recargaDe(lc.saldoFinal))]],
-    secoes: [
-      ...(ci && ci.fora.length ? [{titulo: `Recibos de antes da recarga que o PIX não pagou (${ci.fora.length})`,
-        nota: `Recarga de ${dBR(ci.desde.slice(0, 10))} às ${ci.desde.slice(11)} (${brl(ci.deposito)}). Já estão na Saída e entram na próxima recarga.`,
-        cab: ['Recibo', 'Enviado no grupo', 'Fornecedor', 'Em aberto', 'Na hora do PIX'], direita: [3],
-        linhas: ci.fora.map(d => [dBR(d.data_despesa) + ' ' + String(d.hora_documento || '').slice(0, 5), d.wa_data ? dBR(momentoSP(d.wa_data).slice(0, 10)) + ' ' + momentoSP(d.wa_data).slice(11) : '',
-          d.fornecedor || '', V(d.saldo), d.wa_data && momentoSP(d.wa_data) < ci.desde ? 'já estava no sistema' : 'enviado depois']),
-        rodape: ['Total', '', '', V(ci.faltou), '']}] : []),
-      secaoSemanas(contaSemanal(prestador, desp, pags, adis, saldo, periodo)),
-      secaoLivroCaixa(lc),
-      {titulo: `Contas a pagar em aberto (${abertos.length})`, nota: 'Saldo acumulado de todas as semanas ainda não pagas.', cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Situação'],
-        linhas: abertos.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total', V(soma(abertos, 'valor')), V(soma(abertos, 'valor_pago')), V(soma(abertos, 'saldo')), '']},
-      {titulo: `Pagamentos (${pg.length})`, cab: ['Nº', 'Data', 'Despesas', 'Valor pago', 'Forma', 'Situação'],
-        linhas: pg.map(p => [p.numero, dBRano((p.pago_em || p.created_at).slice(0, 10)), V(p.valor_itens), V(p.valor_pago ?? p.valor_aprovado),
-          FORMAS[p.forma_pagamento] || p.forma_pagamento || '', (PAG[p.status] || [p.status])[0]]), direita: [2, 3],
-        rodape: ['', 'Total', V(soma(pg, 'valor_itens')), V(pg.reduce((t, p) => t + Number(p.valor_pago ?? p.valor_aprovado), 0)), '', '']},
-      ...(ad.length ? [{titulo: `Adiantamentos (${ad.length})`, cab: ['Data', 'Valor'],
-        linhas: ad.map(a => [dBRano(a.data), V(a.valor)]), direita: [1], rodape: ['Total', V(soma(ad, 'valor'))]}] : []),
-      {titulo: `Todas as despesas do período (${lanc.length})`, cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Pago', 'Em aberto', 'Situação'],
-        linhas: lanc.map(linhaD), direita: [3, 4, 5], rodape: ['', '', 'Total (sem recusadas)', V(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor')), V(soma(lanc, 'valor_pago')), V(soma(lanc, 'saldo')), '']},
-      ...(diretos.length ? [secaoPagoDireto(diretos)] : [])],
+    // Um relatório só (25/10/2026, pedido do Ricardo): a conta corrente por recarga já traz os recibos pagos e os em aberto
+    secoes: [secaoLivroCaixa(lc), ...(diretos.length ? [secaoPagoDireto(diretos)] : [])],
     assinaturas: ['Presidente', `Prestador: ${prestador}`], arquivo: `extrato_${prestador}_${hojeISO()}`, paisagem: false};
 }
 const pdfExtrato = (...a) => gerarPDF(modeloExtrato(...a));
