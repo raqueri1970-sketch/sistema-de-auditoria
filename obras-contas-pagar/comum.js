@@ -534,12 +534,10 @@ function blocoFundoHTML(s, adis, lc) {
       ${lc ? contaCorrenteHTML(lc) : '<div class="small mut">Carregando o extrato…</div>'}</details>`;
 }
 function secaoLivroCaixa(lc) {
-  return {titulo: 'Conta corrente',
-    nota: `Saldo inicial ${brl(lc.saldoInicial)} + adiantamentos ${brl(lc.adiantamentos)} + depósitos ${brl(lc.depositos)} − despesas ${brl(lc.despesas)} = saldo final ${brl(lc.saldoFinal)}. ` +
-      'Saldo = dinheiro da empresa que está com ele (negativo = a empresa deve a ele). ' + auditoriaConta(lc),
+  return {titulo: 'Conta corrente', nota: lc.confere ? '' : auditoriaConta(lc),
     cab: ['Data', 'Histórico', 'Entrada', 'Saída', 'Saldo'], direita: [2, 3, 4],
     linhas: lc.linhas.map(l => [l.data ? dBRano(l.data) : '', l.hist, l.ent ? V(l.ent) : '', l.sai ? V(l.sai) : '', V(l.saldo)]),
-    rodape: ['', 'Totais do período / saldo final', V(lc.entradas), V(lc.saidas), V(lc.saldoFinal)]};
+    rodape: ['', 'Total', V(lc.entradas), V(lc.saidas), V(lc.saldoFinal)]};
 }
 
 // ---------- Período e semana (fechamento é semanal: segunda a domingo) ----------
@@ -627,6 +625,10 @@ function tomResumo(rotulo, valor) {
   const l = String(rotulo || '').toLowerCase(), v = String(valor ?? ''), zero = /^(r\$\s*)?0([,.]00)?$|^0 de /i.test(v.trim()), neg = /^[-−]|empresa deve/i.test(v.trim());
   if (/pix|conta$|recibos|despesas$|semanas em|fornecedores$/.test(l) && !/semanas quitadas/.test(l)) return /recibos|despesas$|fornecedores$/.test(l) ? 'roxo' : 'cinza';
   if (/pago direto/.test(l)) return 'cinza';  // fora da conta do prestador
+  if (l === 'entrada') return 'verde';
+  if (l === 'saída') return 'laranja';
+  if (l === 'saldo') return neg ? 'vermelho' : 'verde';
+  if (l === 'saldo anterior') return 'cinza';
   if (/caixa/.test(l)) return neg ? 'vermelho' : 'verde';
   if (/duplic|pago a mais|crític|pendênc|recusad/.test(l)) return zero ? 'verde' : 'vermelho';
   if (/a pagar|em aberto|aberto|aguardando|atenção|com ponto/.test(l)) return zero ? 'verde' : 'laranja';
@@ -756,19 +758,14 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   const pg = pags.filter(p => p.status !== 'cancelado' && noPer((p.pago_em || p.created_at || '').slice(0, 10)));
   const ad = adis.filter(a => !a.cancelado && noPer(a.data));
   const per = periodo.de || periodo.ate ? `Período ${periodo.de ? dBRano(periodo.de) : 'início'} a ${periodo.ate ? dBRano(periodo.ate) : 'hoje'}` : 'Todo o período';
-  const lc = livroCaixa(prestador, desp, pags, adis, saldo, periodo), porCat = {}, fu = fundoPrestador({prestador, ...saldo}, adis);
+  const lc = livroCaixa(prestador, desp, pags, adis, saldo, periodo), porCat = {};
   for (const d of lanc) if (d.situacao !== 'recusado') porCat[CATS[d.categoria] || d.categoria || 'Outros'] = (porCat[CATS[d.categoria] || d.categoria || 'Outros'] || 0) + Number(d.valor);
   return {titulo: `Extrato do prestador - ${prestador}`, subtitulo: `Obras & Reformas - Esposende - ${per}`,
     graficos: [{titulo: 'Caixa com o prestador dia a dia', tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'},
       {titulo: 'Despesas do período por categoria', tipo: 'barras', itens: Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({rotulo: k, a: v}))}],
-    // Mesma visão simples do fundo das outras telas (25/10/2026): fundo − gastou = saldo com ele; reembolsar para voltar ao fundo
-    resumo: [['Fundo (adiantamento)', brl(fu.fundo) + (fu.falta > 0.004 ? ` · recebeu ${brl(fu.recebido)}` : '')],
-      ['Gastou · em aberto', `${brl(fu.gasto)} · ${fu.n} despesa(s)`],
-      ['Caixa · saldo com ele', brl(fu.saldo)],
-      ['A pagar · reembolsar para voltar ao fundo', brl(fu.reembolso)],
-      ['Auditoria da conta', lc.confere ? 'confere com o sistema' : 'diferença ' + brl(lc.diferenca)],
-      ...(diretos.length ? [['Pago direto pela empresa', brl(soma(diretos, 'valor'))]] : []),
-    ],
+    // Conta corrente simples (25/10/2026, pedido do Ricardo): só entrada, saída e saldo; saldo anterior só quando há período
+    resumo: [...(lc.de ? [['Saldo anterior', brl(lc.saldoInicial)]] : []),
+      ['Entrada', brl(lc.entradas)], ['Saída', brl(lc.saidas)], ['Saldo', brl(lc.saldoFinal)]],
     secoes: [
       secaoLivroCaixa(lc),
       {titulo: `Contas a pagar em aberto (${abertos.length})`, nota: 'Saldo acumulado de todas as semanas ainda não pagas.', cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Situação'],
