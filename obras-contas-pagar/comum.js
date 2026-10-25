@@ -426,7 +426,9 @@ const caixaPrestador = s => Math.round((Number(s && s.adiantamento_disponivel ||
 // Auditoria: o saldo final de todo o período tem de bater com o sistema (crédito − em aberto − com o financeiro).
 const ADI_HIST = {fundo: 'Adiantamento (fundo fixo)', glosa: 'Glosa · duplicidade a descontar', credito_pix: 'Crédito do PIX ainda não usado'};
 const r2 = v => Math.round(Number(v || 0) * 100) / 100;
-const despNaConta = d => d.status === 'lancado' && d.situacao !== 'recusado' && !pagoDireto(d) && (Number(d.saldo) > 0 || d.ultimo_pagamento_numero != null);
+// Também entra a que foi paga e depois virou duplicada (ex.: Patricia R$ 60 do Jhony, paga 2x): o dinheiro saiu, a glosa devolve.
+const despNaConta = d => !pagoDireto(d) && (d.status === 'lancado' ? d.situacao !== 'recusado' && (Number(d.saldo) > 0 || d.ultimo_pagamento_numero != null)
+  : d.status !== 'pagamento' && d.ultimo_pagamento_numero != null && Number(d.valor_pago) > 0);
 const valorNaConta = d => r2(Number(d.valor_pago || 0) + Number(d.valor_reservado || 0) + Number(d.saldo || 0));
 function livroCaixa(prestador, desp, pags, adis, saldo, periodo = {}) {
   const de = periodo.de || null, ate = periodo.ate || null, mov = [];

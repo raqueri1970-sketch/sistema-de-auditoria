@@ -290,7 +290,7 @@ function abrirPrestador(nome, manterSelecao = false) {
 // Conta corrente precisa de todas as despesas do prestador (DESP só tem as abertas); carrega uma vez por prestador
 async function carregarContaCorrente(nome) {
   if (CC_DESP[nome]) return;
-  try { CC_DESP[nome] = await carregarDespesas(q => q.eq('prestador', nome).eq('status', 'lancado')); }
+  try { CC_DESP[nome] = await carregarDespesas(q => q.eq('prestador', nome).in('status', ['lancado', 'duplicada', 'cancelado', 'agrupado', 'nao_despesa'])); }
   catch (e) { const el = $('ccDet'); if (el && ATUAL === nome) el.innerHTML = `<div class="crit">Não carregou a conta corrente: ${esc(msgErro(e))}</div>`; return; }
   if (ATUAL === nome) ccRedesenhar();
 }
