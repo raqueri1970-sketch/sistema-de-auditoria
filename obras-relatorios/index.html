@@ -192,11 +192,12 @@ const MODELOS = {
       graficos: [{titulo: 'Caixa hoje por prestador', tipo: 'barras', series: ['Crédito', 'Gasto em aberto'],
           itens: sal.map(x => ({rotulo: `${x.prestador} (${brlCurto(caixaPrestador(x))})`, a: Number(x.adiantamento_disponivel), b: Number(x.em_aberto)}))},
         ...livros.slice(0, 5).map(([x, lc]) => ({titulo: 'Caixa dia a dia · ' + x.prestador, tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'}))],
-      secoes: [{titulo: 'Resumo por prestador', nota: 'Saldo do período = caixa no fim do período escolhido. Caixa hoje = crédito − gasto em aberto.',
-          cab: ['Prestador', 'Saldo anterior', 'Entradas', 'Saídas', 'Saldo do período', 'Caixa hoje'], direita: [1, 2, 3, 4, 5],
-          linhas: livros.map(([s, lc]) => [s.prestador, V(lc.linhas[0].saldo), V(lc.entradas), V(lc.saidas), V(lc.saldoFinal), V(lc.hoje)]),
-          rodape: ['Total', V(soma(livros, x => x[1].linhas[0].saldo)), V(soma(livros, x => x[1].entradas)), V(soma(livros, x => x[1].saidas)), V(soma(livros, x => x[1].saldoFinal)), V(soma(livros, x => x[1].hoje))]},
-        ...livros.map(([s, lc]) => ({...secaoLivroCaixa(lc), titulo: 'Extrato de caixa · ' + s.prestador}))],
+      secoes: [{titulo: 'Conta corrente por prestador', nota: 'Saldo inicial + adiantamentos + depósitos − despesas = saldo final do período. Auditoria: o saldo de todo o período tem de bater com o sistema (crédito − em aberto).',
+          cab: ['Prestador', 'Saldo inicial', 'Adiantamentos', 'Depósitos', 'Despesas', 'Saldo final', 'Caixa hoje', 'Auditoria'], direita: [1, 2, 3, 4, 5, 6],
+          linhas: livros.map(([s, lc]) => [s.prestador, V(lc.saldoInicial), V(lc.adiantamentos), V(lc.depositos), V(lc.despesas), V(lc.saldoFinal), V(lc.hoje), lc.confere ? 'Confere' : 'Diferença ' + brl(lc.diferenca)]),
+          rodape: ['Total', V(soma(livros, x => x[1].saldoInicial)), V(soma(livros, x => x[1].adiantamentos)), V(soma(livros, x => x[1].depositos)), V(soma(livros, x => x[1].despesas)),
+            V(soma(livros, x => x[1].saldoFinal)), V(soma(livros, x => x[1].hoje)), livros.every(x => x[1].confere) ? 'Tudo confere' : 'Ver diferenças']},
+        ...livros.map(([s, lc]) => ({...secaoLivroCaixa(lc), titulo: 'Conta corrente · ' + s.prestador}))],
       arquivo: `caixa_prestadores_${f.prest || 'todos'}_${hojeISO()}`};
   },
   extrato(f) {

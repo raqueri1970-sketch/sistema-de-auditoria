@@ -60,9 +60,10 @@
 <script src="../obras-contas-pagar/comum.js?v=20261019-1"></script>
 <script>
 let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], FLUXO = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = true;
-let ORCS = [], ACEITOS = new Map(), VENDO_ORC = false, OBRAS = [], SEM_INICIAL = null, DUPS = [];
+let ORCS = [], ACEITOS = new Map(), VENDO_ORC = false, OBRAS = [], SEM_INICIAL = null, DUPS = [], CC_DESP = {};
 
 async function carregar() {
+  CC_DESP = {};
   try {
     [SALDOS, DESP, PAGS, ADIS, PIXP, ORCS] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('situacao', ['a_pagar', 'parcial', 'com_financeiro', 'recusado'])),
       carregarPagamentos(), carregarAdiantamentos(), carregarDespesas(q => q.eq('status', 'pagamento').is('pagamento_id', null)),
@@ -283,7 +284,15 @@ function abrirPrestador(nome, manterSelecao = false) {
   SEM_INICIAL = null;
   for (const d of itens) if (SEL[d.id].valor > Number(d.saldo)) SEL[d.id].valor = Number(d.saldo);
   for (const id of Object.keys(SEL)) if (!itens.some(d => d.id === id)) delete SEL[id];
-  renderDet(); topo();
+  renderDet(); topo(); carregarContaCorrente(nome);
+}
+// Conta corrente precisa de todas as despesas do prestador (DESP só tem as abertas); carrega uma vez por prestador
+async function carregarContaCorrente(nome) {
+  if (CC_DESP[nome]) return;
+  try { CC_DESP[nome] = await carregarDespesas(q => q.eq('prestador', nome).eq('status', 'lancado')); }
+  catch (e) { const el = $('ccDet'); if (el && ATUAL === nome) el.innerHTML = `<div class="crit">Não carregou a conta corrente: ${esc(msgErro(e))}</div>`; return; }
+  const el = $('ccDet');
+  if (el && ATUAL === nome) el.innerHTML = contaCorrenteHTML(livroCaixa(nome, CC_DESP[nome], PAGS, ADIS, saldoDe(nome)));
 }
 function fecharPrestador() { ATUAL = null; ABERTO = null; SEL = {}; if (location.search) history.replaceState(null, '', location.pathname); renderMain(); topo(); }
 
@@ -299,7 +308,8 @@ function renderDet() {
   $('vDet').innerHTML = `<button class="voltar" onclick="fecharPrestador()">‹ Voltar para todos os prestadores</button>
     <div class="card" style="margin-top:6px"><div class="row" style="justify-content:space-between"><div><div class="pname" style="font-size:22px">${esc(ATUAL)}</div>
       <div class="small mut">${pix}</div></div>${riscoChip(s.risco)}</div>
-      ${contaResumoHTML(contaPrestador(s, DESP, ADIS, PAGS))}
+      <div class="small" style="margin-top:10px;font-weight:600">Conta corrente</div>
+      <div id="ccDet">${CC_DESP[ATUAL] ? contaCorrenteHTML(livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, s)) : '<div class="small mut">Carregando a conta corrente…</div>'}</div>
       <details style="margin:4px 0 8px"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver a conta foto a foto (adiantamento − despesas)</summary>${contaExtratoHTML(contaPrestador(s, DESP, ADIS, PAGS))}</details>
       <div class="mini">
         <div><b>${brl(s.em_aberto)}</b><span>despesas em aberto</span></div>

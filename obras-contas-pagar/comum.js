@@ -419,33 +419,63 @@ function secaoPagoDireto(lista) {
 // Caixa hoje = adiantamento ainda não descontado − despesas ainda não reembolsadas (= crédito − gasto em aberto).
 // Negativo = ele gastou mais do que tinha e a empresa deve a diferença.
 const caixaPrestador = s => Math.round((Number(s && s.adiantamento_disponivel || 0) - Number(s && s.em_aberto || 0)) * 100) / 100;
-// Lançamentos do livro-caixa: + adiantamento, − despesa, + reembolso. O saldo anterior fecha a conta: o saldo final é sempre o caixa de hoje.
+// ---------- Conta corrente do prestador (25/10/2026, pedido do Ricardo) ----------
+// Saldo inicial + adiantamentos + depósitos (reembolsos) − despesas = saldo final, sem nenhum valor de ajuste.
+// Só entra na conta a despesa que passou pelo sistema de pagamento (paga por um pagamento nº, reservada ou ainda em aberto):
+// as quitadas por fora antes do sistema não têm o depósito delas aqui, e as pagas direto pela empresa não são do prestador.
+// Auditoria: o saldo final de todo o período tem de bater com o sistema (crédito − em aberto − com o financeiro).
+const ADI_HIST = {fundo: 'Adiantamento (fundo fixo)', glosa: 'Glosa · duplicidade a descontar', credito_pix: 'Crédito do PIX ainda não usado'};
+const r2 = v => Math.round(Number(v || 0) * 100) / 100;
+const despNaConta = d => d.status === 'lancado' && d.situacao !== 'recusado' && !pagoDireto(d) && (Number(d.saldo) > 0 || d.ultimo_pagamento_numero != null);
+const valorNaConta = d => r2(Number(d.valor_pago || 0) + Number(d.valor_reservado || 0) + Number(d.saldo || 0));
 function livroCaixa(prestador, desp, pags, adis, saldo, periodo = {}) {
-  const inicioPadrao = adis.filter(a => !a.cancelado).map(a => a.data).sort()[0] || null;
-  const de = periodo.de || inicioPadrao, ate = periodo.ate || null;
-  const mov = [];
-  for (const a of adis) if (!a.cancelado && a.data)
-    mov.push({data: a.data, ordem: 0, hist: 'Adiantamento', ent: Number(a.valor), sai: 0});
-  for (const d of desp) if (d.status === 'lancado' && d.situacao !== 'recusado' && !pagoDireto(d) && d.data_despesa)
-    mov.push({data: String(d.data_despesa).slice(0, 10), ordem: 1, hist: `Despesa · ${d.fornecedor || 'fornecedor não lido'} · ${CATS[d.categoria] || d.categoria || ''}`, ent: 0, sai: Number(d.valor)});
-  for (const p of pags) if (['pago', 'auditado', 'pendencia'].includes(p.status) && Number(p.valor_pago) > 0)
-    mov.push({data: String(p.pago_em || p.created_at).slice(0, 10), ordem: 2,
-      hist: `Reembolso nº ${p.numero}${p.forma_pagamento ? ' · ' + (FORMAS[p.forma_pagamento] || p.forma_pagamento) : ''}`, ent: Number(p.valor_pago), sai: 0});
+  const de = periodo.de || null, ate = periodo.ate || null, mov = [];
+  const dia = x => String(x || '').slice(0, 10);
+  for (const a of adis) if (!a.cancelado && a.prestador === prestador)
+    mov.push({data: dia(a.data || a.created_at), ordem: 0, tipo: 'adi', hist: ADI_HIST[a.tipo] || 'Adiantamento', ent: Number(a.valor), sai: 0});
+  for (const d of desp) if (d.prestador === prestador && despNaConta(d))
+    mov.push({data: dia(d.data_despesa || d.wa_data || d.semana) || hojeISO(), ordem: 1, tipo: 'desp',
+      hist: `Despesa · ${d.fornecedor || 'fornecedor não lido'} · ${CATS[d.categoria] || d.categoria || ''}`, ent: 0, sai: valorNaConta(d)});
+  for (const p of pags) if (p.prestador === prestador && ['pago', 'auditado', 'pendencia'].includes(p.status) && Number(p.valor_pago) > 0)
+    mov.push({data: dia(p.pago_em || p.created_at), ordem: 2, tipo: 'dep',
+      hist: `Depósito (reembolso) nº ${p.numero}${p.forma_pagamento ? ' · ' + (FORMAS[p.forma_pagamento] || p.forma_pagamento) : ''}`, ent: Number(p.valor_pago), sai: 0});
   mov.sort((a, b) => a.data.localeCompare(b.data) || a.ordem - b.ordem);
-  const hoje = caixaPrestador(saldo), depoisDoInicio = mov.filter(m => !de || m.data >= de);
-  let corr = Math.round((hoje - depoisDoInicio.reduce((t, m) => t + m.ent - m.sai, 0)) * 100) / 100;
-  const linhas = [{data: de, hist: 'Saldo anterior', ent: 0, sai: 0, saldo: corr}];
-  let ent = 0, sai = 0;
-  for (const m of depoisDoInicio) {
-    corr = Math.round((corr + m.ent - m.sai) * 100) / 100;
-    if (ate && m.data > ate) continue;
-    ent += m.ent; sai += m.sai; linhas.push({...m, saldo: corr});
+  const saldoInicial = r2(mov.filter(m => de && m.data < de).reduce((t, m) => t + m.ent - m.sai, 0));
+  const linhas = [{data: de, hist: 'Saldo inicial', ent: 0, sai: 0, saldo: saldoInicial}];
+  const tot = {adi: 0, dep: 0, desp: 0};
+  let corr = saldoInicial;
+  for (const m of mov) {
+    if ((de && m.data < de) || (ate && m.data > ate)) continue;
+    corr = r2(corr + m.ent - m.sai); tot[m.tipo] += m.ent + m.sai; linhas.push({...m, saldo: corr});
   }
-  return {de, ate, linhas, entradas: ent, saidas: sai, saldoFinal: linhas[linhas.length - 1].saldo, hoje};
+  const saldoTotal = r2(mov.reduce((t, m) => t + m.ent - m.sai, 0));
+  const hoje = r2(Number(saldo && saldo.adiantamento_disponivel || 0) - Number(saldo && saldo.em_aberto || 0) - Number(saldo && saldo.com_financeiro || 0));
+  const diferenca = r2(saldoTotal - hoje);
+  return {de, ate, linhas, saldoInicial, adiantamentos: r2(tot.adi), depositos: r2(tot.dep), despesas: r2(tot.desp),
+    entradas: r2(tot.adi + tot.dep), saidas: r2(tot.desp), saldoFinal: corr, saldoTotal, hoje, diferenca, confere: Math.abs(diferenca) < 0.01};
+}
+const auditoriaConta = lc => lc.confere ? 'Conta conferida: o saldo final bate com o sistema.'
+  : `ATENÇÃO: a conta não fecha. Extrato ${brl(lc.saldoTotal)} × sistema ${brl(lc.hoje)} (diferença ${brl(lc.diferenca)}).`;
+function contaCorrenteHTML(lc) {
+  const cor = v => v < 0 ? '#fcd34d' : '#86efac';
+  const lin = lc.linhas.slice(1).map(l => `<tr><td>${dBR(l.data)}</td><td>${esc(l.hist)}</td>
+    <td class="r">${l.ent ? '+ ' + brl(l.ent) : ''}</td><td class="r">${l.sai ? '− ' + brl(l.sai) : ''}</td><td class="r"><b style="color:${cor(l.saldo)}">${brl(l.saldo)}</b></td></tr>`).join('');
+  return `<div class="mini">
+      <div><b>${brl(lc.saldoInicial)}</b><span>saldo inicial</span></div>
+      <div><b style="color:#93c5fd">+ ${brl(lc.adiantamentos)}</b><span>adiantamentos</span></div>
+      <div><b style="color:#86efac">+ ${brl(lc.depositos)}</b><span>depósitos (reembolsos)</span></div>
+      <div><b style="color:#fdba74">− ${brl(lc.despesas)}</b><span>despesas</span></div>
+      <div><b style="color:${cor(lc.saldoFinal)}">${brl(lc.saldoFinal)}</b><span>${lc.saldoFinal < 0 ? 'saldo final · empresa deve a ele' : 'saldo final · com o prestador'}</span></div></div>
+    <div class="small ${lc.confere ? 'mut' : 'crit'}" style="margin:-4px 0 6px">${lc.confere ? '✔' : '⚠'} ${esc(auditoriaConta(lc))}</div>
+    <details style="margin:4px 0 8px"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver o extrato linha a linha (${lc.linhas.length - 1} lançamentos)</summary>
+      <div class="tw"><table><tr><th>Data</th><th>Histórico</th><th class="r">Entrada</th><th class="r">Saída</th><th class="r">Saldo</th></tr>
+        <tr><td></td><td><b>Saldo inicial</b></td><td></td><td></td><td class="r"><b>${brl(lc.saldoInicial)}</b></td></tr>${lin}
+        <tfoot><tr><td></td><td>Saldo final</td><td class="r">${brl(lc.entradas)}</td><td class="r">${brl(lc.saidas)}</td><td class="r">${brl(lc.saldoFinal)}</td></tr></tfoot></table></div></details>`;
 }
 function secaoLivroCaixa(lc) {
-  return {titulo: 'Extrato de caixa',
-    nota: 'Entrada = adiantamento ou reembolso que a empresa mandou. Saída = despesa que ele pagou com o dinheiro. Saldo = dinheiro da empresa que está com ele (negativo = a empresa deve a ele).',
+  return {titulo: 'Conta corrente',
+    nota: `Saldo inicial ${brl(lc.saldoInicial)} + adiantamentos ${brl(lc.adiantamentos)} + depósitos ${brl(lc.depositos)} − despesas ${brl(lc.despesas)} = saldo final ${brl(lc.saldoFinal)}. ` +
+      'Saldo = dinheiro da empresa que está com ele (negativo = a empresa deve a ele). ' + auditoriaConta(lc),
     cab: ['Data', 'Histórico', 'Entrada', 'Saída', 'Saldo'], direita: [2, 3, 4],
     linhas: lc.linhas.map(l => [l.data ? dBRano(l.data) : '', l.hist, l.ent ? V(l.ent) : '', l.sai ? V(l.sai) : '', V(l.saldo)]),
     rodape: ['', 'Totais do período / saldo final', V(lc.entradas), V(lc.saidas), V(lc.saldoFinal)]};
@@ -670,7 +700,10 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   return {titulo: `Extrato do prestador - ${prestador}`, subtitulo: `Obras & Reformas - Esposende - ${per}`,
     graficos: [{titulo: 'Caixa com o prestador dia a dia', tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'},
       {titulo: 'Despesas do período por categoria', tipo: 'barras', itens: Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({rotulo: k, a: v}))}],
-    resumo: [['Caixa com o prestador (hoje)', (caixaPrestador(saldo) < 0 ? 'empresa deve ' : '') + brl(Math.abs(caixaPrestador(saldo)))],
+    resumo: [['Saldo inicial', brl(lc.saldoInicial)], ['Adiantamentos', brl(lc.adiantamentos)], ['Depósitos (reembolsos)', brl(lc.depositos)],
+      ['Despesas na conta', brl(lc.despesas)], ['Caixa · saldo final', (lc.saldoFinal < 0 ? 'empresa deve ' : '') + brl(Math.abs(lc.saldoFinal))],
+      ['Auditoria da conta', lc.confere ? 'confere com o sistema' : 'diferença ' + brl(lc.diferenca)],
+      ['Caixa com o prestador (hoje)', (caixaPrestador(saldo) < 0 ? 'empresa deve ' : '') + brl(Math.abs(caixaPrestador(saldo)))],
       ['Despesas no período', brl(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor'))], ['Pago no período', brl(soma(lanc, 'valor_pago'))],
       ['Em aberto (hoje)', brl(saldo.em_aberto)], ['Crédito de adiantamento', brl(saldo.adiantamento_disponivel)],
       ['Total a pagar (hoje)', brl(saldo.saldo_devedor)],
