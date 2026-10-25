@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<link rel="stylesheet" href="comum.css?v=20261025-13">
+<link rel="stylesheet" href="comum.css?v=20261025-14">
 </head>
 <body>
 
@@ -63,7 +63,7 @@
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="comum.js?v=20261025-13"></script>
+<script src="comum.js?v=20261025-14"></script>
 <script>
 let D = null, TIMER = null, VER_HISTORICO = false, PAP = {};
 let F = {p: '30', obra: '', prest: '', ...lerFiltro('obras-visao-filtro')};
@@ -74,13 +74,13 @@ const soma = (a, f) => a.reduce((t, x) => t + Number((typeof f === 'function' ? 
 async function carregar() {
   try {
     const st = await sb.from('capturador_status').select('*').order('atualizado_em', {ascending: false});
-    const [saldos, desp, pags, obras, prest, fraude, fotos, fotosAud, adis] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('status', ['lancado', 'orcamento', 'duplicada'])),
-      carregarPagamentos(), carregarObras(), carregarPrestacoes(),
+    const [saldos, desp, pags, obras, prest, itens, fraude, fotos, fotosAud, adis] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('status', ['lancado', 'orcamento', 'duplicada'])),
+      carregarPagamentos(), carregarObras(), carregarPrestacoes(), carregarItens(),
       todos(() => sb.from('obras_auditoria_achados').select('id,comprovante_id,regra,nivel,mensagem,relacionado_id').eq('resolvido', false).in('regra', Object.keys(FRAUDE)).order('criado_em', {ascending: false})),
       sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null),
       sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null).not('auditoria_ia', 'is', null),
       carregarAdiantamentos()]);
-    D = {saude: st.error ? null : st.data, saldos, desp, pags, obras, prest, fraude, fotos: fotos.count || 0, fotosAud: fotosAud.count || 0, adis,
+    D = {saude: st.error ? null : st.data, saldos, desp, pags, itens, obras, prest, fraude, fotos: fotos.count || 0, fotosAud: fotosAud.count || 0, adis,
       dups: desp.filter(d => d.status === 'duplicada')};
     render();
     $('atual').textContent = 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
@@ -374,15 +374,15 @@ function mostrarConta() {
   const sal = D.saldos.find(s => s.prestador === CONTA_ABERTA) || {prestador: CONTA_ABERTA};
   box.innerHTML = `<div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between"><div class="pname">Conta de ${esc(CONTA_ABERTA)}</div>
     <button class="btn" onclick="CONTA_ABERTA=null;mostrarConta()">Fechar ✕</button></div>
-    ${blocoFundoHTML(sal, D.adis, livroCaixa(CONTA_ABERTA, D.desp, D.pags, D.adis, sal, CC_PER), D.desp, D.pags)}
+    ${blocoFundoHTML(sal, D.adis, livroCaixa(CONTA_ABERTA, D.desp, D.pags, D.adis, sal, CC_PER, D.itens), D.desp, D.pags)}
     <details style="margin:4px 0 8px"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver as despesas em aberto foto a foto</summary>${contaExtratoHTML(c)}</details></div>`;
 }
 
 async function extrato(i) {
   const p = PREST[i];
   try { toast('Gerando PDF…');
-    const [desp, adis] = await Promise.all([carregarDespesas(q => q.eq('prestador', p)), carregarAdiantamentos()]);
-    await pdfExtrato(p, desp, D.pags.filter(x => x.prestador === p), adis.filter(a => a.prestador === p), D.saldos.find(s => s.prestador === p)); }
+    const [desp, adis, its] = await Promise.all([carregarDespesas(q => q.eq('prestador', p)), carregarAdiantamentos(), carregarItensDe(D.pags.filter(x => x.prestador === p && x.status !== 'cancelado').map(x => x.id))]);
+    await pdfExtrato(p, desp, D.pags.filter(x => x.prestador === p), adis.filter(a => a.prestador === p), D.saldos.find(s => s.prestador === p), {}, its); }
   catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); }
 }
 

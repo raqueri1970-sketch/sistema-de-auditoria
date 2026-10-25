@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261025-13">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261025-14">
 </head>
 <body>
 
@@ -57,13 +57,13 @@
 
 <input type="file" id="arquivo" accept="image/*,application/pdf" class="hidden">
 <div id="toast" class="toast"></div>
-<script src="../obras-contas-pagar/comum.js?v=20261025-13"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261025-14"></script>
 <script>
 let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], FLUXO = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = false;  // fundo fixo: o reembolso não desconta o adiantamento (25/10/2026)
-let ORCS = [], ACEITOS = new Map(), VENDO_ORC = false, OBRAS = [], SEM_INICIAL = null, DUPS = [], CC_DESP = {};
+let ORCS = [], ACEITOS = new Map(), VENDO_ORC = false, OBRAS = [], SEM_INICIAL = null, DUPS = [], CC_DESP = {}, CC_ITENS = {};
 
 async function carregar() {
-  CC_DESP = {};
+  CC_DESP = {}; CC_ITENS = {};
   try {
     [SALDOS, DESP, PAGS, ADIS, PIXP, ORCS] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('situacao', ['a_pagar', 'parcial', 'com_financeiro', 'recusado'])),
       carregarPagamentos(), carregarAdiantamentos(), carregarDespesas(q => q.eq('status', 'pagamento').is('pagamento_id', null)),
@@ -283,13 +283,14 @@ function abrirPrestador(nome, manterSelecao = false) {
 // Conta corrente precisa de todas as despesas do prestador (DESP só tem as abertas); carrega uma vez por prestador
 async function carregarContaCorrente(nome) {
   if (CC_DESP[nome]) return;
-  try { CC_DESP[nome] = await carregarDespesas(q => q.eq('prestador', nome).in('status', ['lancado', 'duplicada', 'cancelado', 'agrupado', 'nao_despesa'])); }
+  try { [CC_DESP[nome], CC_ITENS[nome]] = await Promise.all([carregarDespesas(q => q.eq('prestador', nome).in('status', ['lancado', 'duplicada', 'cancelado', 'agrupado', 'nao_despesa'])),
+      carregarItensDe(PAGS.filter(p => p.prestador === nome && p.status !== 'cancelado').map(p => p.id))]); }
   catch (e) { const el = $('ccDet'); if (el && ATUAL === nome) el.innerHTML = `<div class="crit">Não carregou a conta corrente: ${esc(msgErro(e))}</div>`; return; }
   if (ATUAL === nome) ccRedesenhar();
 }
 window.ccRedesenhar = () => {
   const el = $('ccDet');
-  if (el && ATUAL && CC_DESP[ATUAL]) el.innerHTML = blocoFundoHTML(saldoDe(ATUAL), ADIS, livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, saldoDe(ATUAL), CC_PER), CC_DESP[ATUAL], PAGS);
+  if (el && ATUAL && CC_DESP[ATUAL]) el.innerHTML = blocoFundoHTML(saldoDe(ATUAL), ADIS, livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, saldoDe(ATUAL), CC_PER, CC_ITENS[ATUAL]), CC_DESP[ATUAL], PAGS);
 };
 function fecharPrestador() { ATUAL = null; ABERTO = null; SEL = {}; if (location.search) history.replaceState(null, '', location.pathname); renderMain(); topo(); }
 
@@ -305,7 +306,7 @@ function renderDet() {
   $('vDet').innerHTML = `<button class="voltar" onclick="fecharPrestador()">‹ Voltar para todos os prestadores</button>
     <div class="card" style="margin-top:6px"><div class="row" style="justify-content:space-between"><div><div class="pname" style="font-size:22px">${esc(ATUAL)}</div>
       <div class="small mut">${pix}</div></div>${riscoChip(s.risco)}</div>
-      <div id="ccDet">${blocoFundoHTML(s, ADIS, CC_DESP[ATUAL] && livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, s, CC_PER), CC_DESP[ATUAL], PAGS)}</div>
+      <div id="ccDet">${blocoFundoHTML(s, ADIS, CC_DESP[ATUAL] && livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, s, CC_PER, CC_ITENS[ATUAL]), CC_DESP[ATUAL], PAGS)}</div>
       <div class="row">${pode ? `<button class="btn" onclick="modalAdiantamento()">Registrar adiantamento</button><button class="btn" onclick="modalPix()">PIX / conta</button>` : ''}
         <button class="btn" onclick="pdfExtratoAtual()">PDF do extrato</button></div></div>
     ${!pode ? '<div class="card warn" style="margin-top:12px">Você pode consultar, mas só o Presidente aprova e paga.</div>' : ''}
@@ -556,8 +557,8 @@ async function pixOk() {
 
 async function pdfExtratoAtual() {
   try { toast('Gerando PDF…');
-    const desp = await carregarDespesas(q => q.eq('prestador', ATUAL));
-    await pdfExtrato(ATUAL, desp, PAGS.filter(p => p.prestador === ATUAL), ADIS.filter(a => a.prestador === ATUAL), saldoDe(ATUAL), CC_PER);
+    const [desp, its] = await Promise.all([carregarDespesas(q => q.eq('prestador', ATUAL)), carregarItensDe(PAGS.filter(p => p.prestador === ATUAL && p.status !== 'cancelado').map(p => p.id))]);
+    await pdfExtrato(ATUAL, desp, PAGS.filter(p => p.prestador === ATUAL), ADIS.filter(a => a.prestador === ATUAL), saldoDe(ATUAL), CC_PER, its);
   } catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); }
 }
 

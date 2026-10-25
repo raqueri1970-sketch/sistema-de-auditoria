@@ -397,6 +397,7 @@ const carregarDespesas = (filtro = q => q) => todos(() => filtro(sb.from('obras_
 const carregarSaldos = () => todos(() => sb.from('obras_saldo_prestador').select('*').order('prestador'));
 const carregarPagamentos = () => todos(() => sb.from('obras_pagamentos').select('*').order('created_at', {ascending: false}));
 const carregarItens = () => todos(() => sb.from('obras_pagamento_itens').select('pagamento_id,comprovante_id,valor').order('id'));
+const carregarItensDe = ids => ids.length ? todos(() => sb.from('obras_pagamento_itens').select('pagamento_id,comprovante_id,valor').in('pagamento_id', ids).order('id')) : Promise.resolve([]);
 const carregarAdiantamentos = () => todos(() => sb.from('obras_adiantamentos').select('*').order('data', {ascending: false}));
 const carregarObras = () => todos(() => sb.from('obras').select('id,codigo,nome,status,palavras').order('nome'));
 const carregarPrestacoes = () => todos(() => sb.from('obras_prestacoes').select('id,numero,responsavel,periodo_inicio,periodo_fim,valor_declarado,quitada_em').order('periodo_inicio', {ascending: false, nullsFirst: false}));
@@ -430,31 +431,65 @@ const r2 = v => Math.round(Number(v || 0) * 100) / 100;
 const despNaConta = d => !pagoDireto(d) && (d.status === 'lancado' ? d.situacao !== 'recusado' && (Number(d.saldo) > 0 || d.ultimo_pagamento_numero != null)
   : d.status !== 'pagamento' && d.ultimo_pagamento_numero != null && Number(d.valor_pago) > 0);
 const valorNaConta = d => r2(Number(d.valor_pago || 0) + Number(d.valor_reservado || 0) + Number(d.saldo || 0));
-function livroCaixa(prestador, desp, pags, adis, saldo, periodo = {}) {
-  const de = periodo.de || null, ate = periodo.ate || null, mov = [];
+function livroCaixa(prestador, desp, pags, adis, saldo, periodo = {}, itens = null) {
+  const de = periodo.de || null, ate = periodo.ate || null;
   const dia = x => String(x || '').slice(0, 10);
-  for (const a of adis) if (!a.cancelado && a.prestador === prestador && a.tipo !== 'glosa')  // divergência fica fora da conta
-    mov.push({data: dia(a.data || a.created_at), ordem: 0, tipo: 'adi', hist: ADI_HIST[a.tipo] || 'Adiantamento', ent: Number(a.valor), sai: 0});
-  for (const d of desp) if (d.prestador === prestador && despNaConta(d))
-    mov.push({data: dia(d.data_despesa || d.wa_data || d.semana) || hojeISO(), ordem: 1, tipo: 'desp',
-      hist: `Despesa · ${d.fornecedor || 'fornecedor não lido'} · ${CATS[d.categoria] || d.categoria || ''}`, ent: 0, sai: valorNaConta(d)});
-  for (const p of pags) if (p.prestador === prestador && ['pago', 'auditado', 'pendencia'].includes(p.status) && Number(p.valor_pago) > 0)
-    mov.push({data: dia(p.pago_em || p.created_at), ordem: 2, tipo: 'dep',
-      hist: `Depósito (reembolso) nº ${p.numero}${p.forma_pagamento ? ' · ' + (FORMAS[p.forma_pagamento] || p.forma_pagamento) : ''}`, ent: Number(p.valor_pago), sai: 0});
-  mov.sort((a, b) => a.data.localeCompare(b.data) || a.ordem - b.ordem);
-  const saldoInicial = r2(mov.filter(m => de && m.data < de).reduce((t, m) => t + m.ent - m.sai, 0));
+  const mov = itens ? movPorRecarga(prestador, desp, pags, adis, itens) : movPorData(prestador, desp, pags, adis);
+  const noPer = m => (!de || m.data >= de) && (!ate || m.data <= ate);
+  const prim = mov.findIndex(noPer);
+  const saldoInicial = r2(mov.slice(0, prim < 0 ? mov.length : prim).reduce((t, m) => t + m.ent - m.sai, 0));
   const linhas = [{data: de, hist: 'Saldo inicial', ent: 0, sai: 0, saldo: saldoInicial}];
   const tot = {adi: 0, dep: 0, desp: 0};
-  let corr = saldoInicial;
-  for (const m of mov) {
-    if ((de && m.data < de) || (ate && m.data > ate)) continue;
-    corr = r2(corr + m.ent - m.sai); tot[m.tipo] += m.ent + m.sai; linhas.push({...m, saldo: corr});
-  }
+  let corr = 0;
+  mov.forEach((m, k) => {
+    corr = r2(corr + m.ent - m.sai);
+    if (k < prim || prim < 0 || !noPer(m)) return;
+    tot[m.tipo] += m.ent + m.sai; linhas.push({...m, saldo: corr});
+  });
+  corr = linhas[linhas.length - 1].saldo;
   const saldoTotal = r2(mov.reduce((t, m) => t + m.ent - m.sai, 0));
   const hoje = r2(Number(saldo && saldo.adiantamento_disponivel || 0) - Number(saldo && saldo.em_aberto || 0) - Number(saldo && saldo.com_financeiro || 0));
   const diferenca = r2(saldoTotal - hoje);
   return {de, ate, linhas, saldoInicial, adiantamentos: r2(tot.adi), depositos: r2(tot.dep), despesas: r2(tot.desp),
     entradas: r2(tot.adi + tot.dep), saidas: r2(tot.desp), saldoFinal: corr, saldoTotal, hoje, diferenca, confere: Math.abs(diferenca) < 0.01};
+}
+const histDesp = d => `Despesa · ${d.fornecedor || 'fornecedor não lido'} · ${CATS[d.categoria] || d.categoria || ''}`;
+const histDep = p => `Recarga (PIX) nº ${p.numero}${p.forma_pagamento && p.forma_pagamento !== 'pix' ? ' · ' + (FORMAS[p.forma_pagamento] || p.forma_pagamento) : ''}`;
+const pagoOk = (p, prestador) => p.prestador === prestador && ['pago', 'auditado', 'pendencia'].includes(p.status) && Number(p.valor_pago) > 0;
+// Por data do recibo (sem os itens dos pagamentos)
+function movPorData(prestador, desp, pags, adis) {
+  const dia = x => String(x || '').slice(0, 10), mov = [];
+  for (const a of adis) if (!a.cancelado && a.prestador === prestador && a.tipo !== 'glosa')  // divergência fica fora da conta
+    mov.push({data: dia(a.data || a.created_at), ordem: 0, tipo: 'adi', hist: ADI_HIST[a.tipo] || 'Adiantamento', ent: Number(a.valor), sai: 0});
+  for (const d of desp) if (d.prestador === prestador && despNaConta(d))
+    mov.push({data: dia(d.data_despesa || d.wa_data || d.semana) || hojeISO(), ordem: 1, tipo: 'desp', hist: histDesp(d), ent: 0, sai: valorNaConta(d)});
+  for (const p of pags) if (pagoOk(p, prestador))
+    mov.push({data: dia(p.pago_em || p.created_at), ordem: 2, tipo: 'dep', hist: histDep(p), ent: Number(p.valor_pago), sai: 0});
+  return mov.sort((a, b) => a.data.localeCompare(b.data) || a.ordem - b.ordem);
+}
+// Por recarga (25/10/2026, pedido do Ricardo): os recibos que cada PIX pagou vêm logo antes dele, então depois de cada
+// recarga o saldo volta aos 10 mil; os ainda não reembolsados ficam no fim. O total é o mesmo do modo por data.
+function movPorRecarga(prestador, desp, pags, adis, itens) {
+  const dia = x => String(x || '').slice(0, 10), mov = [], porId = new Map(desp.map(d => [d.id, d]));
+  const ps = pags.filter(p => pagoOk(p, prestador)).sort((a, b) => String(a.pago_em || a.created_at).localeCompare(String(b.pago_em || b.created_at)));
+  const as = adis.filter(a => !a.cancelado && a.prestador === prestador && a.tipo !== 'glosa').sort((a, b) => dia(a.data || a.created_at).localeCompare(dia(b.data || b.created_at)));
+  let ia = 0;
+  const poeAdis = ate => { while (ia < as.length && (ate === null || dia(as[ia].data || as[ia].created_at) < ate)) { const a = as[ia++];
+    mov.push({data: dia(a.data || a.created_at), tipo: 'adi', hist: ADI_HIST[a.tipo] || 'Adiantamento', ent: Number(a.valor), sai: 0}); } };
+  for (const p of ps) {
+    poeAdis(dia(p.pago_em || p.created_at));  // adiantamento do mesmo dia entra depois do PIX (é a sobra dele)
+    const its = itens.filter(i => i.pagamento_id === p.id).map(i => ({i, d: porId.get(i.comprovante_id)})).filter(x => x.d && !pagoDireto(x.d))
+      .sort((a, b) => String(a.d.data_despesa || '').localeCompare(String(b.d.data_despesa || '')) || String(a.d.hora_documento || '').localeCompare(String(b.d.hora_documento || '')));
+    for (const {i, d} of its) mov.push({data: dia(d.data_despesa || d.wa_data) || dia(p.pago_em), tipo: 'desp',
+      hist: histDesp(d) + (Math.abs(Number(i.valor) - Number(d.valor)) > 0.004 ? ` (parte: ${brl(i.valor)} de ${brl(d.valor)})` : ''), ent: 0, sai: Number(i.valor)});
+    mov.push({data: dia(p.pago_em || p.created_at), tipo: 'dep', hist: histDep(p), ent: Number(p.valor_pago), sai: 0});
+  }
+  poeAdis(null);
+  const abertos = desp.filter(d => d.prestador === prestador && d.status === 'lancado' && d.situacao !== 'recusado' && !pagoDireto(d) && Number(d.saldo) + Number(d.valor_reservado || 0) > 0.004)
+    .sort((a, b) => String(a.data_despesa || '').localeCompare(String(b.data_despesa || '')) || String(a.hora_documento || '').localeCompare(String(b.hora_documento || '')));
+  for (const d of abertos) mov.push({data: dia(d.data_despesa || d.wa_data || d.semana) || hojeISO(), tipo: 'desp',
+    hist: histDesp(d) + ' · em aberto', ent: 0, sai: r2(Number(d.saldo) + Number(d.valor_reservado || 0))});
+  return mov;
 }
 const auditoriaConta = lc => lc.confere ? 'Conta conferida: o saldo final bate com o sistema.'
   : `ATENÇÃO: a conta não fecha. Extrato ${brl(lc.saldoTotal)} × sistema ${brl(lc.hoje)} (diferença ${brl(lc.diferenca)}).`;
@@ -824,7 +859,7 @@ async function pdfPagamento(pagId) {
 }
 
 // Extrato completo de um prestador (despesas, pagamentos, adiantamentos e saldo). periodo = {de, ate} opcional.
-function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
+function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}, itens = null) {
   const noPer = d => (!periodo.de || d >= periodo.de) && (!periodo.ate || d <= periodo.ate);
   const lancTodos = desp.filter(d => d.status === 'lancado' && noPer(d.data_despesa || ''));
   const lanc = lancTodos.filter(d => !pagoDireto(d)), diretos = lancTodos.filter(pagoDireto);
@@ -834,7 +869,7 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   const pg = pags.filter(p => p.status !== 'cancelado' && noPer((p.pago_em || p.created_at || '').slice(0, 10)));
   const ad = adis.filter(a => !a.cancelado && noPer(a.data));
   const per = periodo.de || periodo.ate ? `Período ${periodo.de ? dBRano(periodo.de) : 'início'} a ${periodo.ate ? dBRano(periodo.ate) : 'hoje'}` : 'Todo o período';
-  const lc = livroCaixa(prestador, desp, pags, adis, saldo, periodo), porCat = {};
+  const lc = livroCaixa(prestador, desp, pags, adis, saldo, periodo, itens), porCat = {};
   const ci = cicloAtual(prestador, desp, pags, adis, {prestador, ...saldo});
   for (const d of lanc) if (d.situacao !== 'recusado') porCat[CATS[d.categoria] || d.categoria || 'Outros'] = (porCat[CATS[d.categoria] || d.categoria || 'Outros'] || 0) + Number(d.valor);
   const desde = ci ? ` - desde a recarga de ${dBR(ci.desde.slice(0, 10))} às ${ci.desde.slice(11)} (${brl(ci.pix.valor_pago)})` : '';
