@@ -131,7 +131,7 @@ function renderMain() {
     return `<div class="card clic pc" onclick="abrirPrestador(SALDOS_ORD[${i}])"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${emDia ? '<span class="chip r-normal">EM DIA</span>' : riscoChip(s.risco)}</div>
       <div class="pc-caixa"><div class="l">${f.reembolso > 0.004 ? 'REEMBOLSAR para o fundo voltar a ' + brl(f.fundo) : 'Fundo completo'}</div>
         <div class="v" style="color:${f.reembolso > 0.004 ? '#fcd34d' : '#86efac'}">${brl(f.reembolso)}</div>
-        <div class="n">fundo ${brl(f.fundo)} − gastou ${brl(f.gasto)} = ${brl(f.saldo)} com ele</div></div>
+        <div class="n">${f.falta > 0.004 ? 'recebeu ' + brl(f.recebido) : 'fundo ' + brl(f.fundo)} − gastou ${brl(f.gasto)} = ${brl(f.saldo)} com ele</div></div>
       <div class="pc-3">
         <div><span>Fundo</span><b style="color:#93c5fd">${brl(f.fundo)}</b><span>adiantamento</span></div>
         <div><span>Gastou</span><b style="color:#fdba74">${brl(f.gasto)}</b><span>${s.itens_abertos} despesa(s)</span></div>

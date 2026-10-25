@@ -486,19 +486,24 @@ function ccBuscadorHTML() {
 // ---------- Fundo do prestador (25/10/2026, pedido do Ricardo: "mais simples") ----------
 // Recebeu R$ 10 mil para usar. Gastou 8 → tem 2 com ele → a empresa reembolsa 8 → volta a ter 10. E assim por diante.
 // Fundo = adiantamento ainda não descontado (sem glosa e sem crédito de PIX); gastou = despesas ainda não reembolsadas.
+// O fundo é sempre R$ 10 mil (Jhony e Josemar). Se ele recebeu menos (ex.: Josemar R$ 9.999,74), a diferença entra no reembolso.
+const FUNDO_FIXO = 10000;
 function fundoPrestador(s, adis) {
   const ad = adis.filter(a => a.prestador === s.prestador && !a.cancelado);
   const glosa = r2(ad.filter(a => a.tipo === 'glosa').reduce((t, a) => t + Number(a.valor), 0));
   const credito = r2(ad.filter(a => a.tipo === 'credito_pix').reduce((t, a) => t + Number(a.valor), 0));
-  const fundo = r2(Math.max(Number(s.adiantamento_disponivel || 0) - glosa - credito, 0));
-  const gasto = r2(Number(s.em_aberto || 0) + Number(s.com_financeiro || 0));
-  return {fundo, gasto, glosa, credito, saldo: r2(fundo - gasto), reembolso: r2(Math.max(gasto - glosa - credito, 0)), n: Number(s.itens_abertos || 0)};
+  const recebido = r2(Math.max(Number(s.adiantamento_disponivel || 0) - glosa - credito, 0));
+  const fundo = recebido > 0 ? Math.max(FUNDO_FIXO, recebido) : 0;
+  const gasto = r2(Number(s.em_aberto || 0) + Number(s.com_financeiro || 0)), saldo = r2(recebido - gasto);
+  return {fundo, recebido, falta: r2(fundo - recebido), gasto, glosa, credito, saldo,
+    reembolso: r2(Math.max(fundo - saldo - glosa - credito, 0)), n: Number(s.itens_abertos || 0)};
 }
 function fundoHTML(f) {
   const pct = f.fundo > 0 ? Math.min(100, Math.round(f.gasto / f.fundo * 100)) : (f.gasto > 0 ? 100 : 0), passou = f.saldo < 0;
-  const desc = [f.glosa ? `glosa de ${brl(f.glosa)} já descontada` : '', f.credito ? `crédito de PIX de ${brl(f.credito)} já descontado` : ''].filter(Boolean).join(' e ');
+  const desc = [f.falta > 0.004 ? `inclui ${brl(f.falta)} que faltaram no adiantamento` : '', f.glosa ? `glosa de ${brl(f.glosa)} já descontada` : '',
+    f.credito ? `crédito de PIX de ${brl(f.credito)} já descontado` : ''].filter(Boolean).join('; ');
   return `<div class="mini" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-      <div><b style="color:#93c5fd">${brl(f.fundo)}</b><span>fundo (adiantamento)</span></div>
+      <div><b style="color:#93c5fd">${brl(f.fundo)}</b><span>fundo${f.falta > 0.004 ? ` · recebeu ${brl(f.recebido)}` : ' (adiantamento)'}</span></div>
       <div><b style="color:#fdba74">− ${brl(f.gasto)}</b><span>gastou · ${f.n} despesa(s)</span></div>
       <div><b style="color:${passou ? '#fca5a5' : '#86efac'}">${brl(f.saldo)}</b><span>${passou ? 'gastou além do fundo' : 'saldo com ele'}</span></div></div>
     <div style="height:8px;border-radius:6px;background:var(--line);overflow:hidden;margin:2px 0 8px" title="${pct}% do fundo usado">
