@@ -1,0 +1,6 @@
+-- 25/10/2026 (pedido do Ricardo) — JÁ APLICADA no projeto "sistema de auditoria" (registro).
+-- obras_saldo_prestador:
+--   adiantamento_disponivel / total_adiantado: sem as glosas (tipo = 'glosa'), que viram a nova coluna DIVERGENCIA (à parte).
+--   saldo_devedor (Recarga): fundo sempre 10 mil -> 10000 − (greatest(crédito, 10000) − em aberto − com o financeiro);
+--     sem fundo: em aberto + com o financeiro. A divergência NÃO entra na recarga.
+-- obras_pix_paga_prestador: o fundo para completar os 10 mil conta só adiantamentos tipo 'fundo'.
