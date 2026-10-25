@@ -6,6 +6,18 @@ Objetivo: todo mês, saber **funcionário por funcionário** quanto deveria ser 
 - Banco: `supabase/migrations/20261023_cred_desconto_folha.sql` (tabelas `cred_*`, RLS, função `cred_importar`). Aplicada em produção em 23/10/2026.
 - PDF e gráficos: os mesmos dos módulos de Obras (`obras-contas-pagar/comum.js` → `gerarPDF`, `svgGrafico`), com logo e assinaturas.
 
+## Central de carregamento (25/10/2026)
+
+Em "Arquivos do mês" (ou no botão **📥 Carregar arquivos** do topo) dá para soltar **todos os arquivos do mês de uma vez**. A tela reconhece cada um pelo nome e pelas colunas — compras no crediário (Seta), crediário dos funcionários (RH), ativos, inativos/desligados, planilha desconto de FOLHA, baixas —, mostra linhas, total, período e avisos de cada um, deixa trocar o tipo/aba/competência e grava na ordem cadastro → desligados → compras → descontos → baixas. Arquivo já importado é pulado.
+
+## Desconto parcela a parcela (arquivo do RH)
+
+O "CREDIARIO DOS FUNCIONARIOS" do RH vem parcela a parcela (documento CE…-3/5, parcela, vencimento). Cada parcela descontada é ligada à compra (CPF + documento + parcela). Na importação escolhe-se em que folha as parcelas foram descontadas: **pela regra** (cada parcela na folha em que cai) ou **todas numa folha só** (competência informada). A conferência é sempre com a parcela certa; se a competência informada for diferente da regra, a tela avisa. O arquivo cobre só os vencimentos que traz (ex.: 21/10 a 23/10): as outras parcelas da mesma folha ficam "fora do arquivo" (não viram "não descontou") e o painel mostra quantas são. Aponta também parcela descontada 2x e parcela descontada que não está nas compras.
+
+## Ex-funcionários
+
+Relatório "Desligados no Período" (tabela `cred_desligados`, migração `20261025_cred_desligados.sql`). Para cada desligado com crediário: débito em aberto (parcelas ainda no crediário — devia ter sido descontado na rescisão), já vencido e a vencer (débito futuro), desconto em folha depois da saída (não acontece: a folha de M só existe para quem estava na empresa no início de M), compra depois da saída e readmitidos (saíram e voltaram; compra entre a saída e a volta é apontada). Aba **Ex-funcionários** com PDF, impressão e planilha; card próprio no Portal.
+
 ## Rotina do mês (aba "Arquivos do mês")
 
 | Arquivo | Quando | O que a tela confere ao importar |
