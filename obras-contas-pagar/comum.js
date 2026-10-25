@@ -551,6 +551,27 @@ function contaSemanal(prestador, desp, pags, adis, saldo, periodo = {}) {
   });
   return sem.filter(w => (!periodo.de || w.fim >= periodo.de) && (!periodo.ate || w.sem <= periodo.ate));
 }
+// Ciclo atual (25/10/2026, pedido do Ricardo): a última recarga (PIX) completa os R$ 10 mil; o que ele gasta depois sai desses 10 mil.
+// Entrada = glosas/créditos depois da recarga + o que o PIX pagou a mais (ou − a menos) para fechar os 10 mil. Saldo = o do sistema.
+const momentoSP = iso => { const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'})
+  .formatToParts(new Date(iso)).map(x => [x.type, x.value])); return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`; };
+function cicloAtual(prestador, desp, pags, adis, saldo) {
+  const ult = pags.filter(p => p.prestador === prestador && ['pago', 'auditado', 'pendencia'].includes(p.status) && Number(p.valor_pago) > 0 && p.pago_em)
+    .sort((a, b) => String(b.pago_em).localeCompare(String(a.pago_em)))[0];
+  if (!ult) return null;
+  const t0 = momentoSP(ult.pago_em), quando = d => `${String(d.data_despesa || '').slice(0, 10)} ${String(d.hora_documento || '12:00').slice(0, 5)}`;
+  const gastos = desp.filter(d => d.prestador === prestador && despNaConta(d) && d.data_despesa && quando(d) >= t0);
+  const saida = r2(gastos.reduce((t, d) => t + valorNaConta(d), 0));
+  const creditos = r2(adis.filter(a => a.prestador === prestador && !a.cancelado && momentoSP(a.created_at || a.data) > t0).reduce((t, a) => t + Number(a.valor), 0));
+  const saldoFim = r2(Number(saldo.adiantamento_disponivel || 0) - Number(saldo.em_aberto || 0) - Number(saldo.com_financeiro || 0));
+  // recibos de ANTES da recarga que o PIX não pagou (ainda em aberto): faltou para fechar os 10 mil
+  const fora = desp.filter(d => d.prestador === prestador && d.status === 'lancado' && Number(d.saldo) > 0 && d.data_despesa && quando(d) < t0)
+    .sort((a, b) => quando(a).localeCompare(quando(b)));
+  const faltou = r2(fora.reduce((t, d) => t + Number(d.saldo), 0));
+  const ajuste = r2(saldoFim - (FUNDO_FIXO + creditos - saida));
+  return {pix: ult, desde: t0, ini: FUNDO_FIXO, fora, faltou, entrada: r2(creditos + ajuste + faltou), creditos, ajuste, saida, n: gastos.length,
+    saldo: saldoFim, recarga: recargaDe(saldoFim), quando};
+}
 // Semana a semana: saldo inicial + depositado − gastos = saldo final; recarga devida × depositado mostra se completou os 10 mil
 function secaoSemanas(sem) {
   return {titulo: 'Conta corrente por semana',
@@ -656,6 +677,7 @@ function tomResumo(rotulo, valor) {
   if (l === 'saldo') return neg ? 'vermelho' : 'verde';
   if (l === 'saldo anterior' || l === 'saldo inicial') return 'cinza';
   if (l === 'recarga') return 'azul';
+  if (l === 'faltou no pix') return 'vermelho';
   if (/caixa/.test(l)) return neg ? 'vermelho' : 'verde';
   if (/duplic|pago a mais|crític|pendênc|recusad/.test(l)) return zero ? 'verde' : 'vermelho';
   if (/a pagar|em aberto|aberto|aguardando|atenção|com ponto/.test(l)) return zero ? 'verde' : 'laranja';
@@ -786,15 +808,26 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   const ad = adis.filter(a => !a.cancelado && noPer(a.data));
   const per = periodo.de || periodo.ate ? `Período ${periodo.de ? dBRano(periodo.de) : 'início'} a ${periodo.ate ? dBRano(periodo.ate) : 'hoje'}` : 'Todo o período';
   const lc = livroCaixa(prestador, desp, pags, adis, saldo, periodo), porCat = {};
+  const ci = cicloAtual(prestador, desp, pags, adis, {prestador, ...saldo});
   for (const d of lanc) if (d.situacao !== 'recusado') porCat[CATS[d.categoria] || d.categoria || 'Outros'] = (porCat[CATS[d.categoria] || d.categoria || 'Outros'] || 0) + Number(d.valor);
-  return {titulo: `Extrato do prestador - ${prestador}`, subtitulo: `Obras & Reformas - Esposende - ${per}`,
+  const desde = ci && !periodo.de && !periodo.ate ? ` - desde a recarga de ${dBR(ci.desde.slice(0, 10))} às ${ci.desde.slice(11)} (${brl(ci.pix.valor_pago)})` : '';
+  return {titulo: `Extrato do prestador - ${prestador}`, subtitulo: `Obras & Reformas - Esposende - ${per}${desde}`,
     graficos: [{titulo: 'Caixa com o prestador dia a dia', tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'},
       {titulo: 'Despesas do período por categoria', tipo: 'barras', itens: Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({rotulo: k, a: v}))}],
     // Fundo fixo de R$ 10 mil (25/10/2026, pedido do Ricardo): saldo inicial + entrada (recarga) − saída (gastos) = saldo;
     // a próxima recarga é o que falta para voltar a 10 mil (gastou 8 → saldo 2 → recarga 8; gastou 12 → saldo −2 → recarga 12)
-    resumo: [['Saldo inicial', brl(lc.saldoInicial)], ['Entrada', brl(lc.entradas)], ['Saída', brl(lc.saidas)], ['Saldo', brl(lc.saldoFinal)],
-      ['Recarga', brl(recargaDe(lc.saldoFinal))]],
+    // Sem período escolhido: o ciclo desde a última recarga (começa com os 10 mil). Com período: a conta do período.
+    resumo: ci && !periodo.de && !periodo.ate
+      ? [['Saldo inicial', brl(ci.ini)], ...(ci.faltou > 0.004 ? [['Faltou no PIX', brl(-ci.faltou)]] : []),
+        ['Entrada', brl(ci.entrada)], ['Saída', brl(ci.saida)], ['Saldo', brl(ci.saldo)], ['Recarga', brl(ci.recarga)]]
+      : [['Saldo inicial', brl(lc.saldoInicial)], ['Entrada', brl(lc.entradas)], ['Saída', brl(lc.saidas)], ['Saldo', brl(lc.saldoFinal)], ['Recarga', brl(recargaDe(lc.saldoFinal))]],
     secoes: [
+      ...(ci && ci.fora.length && !periodo.de && !periodo.ate ? [{titulo: `Recibos de antes da recarga que o PIX não pagou (${ci.fora.length})`,
+        nota: `PIX de ${dBR(ci.desde.slice(0, 10))} às ${ci.desde.slice(11)} (${brl(ci.pix.valor_pago)}). Entram na próxima recarga.`,
+        cab: ['Recibo', 'Enviado no grupo', 'Fornecedor', 'Em aberto', 'Na hora do PIX'], direita: [3],
+        linhas: ci.fora.map(d => [dBR(d.data_despesa) + ' ' + String(d.hora_documento || '').slice(0, 5), d.wa_data ? dBR(momentoSP(d.wa_data).slice(0, 10)) + ' ' + momentoSP(d.wa_data).slice(11) : '',
+          d.fornecedor || '', V(d.saldo), d.wa_data && momentoSP(d.wa_data) < ci.desde ? 'já estava no sistema' : 'enviado depois']),
+        rodape: ['Total', '', '', V(ci.faltou), '']}] : []),
       secaoSemanas(contaSemanal(prestador, desp, pags, adis, saldo, periodo)),
       secaoLivroCaixa(lc),
       {titulo: `Contas a pagar em aberto (${abertos.length})`, nota: 'Saldo acumulado de todas as semanas ainda não pagas.', cab: ['Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Situação'],
