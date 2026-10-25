@@ -378,11 +378,11 @@ window.ccRedesenhar = () => mostrarConta();
 function mostrarConta() {
   const box = $('contaDet'), c = CONTA_ABERTA && CONTAS[CONTA_ABERTA];
   if (!c) { box.innerHTML = ''; return; }
+  const sal = D.saldos.find(s => s.prestador === CONTA_ABERTA) || {prestador: CONTA_ABERTA};
   box.innerHTML = `<div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between"><div class="pname">Conta de ${esc(CONTA_ABERTA)}</div>
     <button class="btn" onclick="CONTA_ABERTA=null;mostrarConta()">Fechar ✕</button></div>
-    <div class="small" style="margin-top:8px;font-weight:600">Conta corrente</div>
-    ${contaCorrenteHTML(livroCaixa(CONTA_ABERTA, D.desp, D.pags, D.adis, D.saldos.find(s => s.prestador === CONTA_ABERTA) || {}, CC_PER))}
-    <div class="small" style="margin-top:8px;font-weight:600">Foto a foto: crédito − despesas em aberto</div>${contaResumoHTML(c)}${contaExtratoHTML(c)}</div>`;
+    ${blocoFundoHTML(sal, D.adis, livroCaixa(CONTA_ABERTA, D.desp, D.pags, D.adis, sal, CC_PER))}
+    <details style="margin:4px 0 8px"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver as despesas em aberto foto a foto</summary>${contaExtratoHTML(c)}</details></div>`;
 }
 
 async function extrato(i) {

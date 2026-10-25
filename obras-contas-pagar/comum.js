@@ -483,21 +483,48 @@ function ccBuscadorHTML() {
     ${at('mes', 'Este mês', p.de === hojeISO().slice(0, 8) + '01' && p.ate === hojeISO())}${at('30', '30 dias', p.de === somaDias(hojeISO(), -29) && p.ate === hojeISO())}${at('tudo', 'Tudo', tudo)}</div>
     <div class="small mut">${tudo ? 'Todo o período' : `Período ${p.de ? dBRano(p.de) : 'início'} a ${p.ate ? dBRano(p.ate) : 'hoje'}`}</div>`;
 }
+// ---------- Fundo do prestador (25/10/2026, pedido do Ricardo: "mais simples") ----------
+// Recebeu R$ 10 mil para usar. Gastou 8 → tem 2 com ele → a empresa reembolsa 8 → volta a ter 10. E assim por diante.
+// Fundo = adiantamento ainda não descontado (sem glosa e sem crédito de PIX); gastou = despesas ainda não reembolsadas.
+function fundoPrestador(s, adis) {
+  const ad = adis.filter(a => a.prestador === s.prestador && !a.cancelado);
+  const glosa = r2(ad.filter(a => a.tipo === 'glosa').reduce((t, a) => t + Number(a.valor), 0));
+  const credito = r2(ad.filter(a => a.tipo === 'credito_pix').reduce((t, a) => t + Number(a.valor), 0));
+  const fundo = r2(Math.max(Number(s.adiantamento_disponivel || 0) - glosa - credito, 0));
+  const gasto = r2(Number(s.em_aberto || 0) + Number(s.com_financeiro || 0));
+  return {fundo, gasto, glosa, credito, saldo: r2(fundo - gasto), reembolso: r2(Math.max(gasto - glosa - credito, 0)), n: Number(s.itens_abertos || 0)};
+}
+function fundoHTML(f) {
+  const pct = f.fundo > 0 ? Math.min(100, Math.round(f.gasto / f.fundo * 100)) : (f.gasto > 0 ? 100 : 0), passou = f.saldo < 0;
+  const desc = [f.glosa ? `glosa de ${brl(f.glosa)} já descontada` : '', f.credito ? `crédito de PIX de ${brl(f.credito)} já descontado` : ''].filter(Boolean).join(' e ');
+  return `<div class="mini" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+      <div><b style="color:#93c5fd">${brl(f.fundo)}</b><span>fundo (adiantamento)</span></div>
+      <div><b style="color:#fdba74">− ${brl(f.gasto)}</b><span>gastou · ${f.n} despesa(s)</span></div>
+      <div><b style="color:${passou ? '#fca5a5' : '#86efac'}">${brl(f.saldo)}</b><span>${passou ? 'gastou além do fundo' : 'saldo com ele'}</span></div></div>
+    <div style="height:8px;border-radius:6px;background:var(--line);overflow:hidden;margin:2px 0 8px" title="${pct}% do fundo usado">
+      <div style="height:100%;width:${pct}%;background:${passou ? '#ef4444' : pct > 80 ? '#f59e0b' : '#22c55e'}"></div></div>
+    <div style="font-size:15px;margin:4px 0 8px">${f.reembolso > 0.004
+      ? `<b>Reembolsar ${brl(f.reembolso)}</b> para ele voltar a ter ${brl(f.fundo)}${desc ? ` <span class="small mut">(${desc})</span>` : ''}.`
+      : '<b>Nada a reembolsar</b>: o fundo está completo.'}</div>`;
+}
+// Extrato detalhado (fica escondido em "Ver extrato"): buscador por período, resumo em uma linha, auditoria e lançamentos
 function contaCorrenteHTML(lc) {
   const cor = v => v < 0 ? '#fcd34d' : '#86efac';
   const lin = lc.linhas.slice(1).map(l => `<tr><td>${dBR(l.data)}</td><td>${esc(l.hist)}</td>
     <td class="r">${l.ent ? '+ ' + brl(l.ent) : ''}</td><td class="r">${l.sai ? '− ' + brl(l.sai) : ''}</td><td class="r"><b style="color:${cor(l.saldo)}">${brl(l.saldo)}</b></td></tr>`).join('');
-  return `${ccBuscadorHTML()}<div class="mini">
-      <div><b>${brl(lc.saldoInicial)}</b><span>saldo inicial</span></div>
-      <div><b style="color:#93c5fd">+ ${brl(lc.adiantamentos)}</b><span>adiantamentos</span></div>
-      <div><b style="color:#86efac">+ ${brl(lc.depositos)}</b><span>depósitos (reembolsos)</span></div>
-      <div><b style="color:#fdba74">− ${brl(lc.despesas)}</b><span>despesas</span></div>
-      <div><b style="color:${cor(lc.saldoFinal)}">${brl(lc.saldoFinal)}</b><span>${lc.saldoFinal < 0 ? 'saldo final · empresa deve a ele' : 'saldo final · com o prestador'}</span></div></div>
-    <div class="small ${lc.confere ? 'mut' : 'crit'}" style="margin:-4px 0 6px">${lc.confere ? '✔' : '⚠'} ${esc(auditoriaConta(lc))}</div>
-    <details style="margin:4px 0 8px" ${CC_EXT ? 'open' : ''} ontoggle="CC_EXT=this.open"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver o extrato linha a linha (${lc.linhas.length - 1} lançamentos${lc.de || lc.ate ? ' no período' : ''})</summary>
-      <div class="tw"><table><tr><th>Data</th><th>Histórico</th><th class="r">Entrada</th><th class="r">Saída</th><th class="r">Saldo</th></tr>
-        <tr><td></td><td><b>Saldo inicial</b></td><td></td><td></td><td class="r"><b>${brl(lc.saldoInicial)}</b></td></tr>${lin}
-        <tfoot><tr><td></td><td>Saldo final</td><td class="r">${brl(lc.entradas)}</td><td class="r">${brl(lc.saidas)}</td><td class="r">${brl(lc.saldoFinal)}</td></tr></tfoot></table></div></details>`;
+  return `${ccBuscadorHTML()}
+    <div class="small" style="margin:6px 0">Saldo inicial <b>${brl(lc.saldoInicial)}</b> + adiantamentos <b>${brl(lc.adiantamentos)}</b> + reembolsos <b>${brl(lc.depositos)}</b>
+      − despesas <b>${brl(lc.despesas)}</b> = <b style="color:${cor(lc.saldoFinal)}">${brl(lc.saldoFinal)}</b></div>
+    <div class="small ${lc.confere ? 'mut' : 'crit'}" style="margin:0 0 6px">${lc.confere ? '✔' : '⚠'} ${esc(auditoriaConta(lc))}</div>
+    <div class="tw"><table><tr><th>Data</th><th>Histórico</th><th class="r">Entrada</th><th class="r">Saída</th><th class="r">Saldo</th></tr>
+      <tr><td></td><td><b>Saldo inicial</b></td><td></td><td></td><td class="r"><b>${brl(lc.saldoInicial)}</b></td></tr>${lin}
+      <tfoot><tr><td></td><td>Saldo final</td><td class="r">${brl(lc.entradas)}</td><td class="r">${brl(lc.saidas)}</td><td class="r">${brl(lc.saldoFinal)}</td></tr></tfoot></table></div>`;
+}
+// Bloco da tela: o fundo (simples) em cima e o extrato escondido em "Ver extrato"
+function blocoFundoHTML(s, adis, lc) {
+  return `${fundoHTML(fundoPrestador(s, adis))}
+    <details style="margin:4px 0 8px" ${CC_EXT ? 'open' : ''} ontoggle="CC_EXT=this.open"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver extrato (entradas, saídas e saldo dia a dia)</summary>
+      ${lc ? contaCorrenteHTML(lc) : '<div class="small mut">Carregando o extrato…</div>'}</details>`;
 }
 function secaoLivroCaixa(lc) {
   return {titulo: 'Conta corrente',

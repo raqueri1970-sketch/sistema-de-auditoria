@@ -59,7 +59,7 @@
 <div id="toast" class="toast"></div>
 <script src="../obras-contas-pagar/comum.js?v=20261019-1"></script>
 <script>
-let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], FLUXO = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = true;
+let SALDOS = [], DESP = [], PAGS = [], ADIS = [], PIXP = [], FLUXO = [], PAP = {}, ATUAL = null, ABERTO = null, SEL = {}, DESCONTAR = false;  // fundo fixo: o reembolso não desconta o adiantamento (25/10/2026)
 let ORCS = [], ACEITOS = new Map(), VENDO_ORC = false, OBRAS = [], SEM_INICIAL = null, DUPS = [], CC_DESP = {};
 
 async function carregar() {
@@ -124,24 +124,25 @@ function renderMain() {
     </section>`;
   const lista = SALDOS.filter(prestVisivel).sort((a, b) => b.saldo_devedor - a.saldo_devedor || b.com_financeiro - a.com_financeiro || a.prestador.localeCompare(b.prestador));
   $('cards').innerHTML = lista.map((s, i) => {
-    const emDia = Number(s.em_aberto) === 0 && Number(s.com_financeiro) === 0, em = Number(s.em_aberto), cred = Number(s.adiantamento_disponivel), res = cred - em;
+    const emDia = Number(s.em_aberto) === 0 && Number(s.com_financeiro) === 0;
+    const f = fundoPrestador(s, ADIS);
     const dupsP = DUPS.filter(x => x.d.prestador === s.prestador), dupSomP = dupsP.filter(x => x.caso.startsWith('somada'));
     const pctR = Number(s.total_despesas) > 0 ? Math.min(100, Math.round(Number(s.total_pago) / Number(s.total_despesas) * 100)) : 100;
     return `<div class="card clic pc" onclick="abrirPrestador(SALDOS_ORD[${i}])"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${emDia ? '<span class="chip r-normal">EM DIA</span>' : riscoChip(s.risco)}</div>
-      <div class="pc-caixa"><div class="l">${res < 0 ? 'A PAGAR ao prestador' : 'Caixa com ele hoje (dinheiro da empresa)'}</div>
-        <div class="v" style="color:${res < 0 ? '#fcd34d' : '#86efac'}">${brl(res < 0 ? s.saldo_devedor : res)}</div>
-        <div class="n">crédito ${brl(cred)} − gasto em aberto ${brl(em)}</div></div>
+      <div class="pc-caixa"><div class="l">${f.reembolso > 0.004 ? 'REEMBOLSAR para o fundo voltar a ' + brl(f.fundo) : 'Fundo completo'}</div>
+        <div class="v" style="color:${f.reembolso > 0.004 ? '#fcd34d' : '#86efac'}">${brl(f.reembolso)}</div>
+        <div class="n">fundo ${brl(f.fundo)} − gastou ${brl(f.gasto)} = ${brl(f.saldo)} com ele</div></div>
       <div class="pc-3">
-        <div><span>Crédito</span><b style="color:#93c5fd">${brl(cred)}</b><span>adiantado ${brl(s.total_adiantado)}</span></div>
-        <div><span>Gasto em aberto</span><b style="color:#fdba74">${brl(em)}</b><span>${s.itens_abertos} despesa(s)</span></div>
-        <div><span>A pagar</span><b style="color:${res < 0 ? '#fcd34d' : '#86efac'}">${brl(res < 0 ? s.saldo_devedor : 0)}</b><span>${res < 0 ? 'gasto − crédito' : 'crédito cobre'}</span></div>
+        <div><span>Fundo</span><b style="color:#93c5fd">${brl(f.fundo)}</b><span>adiantamento</span></div>
+        <div><span>Gastou</span><b style="color:#fdba74">${brl(f.gasto)}</b><span>${s.itens_abertos} despesa(s)</span></div>
+        <div><span>Saldo com ele</span><b style="color:${f.saldo < 0 ? '#fca5a5' : '#86efac'}">${brl(f.saldo)}</b><span>${f.saldo < 0 ? 'gastou além do fundo' : 'ainda pode usar'}</span></div>
       </div>
       ${s.semana_mais_antiga && s.itens_abertos ? `<div class="pc-per">Em aberto desde <b>${dBR(s.semana_mais_antiga)}</b> · ${s.semanas_abertas} semana(s)</div>` : ''}
       <div class="pc-per">Reembolsado até hoje <b>${brl(s.total_pago)}</b> de ${brl(s.total_despesas)} (${pctR}%)<div class="progresso" style="max-width:none;margin:6px 0 0"><i style="width:${pctR}%"></i></div></div>
       ${Number(s.com_financeiro) ? `<div class="warn" style="margin-top:8px">Aprovado, aguardando pagamento: <b>${brl(s.com_financeiro)}</b></div>` : ''}
       ${dupsP.length ? `<div class="${dupSomP.length ? 'crit' : 'warn'}" style="margin-top:6px">⚠ ${dupsP.length} duplicidade(s) para decidir${dupSomP.length ? ` · ${dupSomP.length} SOMADA(S) no total` : ' · nenhuma somada'}</div>` : ''}
       ${s.criticos ? `<div class="crit">⚠ ${s.criticos} ponto(s) crítico(s) do Auditor</div>` : ''}
-      <div class="row" style="margin-top:12px"><span class="btn ${res < 0 ? 'b-pri' : ''}">${emDia ? 'Ver histórico' : res < 0 ? 'Ver despesas e pagar' : 'Ver despesas'} ›</span></div></div>`;
+      <div class="row" style="margin-top:12px"><span class="btn ${f.reembolso > 0.004 ? 'b-pri' : ''}">${emDia ? 'Ver histórico' : f.reembolso > 0.004 ? 'Ver despesas e reembolsar' : 'Ver despesas'} ›</span></div></div>`;
   }).join('') || '<div class="card vazio">Nenhum prestador com despesas.</div>';
   window.SALDOS_ORD = lista.map(s => s.prestador);
   renderPagamentos($('pagamentos'), PAGS.slice(0, 25));
@@ -279,7 +280,7 @@ function abrirPrestador(nome, manterSelecao = false) {
   VENDO_ORC = false; $('vOrc').classList.add('hidden');
   ATUAL = nome; ABERTO = nome;
   const itens = DESP.filter(d => d.prestador === nome && Number(d.saldo) > 0);
-  if (!manterSelecao) { SEL = {}; DESCONTAR = true; }
+  if (!manterSelecao) { SEL = {}; DESCONTAR = false; }
   for (const d of itens) if (!SEL[d.id]) SEL[d.id] = {on: !manterSelecao && d.criticos === 0 && (!SEM_INICIAL || d.semana === SEM_INICIAL), valor: Number(d.saldo), just: ''};
   SEM_INICIAL = null;
   for (const d of itens) if (SEL[d.id].valor > Number(d.saldo)) SEL[d.id].valor = Number(d.saldo);
@@ -295,7 +296,7 @@ async function carregarContaCorrente(nome) {
 }
 window.ccRedesenhar = () => {
   const el = $('ccDet');
-  if (el && ATUAL && CC_DESP[ATUAL]) el.innerHTML = contaCorrenteHTML(livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, saldoDe(ATUAL), CC_PER));
+  if (el && ATUAL && CC_DESP[ATUAL]) el.innerHTML = blocoFundoHTML(saldoDe(ATUAL), ADIS, livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, saldoDe(ATUAL), CC_PER));
 };
 function fecharPrestador() { ATUAL = null; ABERTO = null; SEL = {}; if (location.search) history.replaceState(null, '', location.pathname); renderMain(); topo(); }
 
@@ -311,14 +312,7 @@ function renderDet() {
   $('vDet').innerHTML = `<button class="voltar" onclick="fecharPrestador()">‹ Voltar para todos os prestadores</button>
     <div class="card" style="margin-top:6px"><div class="row" style="justify-content:space-between"><div><div class="pname" style="font-size:22px">${esc(ATUAL)}</div>
       <div class="small mut">${pix}</div></div>${riscoChip(s.risco)}</div>
-      <div class="small" style="margin-top:10px;font-weight:600">Conta corrente</div>
-      <div id="ccDet">${CC_DESP[ATUAL] ? contaCorrenteHTML(livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, s, CC_PER)) : '<div class="small mut">Carregando a conta corrente…</div>'}</div>
-      <details style="margin:4px 0 8px"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver a conta foto a foto (adiantamento − despesas)</summary>${contaExtratoHTML(contaPrestador(s, DESP, ADIS, PAGS))}</details>
-      <div class="mini">
-        <div><b>${brl(s.em_aberto)}</b><span>despesas em aberto</span></div>
-        <div><b>${brl(s.adiantamento_disponivel)}</b><span>adiantamento a descontar</span></div>
-        <div><b style="color:#fcd34d">${brl(s.saldo_devedor)}</b><span>total a pagar</span></div>
-        <div><b>${s.semanas_abertas || 0}</b><span>semana(s) em aberto</span></div></div>
+      <div id="ccDet">${blocoFundoHTML(s, ADIS, CC_DESP[ATUAL] && livroCaixa(ATUAL, CC_DESP[ATUAL], PAGS, ADIS, s, CC_PER))}</div>
       <div class="row">${pode ? `<button class="btn" onclick="modalAdiantamento()">Registrar adiantamento</button><button class="btn" onclick="modalPix()">PIX / conta</button>` : ''}
         <button class="btn" onclick="pdfExtratoAtual()">PDF do extrato</button></div></div>
     ${!pode ? '<div class="card warn" style="margin-top:12px">Você pode consultar, mas só o Presidente aprova e paga.</div>' : ''}
@@ -392,7 +386,7 @@ function atualizarRodape() {
       ${r.desconto ? `<div><b>− ${brl(r.desconto)}</b><span>adiantamento</span></div>` : ''}
       <div><b style="color:#86efac">${brl(r.aPagar)}</b><span>pagar agora</span></div>
       <div><b style="color:#fcd34d">${brl(r.fica)}</b><span>continua em aberto</span></div></div>
-    ${r.disp ? `<label class="chk" style="margin-bottom:8px"><input type="checkbox" ${DESCONTAR ? 'checked' : ''} onchange="DESCONTAR=this.checked;atualizarRodape()"> Descontar adiantamento (${brl(r.disp)} disponível)</label>` : ''}
+    ${r.disp ? `<label class="chk" style="margin-bottom:8px"><input type="checkbox" ${DESCONTAR ? 'checked' : ''} onchange="DESCONTAR=this.checked;atualizarRodape()"> Descontar o fundo de ${brl(r.disp)} (só no acerto final, quando ele devolve o fundo)</label>` : ''}
     <div class="row" style="justify-content:flex-end"><button class="btn b-ok" ${r.marc.length ? '' : 'disabled'} onclick="confirmar('ja_paguei')">Já paguei · registrar pagamento</button></div>`;
   ['rodape', 'rodape2'].forEach(id => { const b = $(id); if (b) b.innerHTML = html; });
 }
