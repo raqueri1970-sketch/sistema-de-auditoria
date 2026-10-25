@@ -756,18 +756,17 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}) {
   const pg = pags.filter(p => p.status !== 'cancelado' && noPer((p.pago_em || p.created_at || '').slice(0, 10)));
   const ad = adis.filter(a => !a.cancelado && noPer(a.data));
   const per = periodo.de || periodo.ate ? `Período ${periodo.de ? dBRano(periodo.de) : 'início'} a ${periodo.ate ? dBRano(periodo.ate) : 'hoje'}` : 'Todo o período';
-  const lc = livroCaixa(prestador, desp, pags, adis, saldo, periodo), porCat = {};
+  const lc = livroCaixa(prestador, desp, pags, adis, saldo, periodo), porCat = {}, fu = fundoPrestador({prestador, ...saldo}, adis);
   for (const d of lanc) if (d.situacao !== 'recusado') porCat[CATS[d.categoria] || d.categoria || 'Outros'] = (porCat[CATS[d.categoria] || d.categoria || 'Outros'] || 0) + Number(d.valor);
   return {titulo: `Extrato do prestador - ${prestador}`, subtitulo: `Obras & Reformas - Esposende - ${per}`,
     graficos: [{titulo: 'Caixa com o prestador dia a dia', tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'},
       {titulo: 'Despesas do período por categoria', tipo: 'barras', itens: Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({rotulo: k, a: v}))}],
-    resumo: [['Saldo inicial', brl(lc.saldoInicial)], ['Adiantamentos', brl(lc.adiantamentos)], ['Depósitos (reembolsos)', brl(lc.depositos)],
-      ['Despesas na conta', brl(lc.despesas)], ['Caixa · saldo final', (lc.saldoFinal < 0 ? 'empresa deve ' : '') + brl(Math.abs(lc.saldoFinal))],
+    // Mesma visão simples do fundo das outras telas (25/10/2026): fundo − gastou = saldo com ele; reembolsar para voltar ao fundo
+    resumo: [['Fundo (adiantamento)', brl(fu.fundo) + (fu.falta > 0.004 ? ` · recebeu ${brl(fu.recebido)}` : '')],
+      ['Gastou · em aberto', `${brl(fu.gasto)} · ${fu.n} despesa(s)`],
+      ['Caixa · saldo com ele', brl(fu.saldo)],
+      ['A pagar · reembolsar para voltar ao fundo', brl(fu.reembolso)],
       ['Auditoria da conta', lc.confere ? 'confere com o sistema' : 'diferença ' + brl(lc.diferenca)],
-      ['Caixa com o prestador (hoje)', (caixaPrestador(saldo) < 0 ? 'empresa deve ' : '') + brl(Math.abs(caixaPrestador(saldo)))],
-      ['Despesas no período', brl(soma(lanc.filter(d => d.situacao !== 'recusado'), 'valor'))], ['Pago no período', brl(soma(lanc, 'valor_pago'))],
-      ['Em aberto (hoje)', brl(saldo.em_aberto)], ['Crédito de adiantamento', brl(saldo.adiantamento_disponivel)],
-      ['Total a pagar (hoje)', brl(saldo.saldo_devedor)],
       ...(diretos.length ? [['Pago direto pela empresa', brl(soma(diretos, 'valor'))]] : []),
     ],
     secoes: [
