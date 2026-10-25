@@ -537,20 +537,27 @@ function blocoFundoHTML(s, adis, lc) {
 const recargaDe = saldoFim => r2(Math.max(FUNDO_FIXO - saldoFim, 0));
 function contaSemanal(prestador, desp, pags, adis, saldo, periodo = {}) {
   const lc = livroCaixa(prestador, desp, pags, adis, saldo), m = new Map();
+  const inicioFundo = adis.filter(a => a.prestador === prestador && !a.cancelado && a.tipo !== 'glosa').map(a => String(a.data || '')).sort()[0] || null;
   for (const l of lc.linhas.slice(1)) {
     const s = segundaDe(l.data), w = m.get(s) || {sem: s, ent: 0, sai: 0};
     w.ent += l.ent; w.sai += l.sai; m.set(s, w);
   }
   let corr = 0;
   const sem = [...m.values()].sort((a, b) => a.sem.localeCompare(b.sem)).map(w => {
-    const ini = corr; corr = r2(corr + w.ent - w.sai);
-    return {sem: w.sem, fim: somaDias(w.sem, 6), ini, ent: r2(w.ent), sai: r2(w.sai), saldo: corr, recarga: recargaDe(corr)};
+    const ini = corr, fim = somaDias(w.sem, 6); corr = r2(corr + w.ent - w.sai);
+    // recarga devida = o que faltava no começo da semana para ele ter os R$ 10 mil (só a partir da semana em que o fundo começou)
+    const temFundo = inicioFundo && inicioFundo <= fim, devida = temFundo ? recargaDe(ini) : 0;
+    return {sem: w.sem, fim, ini, devida, ent: r2(w.ent), dif: r2(w.ent - devida), sai: r2(w.sai), saldo: corr, recarga: recargaDe(corr)};
   });
   return sem.filter(w => (!periodo.de || w.fim >= periodo.de) && (!periodo.ate || w.sem <= periodo.ate));
 }
+// Semana a semana: saldo inicial + depositado − gastos = saldo final; recarga devida × depositado mostra se completou os 10 mil
 function secaoSemanas(sem) {
-  return {titulo: 'Conta corrente por semana', cab: ['Semana', 'Saldo inicial', 'Entrada', 'Saída', 'Saldo', 'Recarga'], direita: [1, 2, 3, 4, 5],
-    linhas: sem.map(w => [`${dBR(w.sem)} a ${dBR(w.fim)}`, V(w.ini), V(w.ent), V(w.sai), V(w.saldo), V(w.recarga)])};
+  return {titulo: 'Conta corrente por semana',
+    nota: 'Recarga devida = 10 mil − saldo inicial. Diferença positiva = depositou mais (já pagou gastos da própria semana); negativa = depositou menos.',
+    cab: ['Semana', 'Saldo inicial', 'Recarga devida', 'Depositado', 'Diferença', 'Gastos', 'Saldo final'], direita: [1, 2, 3, 4, 5, 6],
+    linhas: sem.map(w => [`${dBR(w.sem)} a ${dBR(w.fim)}`, V(w.ini), V(w.devida), V(w.ent), V(w.dif), V(w.sai), V(w.saldo)]),
+    rodape: sem.length ? ['Próxima recarga', '', '', '', '', '', V(sem[sem.length - 1].recarga)] : undefined};
 }
 function secaoLivroCaixa(lc) {
   return {titulo: 'Conta corrente', nota: lc.confere ? '' : auditoriaConta(lc),
