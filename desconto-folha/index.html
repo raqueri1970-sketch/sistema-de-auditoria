@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#0b1020">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261016-6">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261025-3">
 <style>
   .topo-comp{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .topo-comp select{width:auto;margin:0;padding:8px 10px;font-size:14px}
@@ -288,7 +288,7 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="../obras-contas-pagar/comum.js?v=20261023-1"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261025-3"></script>
 <script>
 'use strict';
 /* =====================================================================================================
@@ -296,7 +296,8 @@
    Banco: cred_* (supabase/migrations/20261023_cred_desconto_folha.sql). O cruzamento roda aqui, com tudo o que já
    foi importado: parcela → competência da folha (regra configurável) × desconto efetivo × cadastro × baixas.
    ===================================================================================================== */
-const r2 = v => Math.round((Number(v) || 0) * 100) / 100;
+// rd2 (e não r2): o comum.js também declara r2 no escopo global — o mesmo nome derrubava a tela inteira
+const rd2 = v => Math.round((Number(v) || 0) * 100) / 100;
 const nfm = v => Number(v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const compBR = c => c ? MESES[+c.slice(5, 7) - 1] + '/' + c.slice(0, 4) : '';
@@ -578,10 +579,10 @@ function cruzar() {
   const linhas = [];
   for (const [k, c] of celulas) {
     const [cpf, comp] = k.split('|'); const pe = pessoas.get(cpf);
-    c.devido = r2(c.devido); c.desc = r2(c.desc); c.dif = r2(c.desc - c.devido);
+    c.devido = rd2(c.devido); c.desc = rd2(c.desc); c.dif = rd2(c.desc - c.devido);
     c.faltam = cobertura(comp); c.completa = !c.faltam.length;
     // parcela reconstruída a partir da última parcela do contrato: aceita até R$ 1 por parcela do contrato de arredondamento
-    c.tolRec = r2(c.parcelas.filter(p => p.aprox).reduce((s, p) => s + (p.n_parcelas || 1), 0));
+    c.tolRec = rd2(c.parcelas.filter(p => p.aprox).reduce((s, p) => s + (p.n_parcelas || 1), 0));
     if (!compsFolha.has(comp)) c.st = 'prev';
     else if (Math.abs(c.dif) <= cfg.tol || (c.tolRec && Math.abs(c.dif) <= cfg.tol + c.tolRec)) c.st = 'ok';
     else if (c.devido > 0 && c.desc === 0) c.st = 'nao';
@@ -606,11 +607,11 @@ function cruzar() {
   const add = (cat, grav, tipo, cpf, comp, txt, valor = 0, extra = {}) => {
     const id = `${tipo}|${cpf || ''}|${comp || ''}${extra.sufixo ? '|' + extra.sufixo : ''}`;
     const pe = cpf ? pessoas.get(cpf) : null; const f = pe && pe.cad;
-    const p = {id, cat, grav, tipo, cpf: cpf || '', comp: comp || '', txt, valor: r2(valor), nome: pe ? pe.nome : (extra.nome || ''), matricula: f ? f.matricula : '', loja: f ? f.loja : (cpf ? 'FORA DO CADASTRO' : ''), trat: trat.get(id) || null};
+    const p = {id, cat, grav, tipo, cpf: cpf || '', comp: comp || '', txt, valor: rd2(valor), nome: pe ? pe.nome : (extra.nome || ''), matricula: f ? f.matricula : '', loja: f ? f.loja : (cpf ? 'FORA DO CADASTRO' : ''), trat: trat.get(id) || null};
     pend.push(p); if (pe) pe.pend.push(p); return p;
   };
   const ultFolha = [...compsFolha].sort().pop() || '';
-  const emAberto = pe => r2(pe.parcelas.filter(p => !p.baixa && (!ultFolha || p.comp > ultFolha)).reduce((s, p) => s + p.valor, 0));
+  const emAberto = pe => rd2(pe.parcelas.filter(p => !p.baixa && (!ultFolha || p.comp > ultFolha)).reduce((s, p) => s + p.valor, 0));
   // depois do desligamento não há folha: a folha de M só existe para quem estava na empresa no início de M
   const depoisDaSaida = (pe, comp) => pe && pe.ex && comp + '-01' > pe.desl.saida;
 
@@ -632,12 +633,12 @@ function cruzar() {
     const d = pe.desl, reais = pe.parcelas.filter(p => !p.rec);
     // desconto em folha depois da saída não acontece: a parcela continua em aberto
     const abertas = reais.filter(p => !p.baixa && !p.descontos.some(l => l.comp + '-01' <= d.saida)).sort((a, b) => a.vencimento.localeCompare(b.vencimento));
-    const vencido = r2(abertas.filter(p => p.vencimento < hojeD).reduce((s, p) => s + p.valor, 0)), aVencer = r2(abertas.filter(p => p.vencimento >= hojeD).reduce((s, p) => s + p.valor, 0));
+    const vencido = rd2(abertas.filter(p => p.vencimento < hojeD).reduce((s, p) => s + p.valor, 0)), aVencer = rd2(abertas.filter(p => p.vencimento >= hojeD).reduce((s, p) => s + p.valor, 0));
     const aposCompra = reais.filter(p => p.lancamento && p.lancamento > d.saida);
     // a folha em que o desconto foi feito (a informada no arquivo), não a da regra
-    const folhaApos = pe.folha.filter(l => l.comp + '-01' > d.saida), descApos = r2(folhaApos.reduce((s, l) => s + l.valor, 0));
-    const o = {pe, d, abertas, vencido, aVencer, aberto: r2(vencido + aVencer), aposCompra, folhaApos, descApos, desc: r2(pe.folha.reduce((s, l) => s + l.valor, 0)),
-      compras: r2(reais.reduce((s, p) => s + p.valor, 0)), contratos: new Set(abertas.map(p => p.contrato)).size, prox: abertas.length ? abertas[0].vencimento : '', ult: abertas.length ? abertas[abertas.length - 1].vencimento : ''};
+    const folhaApos = pe.folha.filter(l => l.comp + '-01' > d.saida), descApos = rd2(folhaApos.reduce((s, l) => s + l.valor, 0));
+    const o = {pe, d, abertas, vencido, aVencer, aberto: rd2(vencido + aVencer), aposCompra, folhaApos, descApos, desc: rd2(pe.folha.reduce((s, l) => s + l.valor, 0)),
+      compras: rd2(reais.reduce((s, p) => s + p.valor, 0)), contratos: new Set(abertas.map(p => p.contrato)).size, prox: abertas.length ? abertas[0].vencimento : '', ult: abertas.length ? abertas[abertas.length - 1].vencimento : ''};
     o.st = o.aberto > 0.009 ? 'aberto' : 'quitado'; pe.exInfo = o; exs.push(o);
     if (o.aberto > 0.009) add('cadastro', 'alta', 'Ex-funcionário com débito em aberto', pe.cpf, '', `Desligado em ${dataBR(d.saida)} (${d.natureza || 'natureza não informada'}). ${abertas.length} parcela(s) de ${o.contratos} compra(s) ainda em aberto no crediário: ${brl(vencido)} vencidas e ${brl(aVencer)} a vencer (até ${dataBR(o.ult)}). O saldo devia ter sido descontado na rescisão — conferir o TRCT: se descontou, dar baixa no crediário; se não, cobrar.`, o.aberto);
     if (aposCompra.length) add('cadastro', 'alta', 'Compra depois do desligamento', pe.cpf, '', `Saiu em ${dataBR(d.saida)} e tem ${new Set(aposCompra.map(p => p.contrato)).size} compra(s) no crediário de funcionário depois disso (${[...new Set(aposCompra.map(p => dataBR(p.lancamento)))].join(', ')}), ${brl(aposCompra.reduce((s, p) => s + p.valor, 0))} — a loja vendeu como funcionário a quem já tinha saído.`, aposCompra.reduce((s, p) => s + p.valor, 0));
@@ -689,7 +690,7 @@ function cruzar() {
   const compsReais = new Set(par.filter(p => !p.rec).map(p => p.comp));
   const folhaJaPaga = c => hoje > quintoDiaUtil(c);
   compsDevido.filter(c => folhaJaPaga(c) && !compsFolha.has(c) && compsReais.has(c)).forEach(c => {
-    const dv = r2(par.filter(p => p.comp === c).reduce((s, p) => s + p.valor, 0));
+    const dv = rd2(par.filter(p => p.comp === c).reduce((s, p) => s + p.valor, 0));
     add('integridade', 'alta', 'Folha não importada', '', c, `A folha de ${compBR(c)} já passou e não foi importada — ${brl(dv)} deviam ter sido descontados.`, dv, {nome: 'Folha ' + compBR(c)});
   });
   // ciclos de compra sem relatório entre o primeiro e o último
@@ -737,7 +738,7 @@ function cruzar() {
     if (ps.length < 2 || !ps[0].n_parcelas) continue;
     add('duplicidade', 'alta', 'Parcela com dois vencimentos', ps[0].cpf, ps[0].comp, `${ps[0].documento} aparece com ${ps.length} vencimentos (${ps.map(p => dataBR(p.vencimento)).join(', ')}) — entra duas vezes no devido. Ver se foi renegociada.`, ps.slice(1).reduce((s, p) => s + p.valor, 0), {sufixo: ps[0].documento});
   }
-  const contratos = [...contr.values()].filter(ps => ps[0].n_parcelas).map(ps => ({cpf: ps[0].cpf, contrato: ps[0].contrato, lanc: ps[0].lancamento, n: ps[0].n_parcelas, total: r2(ps.reduce((s, p) => s + p.valor, 0)), comp: ps[0].comp}));
+  const contratos = [...contr.values()].filter(ps => ps[0].n_parcelas).map(ps => ({cpf: ps[0].cpf, contrato: ps[0].contrato, lanc: ps[0].lancamento, n: ps[0].n_parcelas, total: rd2(ps.reduce((s, p) => s + p.valor, 0)), comp: ps[0].comp}));
   for (const [, cs2] of grp(contratos, c => c.cpf + '|' + c.lanc + '|' + c.n + '|' + c.total.toFixed(2))) {
     if (cs2.length < 2) continue;
     // várias compras do mesmo funcionário (inclusive no mesmo dia) são normais e as parcelas se acumulam no mês: só informativo
@@ -756,7 +757,7 @@ function cruzar() {
     const ls = linhas.filter(l => l.comp === comp);
     const o = {comp, folha: compsFolha.has(comp), devido: 0, desc: 0, menos: 0, mais: 0, n: new Set(ls.map(l => l.cpf)).size, cont: {}, fech: fech.get(comp) || null};
     ls.forEach(l => { o.devido += l.devido; o.desc += l.desc; o.cont[l.st] = (o.cont[l.st] || 0) + 1; if (['menos', 'nao'].includes(l.st)) o.menos += -l.dif; if (['mais', 'semcompra'].includes(l.st)) o.mais += l.dif; });
-    ['devido', 'desc', 'menos', 'mais'].forEach(k => o[k] = r2(o[k]));
+    ['devido', 'desc', 'menos', 'mais'].forEach(k => o[k] = rd2(o[k]));
     o.faltam = cobertura(comp); o.dataPag = [...(dataPagComp[comp] || [])].sort();
     o.abertas = pend.filter(p => p.comp === comp && !encerrada(p)).length;
     return o;
@@ -834,11 +835,11 @@ function numeros(comp = COMP) {
   const c = pc(comp), ls = R.linhas.filter(l => l.comp === comp);
   const aud = ls.filter(l => l.st !== 'prev'), ok = aud.filter(l => l.st === 'ok').length;
   const pend = R.pend.filter(p => (p.comp === comp || !p.comp) && !encerrada(p));
-  const vRec = r2(R.par.filter(p => p.rec && !p.fora && p.comp === comp).reduce((s, p) => s + p.valor, 0));
+  const vRec = rd2(R.par.filter(p => p.rec && !p.fora && p.comp === comp).reduce((s, p) => s + p.valor, 0));
   const parcial = vRec > 0.009 || c.faltam.length > 0, verif = aud.filter(l => l.st === 'verif').length;
   const gravesMes = pend.filter(p => p.grav === 'alta' && p.cat !== 'duplicidade' && p.comp === comp).length;
   const jan = R.janelas.get(comp) || null, fora = R.foraJanela.get(comp) || null;
-  return {c, ls, aud, ok, vRec, parcial, verif, gravesMes, jan, fora, pctFunc: pct(ok, aud.length), pctValor: c.folha ? pct(aud.reduce((t, l) => t + Math.min(l.desc, l.devido), 0), c.devido) : 0, liquida: r2(c.desc - c.devido), pend,
+  return {c, ls, aud, ok, vRec, parcial, verif, gravesMes, jan, fora, pctFunc: pct(ok, aud.length), pctValor: c.folha ? pct(aud.reduce((t, l) => t + Math.min(l.desc, l.devido), 0), c.devido) : 0, liquida: rd2(c.desc - c.devido), pend,
     graves: pend.filter(p => p.grav === 'alta' && p.cat !== 'duplicidade'), dups: pend.filter(p => p.cat === 'duplicidade'),
     nMenos: (c.cont.menos || 0) + (c.cont.nao || 0), nMais: (c.cont.mais || 0) + (c.cont.semcompra || 0)};
 }
@@ -937,7 +938,7 @@ function telaPainel() {
   graficoColunas($('gCol'), serie.map(x => ({rotulo: MESES[+x.comp.slice(5) - 1] + '/' + x.comp.slice(2, 4), titulo: compBR(x.comp), a: x.devido, b: x.folha ? x.desc : 0,
     det: x.folha ? `<div><span>Diferença</span><span>${brl(x.desc - x.devido)}</span></div>` : '<div><span>Folha</span><span>não importada</span></div>'})), ['Devido', 'Descontado']);
   const lojas = porLoja(COMP).filter(l => l.menos + l.mais > 0.009).sort((a, b) => b.menos + b.mais - a.menos - a.mais).slice(0, 10);
-  graficoBarrasH($('gLoja'), lojas.map(l => ({rotulo: l.loja, valor: r2(l.menos + l.mais), det: `<div><span>A menos</span><span>${brl(l.menos)}</span></div><div><span>A mais</span><span>${brl(l.mais)}</span></div><div><span>Funcionários</span><span>${l.nDiv}</span></div>`})), {vazio: c.folha ? 'Nenhuma diferença nesta competência.' : 'Importe a folha para comparar.'});
+  graficoBarrasH($('gLoja'), lojas.map(l => ({rotulo: l.loja, valor: rd2(l.menos + l.mais), det: `<div><span>A menos</span><span>${brl(l.menos)}</span></div><div><span>A mais</span><span>${brl(l.mais)}</span></div><div><span>Funcionários</span><span>${l.nDiv}</span></div>`})), {vazio: c.folha ? 'Nenhuma diferença nesta competência.' : 'Importe a folha para comparar.'});
   const tipos = {}; N.pend.forEach(p => tipos[p.tipo] = (tipos[p.tipo] || 0) + (Math.abs(p.valor) || 0));
   graficoRosca($('gTipo'), Object.entries(tipos).sort((a, b) => b[1] - a[1]).map(([rotulo, valor]) => ({rotulo, valor})), {vazio: 'Nenhuma pendência aberta com valor.', centro: 'Em jogo', aoClicar: () => irPara('pend')});
   const top = N.ls.filter(l => !['ok', 'prev'].includes(l.st)).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif)).slice(0, 10);
@@ -956,7 +957,7 @@ function porLoja(comp) {
     o.n++; o.devido += l.devido; o.desc += l.st === 'prev' ? 0 : l.desc;
     if (['menos', 'nao'].includes(l.st)) { o.menos += -l.dif; o.nDiv++; } if (['mais', 'semcompra'].includes(l.st)) { o.mais += l.dif; o.nDiv++; }
   });
-  return [...m.values()].map(o => ({...o, devido: r2(o.devido), desc: r2(o.desc), menos: r2(o.menos), mais: r2(o.mais)}));
+  return [...m.values()].map(o => ({...o, devido: rd2(o.devido), desc: rd2(o.desc), menos: rd2(o.menos), mais: rd2(o.mais)}));
 }
 
 /* ---------- PENDÊNCIAS e DUPLICIDADES ---------- */
@@ -1114,9 +1115,9 @@ function listaEx() {
   });
 }
 function numerosEx(ls = R.exs) {
-  const s = k => r2(ls.reduce((t, o) => t + o[k], 0));
+  const s = k => rd2(ls.reduce((t, o) => t + o[k], 0));
   return {n: ls.length, nAberto: ls.filter(o => o.st === 'aberto').length, aberto: s('aberto'), vencido: s('vencido'), aVencer: s('aVencer'), nFolha: ls.filter(o => o.folhaApos.length).length, descApos: s('descApos'),
-    nCompra: ls.filter(o => o.aposCompra.length).length, compraApos: r2(ls.reduce((t, o) => t + o.aposCompra.reduce((u, p) => u + p.valor, 0), 0)), nParc: ls.reduce((t, o) => t + o.abertas.length, 0)};
+    nCompra: ls.filter(o => o.aposCompra.length).length, compraApos: rd2(ls.reduce((t, o) => t + o.aposCompra.reduce((u, p) => u + p.valor, 0), 0)), nParc: ls.reduce((t, o) => t + o.abertas.length, 0)};
 }
 const readmitidos = () => [...R.pessoas.values()].filter(p => p.readm).sort((a, b) => a.nome.localeCompare(b.nome));
 function telaEx() {
@@ -1137,9 +1138,9 @@ function telaEx() {
     kpi('Readmitidos com crediário', qtd(readmitidos().length), 'saíram e voltaram — tratados como ativos', 't-cinza') +
     kpi('Quitados', qtd(N.n - N.nAberto), 'sem parcela em aberto', 't-verde');
   const porMes = new Map(); R.exs.filter(o => o.aberto > 0.009).forEach(o => { const m = o.d.saida.slice(0, 7); const x = porMes.get(m) || {n: 0, v: 0}; x.n++; x.v += o.aberto; porMes.set(m, x); });
-  graficoBarrasH($('gExMes'), [...porMes.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([m, x]) => ({rotulo: compBR(m), valor: r2(x.v), det: `<div><span>Ex-funcionários</span><span>${x.n}</span></div>`})), {vazio: 'Nenhum débito em aberto.'});
+  graficoBarrasH($('gExMes'), [...porMes.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([m, x]) => ({rotulo: compBR(m), valor: rd2(x.v), det: `<div><span>Ex-funcionários</span><span>${x.n}</span></div>`})), {vazio: 'Nenhum débito em aberto.'});
   const porV = new Map(); R.exs.forEach(o => o.abertas.forEach(p => { const m = p.vencimento.slice(0, 7); porV.set(m, (porV.get(m) || 0) + p.valor); }));
-  graficoBarrasH($('gExVenc'), [...porV.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([m, v]) => ({rotulo: (m < hojeISO().slice(0, 7) ? 'Vencido ' : 'Vence ') + compBR(m), valor: r2(v)})), {vazio: 'Nenhuma parcela em aberto.'});
+  graficoBarrasH($('gExVenc'), [...porV.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([m, v]) => ({rotulo: (m < hojeISO().slice(0, 7) ? 'Vencido ' : 'Vence ') + compBR(m), valor: rd2(v)})), {vazio: 'Nenhuma parcela em aberto.'});
   const ls = listaEx();
   $('tEx').innerHTML = ls.length ? `<table><thead><tr><th>Ex-funcionário</th><th>Saída</th><th>Natureza</th><th class="r">Parcelas</th><th class="r">Vencido</th><th class="r">A vencer</th><th class="r">Em aberto</th><th>Último venc.</th><th class="r">Desc. folha após saída</th><th>Situação</th></tr></thead><tbody>` +
     ls.map(o => `<tr class="clicavel" data-pes="${o.pe.cpf}"><td><b>${esc(o.pe.nome)}</b><br><span class="mut small">${cpfF(o.pe.cpf)} · ${esc(o.d.matricula || '')} · ${esc(o.d.cargo || '')}<br>${esc(o.d.estab || '')}</span></td>
@@ -1162,7 +1163,7 @@ function modeloEx(ls = R.exs) {
   return {titulo: 'Ex-funcionários - crediário e desconto em folha', subtitulo: `Desligados de ${dataBR(ss[0])} a ${dataBR(ss[ss.length - 1])} com compra no crediário - posição de ${dataBR(hojeISO())}`, marca: MARCA, paisagem: true, arquivo: `ex_funcionarios_crediario_${hojeISO()}`,
     resumo: [['Ex-funcionários com crediário', qtd(N.n)], ['Com débito em aberto', qtd(N.nAberto)], ['Débito em aberto - pendência', brl(N.aberto)], ['Já vencido', brl(N.vencido)],
       ['Débito futuro (a vencer)', brl(N.aVencer)], ['Descontados na folha depois da saída', `${qtd(N.nFolha)} - ${brl(N.descApos)}`], ['Compras depois da saída', `${qtd(N.nCompra)} - ${brl(N.compraApos)}`], ['Readmitidos com crediário', qtd(readmitidos().length)]],
-    graficos: [{titulo: 'Débito em aberto por mês de desligamento', tipo: 'barras', itens: [...porMes.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([m, v]) => ({rotulo: compBR(m), a: r2(v)}))}],
+    graficos: [{titulo: 'Débito em aberto por mês de desligamento', tipo: 'barras', itens: [...porMes.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([m, v]) => ({rotulo: compBR(m), a: rd2(v)}))}],
     secoes: [
       {titulo: `Ex-funcionários (${ls.length})`, cab: ['Ex-funcionário', 'CPF', 'Matrícula', 'Cargo', 'Saída', 'Natureza', 'Parcelas', 'Vencido', 'A vencer', 'Em aberto', 'Último venc.', 'Desc. folha após saída', 'Situação'], direita: [6, 7, 8, 9, 11],
         linhas: ls.map(o => [o.pe.nome, cpfF(o.pe.cpf), o.d.matricula || '', o.d.cargo || '', dataBR(o.d.saida), o.d.natureza || '', o.abertas.length, V(o.vencido), V(o.aVencer), V(o.aberto), dataBR(o.ult), o.descApos ? V(o.descApos) : '', EX_ST[o.st][0] + (o.aposCompra.length ? ' - comprou depois de sair' : '')]),
@@ -1179,7 +1180,7 @@ function excelEx() {
   const add = (nome, linhas, larg) => { const ws = XLSX.utils.json_to_sheet(linhas.length ? linhas : [{'': 'Nada a listar'}]); if (larg) ws['!cols'] = larg.map(w => ({wch: w})); ws['!autofilter'] = {ref: ws['!ref']}; XLSX.utils.book_append_sheet(wb, ws, nome); };
   const id = o => ({'Matrícula': o.d.matricula || '', 'Nome': o.pe.nome, 'CPF': cpfF(o.pe.cpf), 'Cargo': o.d.cargo || '', 'Empresa': o.d.estab || '', 'Admissão': dataBR(o.d.admissao), 'Saída': dataBR(o.d.saida), 'Natureza': o.d.natureza || ''});
   add('Ex-funcionários', ls.map(o => ({...id(o), 'Parcelas em aberto': o.abertas.length, 'Vencido': o.vencido, 'A vencer': o.aVencer, 'Em aberto': o.aberto, 'Próximo vencimento': dataBR(o.prox), 'Último vencimento': dataBR(o.ult),
-    'Descontado na folha (total)': o.desc, 'Descontado na folha depois da saída': o.descApos, 'Compras depois da saída': r2(o.aposCompra.reduce((t, p) => t + p.valor, 0)), 'Situação': EX_ST[o.st][0]})),
+    'Descontado na folha (total)': o.desc, 'Descontado na folha depois da saída': o.descApos, 'Compras depois da saída': rd2(o.aposCompra.reduce((t, p) => t + p.valor, 0)), 'Situação': EX_ST[o.st][0]})),
     [11, 34, 15, 22, 30, 11, 11, 26, 9, 11, 11, 11, 12, 12, 12, 14, 14, 16]);
   add('Parcelas em aberto', ls.flatMap(o => o.abertas.map(p => ({...id(o), 'Documento': p.documento, 'Compra em': dataBR(p.lancamento), 'Vencimento': dataBR(p.vencimento), 'Situação': p.vencimento < hojeISO() ? 'Vencida' : 'A vencer', 'Valor': p.valor}))),
     [11, 34, 15, 22, 30, 11, 11, 26, 16, 11, 11, 10, 10]);
@@ -1280,13 +1281,13 @@ function montarLinhas() {
     const row = rows[i];
     if (tipo === 'compras') {
       const cpf = cpfN(cel(row, map, 'cpf')), v = numero(cel(row, map, 'valor'));
-      if (!cpf) { if (isFinite(v) && v > 0 && rodape == null) rodape = r2(v); continue; }
+      if (!cpf) { if (isFinite(v) && v > 0 && rodape == null) rodape = rd2(v); continue; }
       const venc = dataISO(cel(row, map, 'venc')); if (!venc || !isFinite(v)) continue;
       const doc = String(cel(row, map, 'doc')).trim(), lanc = dataISO(cel(row, map, 'lanc')) || null;
       const m = doc.match(/^(.*?)-(\d+)\/(\d+)$/);
       const parcela = +cel(row, map, 'parcela') || (m ? +m[2] : 1);
       out.push({chave: [cpf, doc, parcela, lanc || '', venc].join('|'), cpf, nome: String(cel(row, map, 'nome')).trim(), documento: doc, contrato: m ? m[1] : (doc.match(/^[A-Za-z]+/) || [doc])[0],
-        parcela, n_parcelas: m ? +m[3] : null, lancamento: lanc, vencimento: venc, valor: r2(v)});
+        parcela, n_parcelas: m ? +m[3] : null, lancamento: lanc, vencimento: venc, valor: rd2(v)});
       soma += v;
     } else if (tipo === 'cadastro') {
       const cpf = cpfN(cel(row, map, 'cpf')); if (!cpf) continue;
@@ -1298,13 +1299,13 @@ function montarLinhas() {
       if (row.some(c => /^\s*total/i.test(String(c))) && !cpfN(cel(row, map, 'cpf')) && !soDig(cel(row, map, 'matricula'))) continue;  // linha de total
       const v = numero(cel(row, map, 'valor')); if (!isFinite(v) || v === 0) continue;
       let cpf = cpfN(cel(row, map, 'cpf')); const mat = String(cel(row, map, 'matricula') ?? '').trim();
-      if (!cpf && !soDig(mat) && !String(cel(row, map, 'nome') ?? '').trim()) { if (rodape == null) rodape = r2(Math.abs(v)); continue; }  // linha de total do relatório
+      if (!cpf && !soDig(mat) && !String(cel(row, map, 'nome') ?? '').trim()) { if (rodape == null) rodape = rd2(Math.abs(v)); continue; }  // linha de total do relatório
       if (!cpf && mat && porMat.has(matN(mat))) cpf = porMat.get(matN(mat));
       // parcela a parcela: documento "CE201785-3/5", parcela, vencimento (e lançamento) de cada desconto
       const doc = map.doc != null ? String(cel(row, map, 'doc') ?? '').trim() : '', md = doc.match(/^(.*?)-(\d+)\/(\d+)$/);
       const parc = doc ? (+cel(row, map, 'parcela') || (md ? +md[2] : 1)) : null, venc = doc ? dataISO(cel(row, map, 'venc')) || null : null, lanc = doc ? dataISO(cel(row, map, 'lanc')) || null : null;
       const comp = compDe(cel(row, map, 'comp')) || (doc && IMP.compModo === 'regra' && venc ? compDaParcela({lancamento: lanc, vencimento: venc, parcela: parc}, D.cfg.regra, +D.cfg.corte) : IMP.compFixa);
-      out.push({cpf: cpf || null, matricula: mat || null, nome: String(cel(row, map, 'nome')).trim() || null, competencia: comp, evento: ev || null, valor: r2(Math.abs(v)), data_pagamento: dataISO(cel(row, map, 'dataPag')) || IMP.dataPagFixa || null,
+      out.push({cpf: cpf || null, matricula: mat || null, nome: String(cel(row, map, 'nome')).trim() || null, competencia: comp, evento: ev || null, valor: rd2(Math.abs(v)), data_pagamento: dataISO(cel(row, map, 'dataPag')) || IMP.dataPagFixa || null,
         documento: doc || null, parcela: parc, vencimento: venc});
       soma += Math.abs(v);
     } else if (tipo === 'desligados') {
@@ -1314,7 +1315,7 @@ function montarLinhas() {
     } else if (tipo === 'baixas') {
       const doc = String(cel(row, map, 'doc')).trim(); if (!doc) continue;
       const m = doc.match(/^(.*?)-(\d+)\/(\d+)$/), parcela = +cel(row, map, 'parcela') || (m ? +m[2] : 1);
-      const cpf = cpfN(cel(row, map, 'cpf')) || null, data = dataISO(cel(row, map, 'dataBaixa')) || null, v = r2(Math.abs(numero(cel(row, map, 'valor')) || 0));
+      const cpf = cpfN(cel(row, map, 'cpf')) || null, data = dataISO(cel(row, map, 'dataBaixa')) || null, v = rd2(Math.abs(numero(cel(row, map, 'valor')) || 0));
       out.push({chave: [doc, parcela, cpf || '', data || '', v.toFixed(2)].join('|'), documento: doc, parcela, cpf, data_baixa: data, valor: v}); soma += v;
     }
   }
@@ -1333,7 +1334,7 @@ function montarLinhas() {
   if (tipo === 'desligados') { const repet = out.length - new Set(out.map(l => l.cpf)).size; if (repet) avisos.push(`${repet} CPF(s) com mais de uma saída no período (vale a mais recente para o crediário).`); }
   if (tipo === 'compras' && rodape != null && Math.abs(rodape - soma) > 0.01) avisos.push(`Soma das linhas ${brl(soma)} ≠ total do rodapé ${brl(rodape)} — o relatório pode ter vindo cortado.`);
   const obrig = OBRIG[tipo].filter(k => map[k] == null); if (obrig.length) avisos.unshift(`Coluna obrigatória não encontrada: ${obrig.map(k => ROT[k]).join(', ')}.`);
-  return {linhas: out, soma: r2(soma), rodape, avisos};
+  return {linhas: out, soma: rd2(soma), rodape, avisos};
 }
 function conferir() {
   const {linhas, soma, rodape, avisos} = montarLinhas(); const t = IMP.tipo;
@@ -1574,7 +1575,7 @@ function linhasRH(comp) {
   R.par.filter(p => p.comp === comp).forEach(p => { const o = m.get(p.cpf) || {cpf: p.cpf, valor: 0, n: 0}; o.valor += p.valor; o.n++; m.set(p.cpf, o); });
   return [...m.values()].map(o => { const pe = R.pessoas.get(o.cpf), f = pe.cad;
     const obs = pe.ex ? `DESLIGADO EM ${dataBR(pe.desl.saida)} - descontar na rescisão / cobrar` : !f ? (R.cadAtual ? 'FORA DO CADASTRO' : '') : !f.noCadastro ? 'SAIU DO CADASTRO' : SEM_SAL.test(f.situacao || '') ? 'AFASTADO: ' + f.situacao : (f.situacao && !/^ativo$/i.test(f.situacao) ? f.situacao : '');
-    return {cpf: o.cpf, matricula: f ? f.matricula || '' : '', nome: pe.nome, loja: f ? f.loja || '' : '', valor: r2(o.valor), n: o.n, obs}; })
+    return {cpf: o.cpf, matricula: f ? f.matricula || '' : '', nome: pe.nome, loja: f ? f.loja || '' : '', valor: rd2(o.valor), n: o.n, obs}; })
     .sort((a, b) => a.loja.localeCompare(b.loja) || a.nome.localeCompare(b.nome));
 }
 function modeloRH(comp) {
@@ -1614,7 +1615,7 @@ function modeloExecutivo(comp) {
     resumo: [['Total devido', brl(c.devido)], ['Total descontado - pago na folha', c.folha ? brl(c.desc) : '-'], ['Valor descontado / devido', c.folha ? pctTxt(N.pctValor) : '-'], ['Funcionários que batem', c.folha ? `${qtd(N.ok)} de ${qtd(N.aud.length)}` : '-'],
       ['Deixou de descontar - pendência', brl(c.menos)], ['Descontou a mais - pago a mais', brl(c.mais)], ['Pendências graves abertas', qtd(N.graves.length)], ['Duplicidades', qtd(N.dups.length)]],
     graficos: [{titulo: 'Devido x descontado por competência', tipo: 'colunas', series: ['Devido', 'Descontado'], itens: serie.map(x => ({rotulo: MESES[+x.comp.slice(5) - 1] + '/' + x.comp.slice(2, 4), a: x.devido, b: x.folha ? x.desc : 0}))},
-      {titulo: 'Diferença por loja (a menos + a mais)', tipo: 'barras', itens: lojas.slice(0, 10).map(l => ({rotulo: l.loja, a: r2(l.menos + l.mais)}))}],
+      {titulo: 'Diferença por loja (a menos + a mais)', tipo: 'barras', itens: lojas.slice(0, 10).map(l => ({rotulo: l.loja, a: rd2(l.menos + l.mais)}))}],
     secoes: [
       {titulo: 'Como ler os números', cab: ['Observação'], linhas: observacaoGrafico().map(t => [t.replace(/<[^>]+>/g, '')])},
       {titulo: 'Principais achados e ação recomendada', cab: ['Gravidade', 'Achado', 'Ação recomendada'], linhas: achados(comp).map(x => [GR[x.grav], x.txt, x.acao])},
@@ -1658,8 +1659,8 @@ const ST_ORDEM = ['nao', 'menos', 'mais', 'semcompra', 'verif', 'ok', 'prev'];
 function resumoFunc(p) {
   const cs = Object.values(p.celulas), cont = {}; cs.forEach(x => cont[x.st] = (cont[x.st] || 0) + 1);
   const pior = ST_ORDEM.find(k => cont[k]) || 'prev', aud = cs.filter(x => x.st !== 'prev');
-  return {cont, pior, compras: r2(p.parcelas.filter(x => !x.rec).reduce((t, x) => t + x.valor, 0)), pagasRec: r2(p.parcelas.filter(x => x.rec).reduce((t, x) => t + x.valor, 0)),
-    devido: r2(aud.reduce((t, x) => t + x.devido, 0)), desc: r2(aud.reduce((t, x) => t + x.desc, 0)), aDescontar: r2(cs.filter(x => x.st === 'prev').reduce((t, x) => t + x.devido, 0))};
+  return {cont, pior, compras: rd2(p.parcelas.filter(x => !x.rec).reduce((t, x) => t + x.valor, 0)), pagasRec: rd2(p.parcelas.filter(x => x.rec).reduce((t, x) => t + x.valor, 0)),
+    devido: rd2(aud.reduce((t, x) => t + x.devido, 0)), desc: rd2(aud.reduce((t, x) => t + x.desc, 0)), aDescontar: rd2(cs.filter(x => x.st === 'prev').reduce((t, x) => t + x.devido, 0))};
 }
 const compsRelatorio = () => { const fol = [...R.compsFolha].sort(), prox = R.comps.filter(c => !R.compsFolha.has(c) && c > (fol[fol.length - 1] || '')).slice(0, 2);
   return [...fol.slice(-4), ...prox]; };
@@ -1683,7 +1684,7 @@ function excelFuncionarios() {
   const ps = listaFunc(), comps = R.comps, wb = XLSX.utils.book_new();
   const add = (nome, linhas, larg) => { const ws = XLSX.utils.json_to_sheet(linhas.length ? linhas : [{'': 'Nada a listar'}]); if (larg) ws['!cols'] = larg.map(w => ({wch: w})); ws['!autofilter'] = {ref: ws['!ref']}; XLSX.utils.book_append_sheet(wb, ws, nome); };
   const cad = p => ({'Matrícula': p.cad ? p.cad.matricula : '', 'Nome': p.nome, 'CPF': cpfF(p.cpf), 'Loja': p.cad ? p.cad.loja : 'FORA DO CADASTRO', 'Situação cadastro': p.cad ? p.cad.situacao : ''});
-  add('Resumo por funcionário', ps.map(p => { const r = resumoFunc(p); return {...cad(p), 'Compras em aberto': r.compras, 'Parcelas já pagas (reconstruídas)': r.pagasRec, 'Devido nas folhas auditadas': r.devido, 'Descontado': r.desc, 'Diferença': r2(r.desc - r.devido), 'A descontar (folhas futuras)': r.aDescontar,
+  add('Resumo por funcionário', ps.map(p => { const r = resumoFunc(p); return {...cad(p), 'Compras em aberto': r.compras, 'Parcelas já pagas (reconstruídas)': r.pagasRec, 'Devido nas folhas auditadas': r.devido, 'Descontado': r.desc, 'Diferença': rd2(r.desc - r.devido), 'A descontar (folhas futuras)': r.aDescontar,
     'Meses OK': r.cont.ok || 0, 'Meses a menos': r.cont.menos || 0, 'Meses sem desconto': r.cont.nao || 0, 'Meses a mais': (r.cont.mais || 0) + (r.cont.semcompra || 0), 'Meses a verificar': r.cont.verif || 0, 'Situação geral': ST_CURTO[r.pior], 'Pendências abertas': p.pend.filter(a => !encerrada(a)).length}; }),
     [11, 36, 15, 28, 14, 14, 12, 14, 12, 11, 14, 9, 11, 12, 10, 12, 16, 11]);
   add('Funcionário x mês', ps.flatMap(p => Object.keys(p.celulas).sort().map(c => { const x = p.celulas[c]; return {...cad(p), 'Competência': compBR(c), 'Compras (devido)': x.devido, 'Descontado': x.st === 'prev' ? null : x.desc, 'Diferença': x.st === 'prev' ? null : x.dif, 'Situação': ST_CURTO[x.st], 'Pago em': x.dataPag.map(dataBR).join(', '), 'Parcelas': x.parcelas.length, 'Parcelas reconstruídas': x.parcelas.filter(q => q.rec).length, 'Documentos': x.parcelas.map(q => q.documento).join(' ')}; })),
@@ -1765,7 +1766,7 @@ function exportar() {
     'Devido': l.devido, 'Descontado': l.st === 'prev' ? null : l.desc, 'Diferença': l.st === 'prev' ? null : l.dif, 'Status': STAT[l.st][0], 'Pago na folha em': l.dataPag.map(dataBR).join(', '),
     'Parcelas': l.parcelas.length, 'Parcelas baixadas': D.baixas.length ? l.baixadas : '', 'Data da baixa': l.dataBaixa.map(dataBR).join(', '), 'Documentos': l.parcelas.map(p => p.documento).join(' ')}; }), [15, 11, 34, 28, 14, 11, 10, 11, 10, 30, 14, 8, 9, 14, 40]);
   add('Matriz mensal', [...R.pessoas.values()].sort((a, b) => a.nome.localeCompare(b.nome)).map(p => { const o = {'CPF': cpfF(p.cpf), 'Matrícula': p.cad ? p.cad.matricula : '', 'Nome': p.nome, 'Loja': p.cad ? p.cad.loja : 'FORA DO CADASTRO'};
-    R.comps.forEach(c => { const x = p.celulas[c]; o['Devido ' + compBR(c)] = x ? x.devido : null; if (R.compsFolha.has(c)) o['Desc. ' + compBR(c)] = x ? x.desc : null; }); o['A menos'] = r2(p.menos); o['A mais'] = r2(p.mais); o['A verificar'] = r2(p.verif); return o; }));
+    R.comps.forEach(c => { const x = p.celulas[c]; o['Devido ' + compBR(c)] = x ? x.devido : null; if (R.compsFolha.has(c)) o['Desc. ' + compBR(c)] = x ? x.desc : null; }); o['A menos'] = rd2(p.menos); o['A mais'] = rd2(p.mais); o['A verificar'] = rd2(p.verif); return o; }));
   const pl = p => ({'Categoria': p.cat, 'Gravidade': p.grav, 'Tipo': p.tipo, 'CPF': cpfF(p.cpf), 'Matrícula': p.matricula, 'Nome': p.nome, 'Loja': p.loja, 'Competência': compBR(p.comp), 'Detalhe': p.txt, 'Valor': p.valor || null,
     'Tratativa': p.trat ? TRAT[p.trat.status] : 'Sem tratativa', 'Observação': p.trat ? p.trat.observacao || '' : '', 'Por': p.trat ? p.trat.usuario || '' : '', 'Em': p.trat ? dtBR(p.trat.criado_em) : ''});
   add('Erros e faltas graves', R.pend.filter(p => p.cat !== 'duplicidade').map(pl), [12, 9, 28, 15, 11, 34, 28, 11, 90, 10, 20, 40, 24, 16]);
