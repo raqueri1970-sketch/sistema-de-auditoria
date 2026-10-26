@@ -36,10 +36,10 @@
   <h2>2. Filtros</h2>
   <div class="card filtros">
     <div><label>Prestador</label><select id="fPrest" onchange="mostrar()"></select></div>
-    <div><label>De</label><input id="fDe" type="date" onchange="mostrar()"></div>
-    <div><label>Até</label><input id="fAte" type="date" onchange="mostrar()"></div>
+    <div><label>De</label><input id="fDe" type="date" onchange="$('fAtalho').value = ''; mostrar()"></div>
+    <div><label>Até</label><input id="fAte" type="date" onchange="$('fAtalho').value = ''; mostrar()"></div>
     <div><label>Atalho</label><select id="fAtalho" onchange="atalho(this.value)">
-      <option value="">—</option><option value="d7">Últimos 7 dias</option><option value="d15">Últimos 15 dias</option><option value="d30">Últimos 30 dias</option><option value="semana">Esta semana</option><option value="mes">Este mês</option><option value="mes_ant">Mês passado</option>
+      <option value="">—</option><option value="d7">Últimos 7 dias</option><option value="d15">Últimos 15 dias</option><option value="d30">Últimos 30 dias</option><option value="semana">Esta semana (seg a dom)</option><option value="semana_ant">Semana passada (seg a dom)</option><option value="mes">Este mês</option><option value="mes_ant">Mês passado</option>
       <option value="ano">Este ano</option><option value="tudo">Tudo</option></select></div>
   </div>
 
@@ -87,7 +87,9 @@ async function carregar() {
 function atalho(v) {
   const h = hojeISO(), d = new Date(h + 'T12:00:00'), iso = x => x.toISOString().slice(0, 10);
   if (/^d\d+$/.test(v)) { $('fDe').value = somaDias(h, -(Number(v.slice(1)) - 1)); $('fAte').value = h; }
-  if (v === 'semana') { const s = new Date(d); s.setDate(d.getDate() - (d.getDay() + 6) % 7); $('fDe').value = iso(s); $('fAte').value = h; }
+  // semana fechada: de segunda a domingo
+  if (v === 'semana') { $('fDe').value = segundaDe(h); $('fAte').value = somaDias(segundaDe(h), 6); }
+  if (v === 'semana_ant') { $('fDe').value = somaDias(segundaDe(h), -7); $('fAte').value = somaDias(segundaDe(h), -1); }
   if (v === 'mes') { $('fDe').value = h.slice(0, 8) + '01'; $('fAte').value = h; }
   if (v === 'mes_ant') { const a = new Date(d.getFullYear(), d.getMonth() - 1, 1, 12), b = new Date(d.getFullYear(), d.getMonth(), 0, 12); $('fDe').value = iso(a); $('fAte').value = iso(b); }
   if (v === 'ano') { $('fDe').value = h.slice(0, 4) + '-01-01'; $('fAte').value = h; }
@@ -111,8 +113,13 @@ const soma = (a, f) => a.reduce((t, x) => t + Number((typeof f === 'function' ? 
 
 const MODELOS = {
   aberto(f) {
-    const sal = D.saldos.filter(f.doPrest), abertos = D.desp.filter(d => Number(d.saldo) > 0 && f.doPrest(d));
-    return {titulo: 'Contas a pagar em aberto', subtitulo: `Obras & Reformas - Esposende - posição de ${dBRano(hojeISO())}${f.prest ? ' - ' + f.prest : ''}`,
+    const abertos = D.desp.filter(d => Number(d.saldo) > 0 && f.doPrest(d) && f.noPer(d.data_despesa)), comPer = !!(f.de || f.ate);
+    // 26/10/2026: com período escolhido, o gasto em aberto (e a recarga/caixa) é só o das despesas desse período; o crédito de adiantamento é o de hoje
+    const sal = D.saldos.filter(f.doPrest).map(s => { if (!comPer) return s;
+      const l = abertos.filter(d => d.prestador === s.prestador), ab = Math.round(soma(l, 'saldo') * 100) / 100;
+      return {...s, em_aberto: ab, itens_abertos: l.length, saldo_devedor: Math.max(0, Math.round((ab - Number(s.adiantamento_disponivel || 0)) * 100) / 100),
+        semana_mais_antiga: l.map(d => d.semana).filter(Boolean).sort()[0] || null}; });
+    return {titulo: 'Contas a pagar em aberto', subtitulo: `Obras & Reformas - Esposende - ${comPer ? 'despesas de ' + f.per : 'posição de ' + dBRano(hojeISO())}${f.prest ? ' - ' + f.prest : ''}`,
       resumo: [['Recarga a pagar', brl(soma(sal, 'saldo_devedor'))], ['Gasto em aberto', brl(soma(sal, 'em_aberto'))], ['Crédito de adiantamento', brl(soma(sal, 'adiantamento_disponivel'))],
         ['Caixa com os prestadores', brl(soma(sal, s => caixaPrestador(s)))], ...(soma(sal, 'divergencia') > 0.004 ? [['Divergência', brl(soma(sal, 'divergencia'))]] : [])],
       graficos: [{titulo: 'Gasto em aberto × crédito por prestador', tipo: 'barras', series: ['Gasto em aberto', 'Crédito'],
@@ -122,7 +129,7 @@ const MODELOS = {
           cab: ['Prestador', 'Despesas', 'Gasto em aberto', 'Crédito adiant.', 'Saldo com ele', 'Recarga', 'Desde', 'Risco'], direita: [1, 2, 3, 4, 5],
           linhas: sal.map(s => [s.prestador, s.itens_abertos, V(s.em_aberto), V(s.adiantamento_disponivel), V(caixaPrestador(s)), V(s.saldo_devedor), dBRano(s.semana_mais_antiga), (RISCO[s.risco] || [''])[0]]),
           rodape: ['Total', soma(sal, 'itens_abertos'), V(soma(sal, 'em_aberto')), V(soma(sal, 'adiantamento_disponivel')), V(soma(sal, s => caixaPrestador(s))), V(soma(sal, 'saldo_devedor')), '', '']},
-        {titulo: `Despesas em aberto (${abertos.length})`, nota: 'Inclui o que sobrou de pagamentos parciais. Acumula todas as semanas.',
+        {titulo: `Despesas em aberto (${abertos.length})`, nota: `Inclui o que sobrou de pagamentos parciais. ${comPer ? 'Só as despesas com data de ' + f.per + '.' : 'Acumula todas as semanas.'}`,
           cab: ['Prestador', 'Semana', 'Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Alertas'], direita: [5, 6, 7],
           linhas: abertos.map(d => [d.prestador, dBR(d.semana), dBRano(d.data_despesa), d.fornecedor || '', CATS[d.categoria] || d.categoria, V(d.valor), V(d.valor_pago), V(d.saldo),
             d.criticos ? `${d.criticos} crítico(s)` : d.atencoes ? `${d.atencoes} atenção` : '']),
