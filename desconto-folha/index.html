@@ -492,7 +492,8 @@ const REGRAS = [
 const SEM_SAL = /doen|acid|invalid|aposent|resc|susp|inss/i;
 const STAT = {
   ok: ['OK', 'st-ok'], menos: ['Descontou a menos', 'st-menos'], nao: ['Não descontou', 'st-nao'], mais: ['Descontou a mais', 'st-mais'],
-  semcompra: ['Desconto sem compra', 'st-semcompra'], verif: ['Verificar (faltam compras anteriores)', 'st-verif'], prev: ['Previsto (folha não importada)', 'st-prev']
+  semcompra: ['Desconto sem compra', 'st-semcompra'], verif: ['Verificar (faltam compras anteriores)', 'st-verif'], prev: ['Previsto (folha não importada)', 'st-prev'],
+  rh: ['Só no RH (o crediário importado não alcança)', 'st-prog']
 };
 const stChip = s => `<span class="st ${STAT[s][1]}">${STAT[s][0]}</span>`;
 const TRAT = {pendente: 'Pendente', cobrar: 'Cobrar do funcionário', devolver: 'Devolver ao funcionário', justificado: 'Justificado', resolvido: 'Resolvido'};
@@ -655,6 +656,9 @@ function cruzar() {
     // parcela reconstruída a partir da última parcela do contrato: aceita até R$ 1 por parcela do contrato de arredondamento
     c.tolRec = rd2(c.parcelas.filter(p => p.aprox).reduce((s, p) => s + (p.n_parcelas || 1), 0));
     if (!compsFolha.has(comp)) c.st = 'prev';
+    // com o RH: sem nenhuma parcela dentro do período do crediário da loja não há como conferir — o RH é a única fonte
+    // (folhas passadas: o crediário só traz o que está em aberto; folhas de 2027: o relatório do crediário termina antes)
+    else if (modoRH && compsRH.has(comp) && !c.parcelas.some(p => p.noCred && !p.descontos.length) && !c.parcelas.some(p => p.vencimento >= credIni && p.vencimento <= credFim)) c.st = 'rh';
     else if (Math.abs(c.dif) <= cfg.tol || (c.tolRec && Math.abs(c.dif) <= cfg.tol + c.tolRec)) c.st = 'ok';
     else if (c.devido > 0 && c.desc === 0) c.st = 'nao';
     else if (c.dif < 0) c.st = 'menos';
@@ -945,13 +949,13 @@ const pctTxt = v => v.toLocaleString('pt-BR', {maximumFractionDigits: 1}) + '%';
 // % descontado é somado funcionário a funcionário: o desconto a mais de um não cobre o a menos de outro
 function numeros(comp = COMP) {
   const c = pc(comp), ls = R.linhas.filter(l => l.comp === comp);
-  const aud = ls.filter(l => l.st !== 'prev'), ok = aud.filter(l => l.st === 'ok').length;
+  const aud = ls.filter(l => l.st !== 'prev' && l.st !== 'rh'), ok = aud.filter(l => l.st === 'ok').length, soRH = ls.filter(l => l.st === 'rh');
   const pend = R.pend.filter(p => (p.comp === comp || !p.comp) && !encerrada(p));
   const vRec = rd2(R.par.filter(p => p.rec && !p.paga && p.comp === comp).reduce((s, p) => s + p.valor, 0));
   const parcial = vRec > 0.009 || c.faltam.length > 0, verif = aud.filter(l => l.st === 'verif').length;
   const gravesMes = pend.filter(p => p.grav === 'alta' && p.cat !== 'duplicidade' && p.comp === comp).length;
   const jan = R.janelas.get(comp) || null, fora = R.foraJanela.get(comp) || null;
-  return {c, ls, aud, ok, vRec, parcial, verif, gravesMes, jan, fora, pctFunc: pct(ok, aud.length), pctValor: c.folha ? pct(aud.reduce((t, l) => t + Math.min(l.desc, l.devido), 0), c.devido) : 0, liquida: rd2(c.desc - c.devido), pend,
+  return {c, ls, aud, soRH, ok, vRec, parcial, verif, gravesMes, jan, fora, pctFunc: pct(ok, aud.length), pctValor: c.folha ? pct(aud.reduce((t, l) => t + Math.min(l.desc, l.devido), 0), aud.reduce((t, l) => t + l.devido, 0)) : 0, liquida: rd2(c.desc - c.devido), pend,
     graves: pend.filter(p => p.grav === 'alta' && p.cat !== 'duplicidade'), dups: pend.filter(p => p.cat === 'duplicidade'),
     nMenos: (c.cont.menos || 0) + (c.cont.nao || 0), nMais: (c.cont.mais || 0) + (c.cont.semcompra || 0)};
 }
@@ -969,6 +973,7 @@ function achados(comp = COMP) {
   }
   const tipo = t => N.pend.filter(p => p.tipo === t), soma = ps => ps.reduce((s, p) => s + Math.abs(p.valor || 0), 0);
   if (!c.folha) a('media', `A folha de ${compBR(comp)} ainda não foi importada — os números são a previsão (${brl(c.devido)} a descontar de ${qtd(c.n)} funcionários).`, 'Importar a planilha de desconto da folha do mês.');
+  else if (!N.aud.length && N.soRH.length) a('media', `A folha de ${compBR(comp)} não tem como ser conferida: as parcelas estão fora do período do crediário da loja importado${R.credAtual ? ` (vencimentos de ${dataBR(R.credIni)} a ${dataBR(R.credFim)})` : ''}. O RH ${quintoDiaUtil(comp) > hojeISO() ? 'programou' : 'descontou'} ${brl(c.desc)} de ${qtd(N.soRH.length)} funcionário(s).`, quintoDiaUtil(comp) > hojeISO() ? `Para conferir antes de descontar, importe o crediário da loja com os vencimentos até ${compBR(addMes(comp, 1))}.` : 'Folha passada: o crediário só traz parcelas em aberto, então vale o que o RH descontou.');
   else {
     a(N.pctValor >= 99.5 ? 'ok' : N.pctValor >= 95 ? 'media' : 'alta', `${pctTxt(N.pctValor)} do valor devido foi descontado na folha (${brl(c.desc)} de ${brl(c.devido)}); ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem exatamente.`, N.pctValor >= 99.5 ? 'Manter a rotina.' : 'Tratar as divergências abaixo antes de fechar o mês.');
     if (c.menos > 0.009) a('alta', `${qtd(N.nMenos)} funcionário(s) sem desconto ou com desconto menor: ${brl(c.menos)} deixaram de ser descontados.`, 'Lançar a diferença na próxima folha ou cobrar do funcionário.');
@@ -1012,7 +1017,7 @@ function telaPainel() {
     ${N.fora ? `<span class="badt">Lista do RH só com vencimentos de ${N.jan.map(j => dataBR(j.ini) + ' a ' + dataBR(j.fim)).join(', ')} — ${qtd(N.fora.n)} parcelas (${brl(N.fora.valor)}) desta folha ficaram fora da lista.</span><br>` : ''}
     ${c.folha ? `Folha importada · ${c.dataPag.length ? 'paga em <b>' + c.dataPag.map(dataBR).join(', ') + '</b>' : `<span class="wt">sem data de pagamento</span> (previsto: 5º dia útil, ${dataBR(quintoDiaUtil(COMP))}) · <a href="javascript:void(0)" onclick="irPara(\'arq\')">informar</a>`}` : `<span class="wt">Folha ainda não importada</span> · pagamento previsto no 5º dia útil: ${dataBR(quintoDiaUtil(COMP))}`}
     ${fechada ? `<br>Fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : ''}</div></div>
-    <div class="gauge">${c.folha ? `<div class="v" style="color:${corG}">${pctTxt(N.pctValor)}</div><div class="barra"><i style="width:${Math.min(100, N.pctValor)}%;background:${corG}"></i></div>
+    <div class="gauge">${c.folha && !N.aud.length && N.soRH.length ? `<div class="v" style="color:#93c5fd;font-size:30px">Sem conferência</div><div class="l">${R.credAtual ? `O crediário da loja importado traz vencimentos de ${dataBR(R.credIni)} a ${dataBR(R.credFim)}; as parcelas desta folha estão fora desse período. ` : ''}O RH ${quintoDiaUtil(COMP) > hojeISO() ? 'programou' : 'descontou'} ${brl(c.desc)} de ${qtd(N.soRH.length)} funcionário(s) — para conferir, importe o crediário com os vencimentos até ${compBR(addMes(COMP, 1))}.</div>` : c.folha ? `<div class="v" style="color:${corG}">${pctTxt(N.pctValor)}</div><div class="barra"><i style="width:${Math.min(100, N.pctValor)}%;background:${corG}"></i></div>
       <div class="l">do valor devido${N.parcial ? ' (mínimo)' : ''} foi descontado · ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem (${pctTxt(N.pctFunc)})</div>`
       : `<div class="v" style="color:#c4b5fd">${brl(c.devido)}</div><div class="l">a descontar na folha de ${compBR(COMP)} · ${qtd(c.n)} funcionários</div>`}</div>`;
   $('kpis').innerHTML =
@@ -1028,9 +1033,9 @@ function telaPainel() {
     kpi('Duplicidades', qtd(N.dups.length), brl(N.dups.reduce((s, p) => s + Math.abs(p.valor || 0), 0)), N.dups.length ? 't-vermelho' : 't-verde', "drill('dups')");
 
   // situação dos funcionários
-  const ordem = ['ok', 'nao', 'menos', 'mais', 'semcompra', 'verif', 'prev'], corSt = {ok: '#22c55e', nao: '#ef4444', menos: '#f87171', mais: '#f97316', semcompra: '#fb923c', verif: '#f5b301', prev: '#94a3b8'};
+  const ordem = ['ok', 'nao', 'menos', 'mais', 'semcompra', 'verif', 'rh', 'prev'], corSt = {rh: '#60a5fa', ok: '#22c55e', nao: '#ef4444', menos: '#f87171', mais: '#f97316', semcompra: '#fb923c', verif: '#f5b301', prev: '#94a3b8'};
   const tot = N.ls.length || 1;
-  $('gSit').innerHTML = ordem.filter(k => c.cont[k]).map(k => { const ls = N.ls.filter(l => l.st === k), v = ls.reduce((s, l) => s + Math.abs(k === 'ok' || k === 'prev' ? l.devido : l.dif), 0);
+  $('gSit').innerHTML = ordem.filter(k => c.cont[k]).map(k => { const ls = N.ls.filter(l => l.st === k), v = ls.reduce((s, l) => s + Math.abs(k === 'ok' || k === 'prev' || k === 'rh' ? l.devido : l.dif), 0);
     return `<div><span>${STAT[k][0]}</span><span class="b"><i style="width:${Math.max(2, c.cont[k] / tot * 100)}%;background:${corSt[k]}"></i></span><b>${qtd(c.cont[k])} · ${brlCurto(v)}</b></div>`; }).join('') || '<div class="vazio">Sem dados na competência.</div>';
   $('achados').innerHTML = achados().map(x => `<div><i style="background:${COR_GRAV[x.grav]}"></i><span>${esc(x.txt)}<div class="acao">→ ${esc(x.acao)}</div></span></div>`).join('');
 
@@ -1925,8 +1930,8 @@ function modeloExecutivo(comp) {
   const serie = R.porComp.filter(x => x.comp <= comp).slice(-12);
   const lojas = porLoja(comp).filter(l => l.menos + l.mais > 0.009).sort((a, b) => b.menos + b.mais - a.menos - a.mais);
   const riscos = R.pend.filter(p => !encerrada(p) && (p.comp === comp || !p.comp) && p.valor).sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor)).slice(0, 12);
-  const sit = ['ok', 'nao', 'menos', 'mais', 'semcompra', 'verif', 'prev'].filter(k => c.cont[k]).map(k => { const ls = N.ls.filter(l => l.st === k);
-    return [STAT[k][0], qtd(ls.length), pctTxt(pct(ls.length, N.ls.length)), V(ls.reduce((s, l) => s + (k === 'ok' || k === 'prev' ? l.devido : Math.abs(l.dif)), 0))]; });
+  const sit = ['ok', 'nao', 'menos', 'mais', 'semcompra', 'verif', 'rh', 'prev'].filter(k => c.cont[k]).map(k => { const ls = N.ls.filter(l => l.st === k);
+    return [STAT[k][0], qtd(ls.length), pctTxt(pct(ls.length, N.ls.length)), V(ls.reduce((s, l) => s + (k === 'ok' || k === 'prev' || k === 'rh' ? l.devido : Math.abs(l.dif)), 0))]; });
   const GR = {alta: 'Alta', media: 'Média', ok: 'OK', baixa: 'Baixa'};
   return {titulo: `Relatório Executivo - Desconto em Folha do Crediário - ${compBR(comp)}`,
     subtitulo: `Para a Diretoria - ${c.folha ? 'folha ' + (c.dataPag.length ? 'paga em ' + c.dataPag.map(dataBR).join(', ') : 'sem data de pagamento') : 'folha ainda não importada (previsão)'}${fechada ? ' - competência fechada em ' + dtBR(c.fech.fechado_em) : ''}`,
@@ -1973,8 +1978,8 @@ function modeloArquivos() {
 const MODELOS = {fora: () => modeloFora(R.foras), fluxo: () => modeloFluxo([...R.pessoas.values()].filter(p => p.parcelas.length).sort((a, b) => a.nome.localeCompare(b.nome))), ex: () => modeloEx(), func: () => modeloFuncionariosCompleto([...R.pessoas.values()].sort((a, b) => a.nome.localeCompare(b.nome))), exec: () => modeloExecutivo(COMP), comp: () => modeloCompetencia(COMP), pend: () => modeloPendencias(), dup: () => modeloDuplicidades(), loja: () => modeloLojas(COMP), rh: () => modeloRH(COMP)};
 // PDF / impressão de cada menu (o que está na tela, com os filtros)
 // Relatório de todos os funcionários: compras (parcelas) × descontos, mês a mês, com a situação de cada mês
-const ST_CURTO = {ok: 'OK', menos: 'A MENOS', nao: 'NÃO DESCONTOU', mais: 'A MAIS', semcompra: 'SEM COMPRA', verif: 'VERIFICAR', prev: 'PREVISTO'};
-const ST_ORDEM = ['nao', 'menos', 'mais', 'semcompra', 'verif', 'ok', 'prev'];
+const ST_CURTO = {ok: 'OK', menos: 'A MENOS', nao: 'NÃO DESCONTOU', mais: 'A MAIS', semcompra: 'SEM COMPRA', verif: 'VERIFICAR', rh: 'SÓ NO RH', prev: 'PREVISTO'};
+const ST_ORDEM = ['nao', 'menos', 'mais', 'semcompra', 'verif', 'ok', 'rh', 'prev'];
 function resumoFunc(p) {
   const cs = Object.values(p.celulas), cont = {}; cs.forEach(x => cont[x.st] = (cont[x.st] || 0) + 1);
   const pior = ST_ORDEM.find(k => cont[k]) || 'prev', aud = cs.filter(x => x.st !== 'prev');
