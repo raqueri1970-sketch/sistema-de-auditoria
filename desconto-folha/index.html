@@ -166,7 +166,7 @@
     <div class="card">
       <div class="busca">
         <input id="pBusca" placeholder="Buscar nome, CPF, matrícula ou loja">
-        <select id="pCat"><option value="">Todas as categorias</option><option value="desconto">Desconto em folha</option><option value="cadastro">Cadastro</option><option value="politica">Política de crédito (parcelamento)</option><option value="integridade">Arquivos e integridade</option></select>
+        <select id="pCat"><option value="">Todas as categorias</option><option value="desconto">Desconto em folha</option><option value="cadastro">Cadastro</option><option value="integridade">Arquivos e integridade</option></select>
         <select id="pGrav"><option value="">Todas as gravidades</option><option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option></select>
         <select id="pSit"><option value="abertas">Abertas e em tratamento</option><option value="">Todas</option><option value="encerradas">Encerradas</option></select>
         <select id="pComp"><option value="sel">Só a competência selecionada</option><option value="">Todas as competências</option></select>
@@ -317,7 +317,7 @@
           <select id="cRegra"><option value="ciclo">Compra de 21 a 20 → folha do mês + 1 mês por parcela</option><option value="venc_ant">Vencimento de 21 a 20 → folha do mês em que começa</option><option value="venc">Pelo vencimento da parcela (com corte)</option></select></div>
         <div><label>Dia de corte do ciclo</label><input id="cCorte" type="number" min="1" max="31"></div>
         <div><label>Tolerância de arredondamento (R$)</label><input id="cTol" type="number" min="0" step="0.01"></div>
-        <div><label>Máximo de parcelas permitido</label><input id="cMax" type="number" min="1" max="24"></div>
+        <input id="cMax" type="hidden"><!-- parcelamento acima de 5x deixou de ser pendência (a empresa permitia) -->
         <div><button class="btn b-pri" onclick="salvarConfig()">Salvar regra</button></div>
       </div>
       <div class="regra" id="regraTxt"></div>
@@ -805,12 +805,8 @@ function cruzar() {
     }
   }
 
-  // 3b) política de crédito: compra parcelada acima do limite (ex.: funcionário só pode dividir em até 5x)
+  // 3b) parcelamento acima de 5x não é falta: a empresa permitia (decisão do auditor em 26/10/2026) — não gera pendência
   const acima = new Map();
-  for (const ps of contr.values()) { const n = ps[0].n_parcelas; if (!n || n <= cfg.maxParc) continue;
-    const o = acima.get(ps[0].cpf) || {n: 0, aberto: 0, por: {}, ex: []}; acima.set(ps[0].cpf, o);
-    o.n++; o.por[n] = (o.por[n] || 0) + 1; o.aberto += ps.filter(p => !p.rec).reduce((s, p) => s + p.valor, 0); if (o.ex.length < 3) o.ex.push(`${ps[0].contrato} ${n}x (${dataBR(ps[0].lancamento)})`); }
-  for (const [cpf, o] of acima) add('politica', 'alta', `Parcelado acima de ${cfg.maxParc}x`, cpf, '', `${o.n} compra(s) acima do limite de ${cfg.maxParc}x: ${Object.entries(o.por).map(([n, q]) => `${q} em ${n}x`).join(', ')} — ex.: ${o.ex.join(', ')}. Em aberto ${brl(o.aberto)}.`, o.aberto);
   // 4) duplicidades
   const grp = grpConta;
   for (const [, ls] of grp(folhaResumo, l => l.cpf + '|' + l.comp + '|' + (l.evento || ''))) {
@@ -986,9 +982,6 @@ function achados(comp = COMP) {
   if (c.folha && c.devido === 0) a('alta', `A folha de ${compBR(comp)} tem ${brl(c.desc)} descontados, mas nenhuma parcela das compras importadas cai nessa competência.`, 'Importar as compras do período (as parcelas já pagas saem da LISTAGEM DO RH) ou conferir a regra de competência em "Arquivos do mês".');
   const fora = [...tipo('Comprador fora do cadastro'), ...tipo('Saiu do cadastro')];
   if (fora.length) a('alta', `${qtd(fora.length)} comprador(es) não estão no cadastro de funcionários (desligados ou terceiros), com ${brl(soma(fora))} em aberto.`, 'Descontar na rescisão ou cobrar por boleto; bloquear novas compras.');
-  const pol = N.pend.filter(p => p.cat === 'politica');
-  if (pol.length) { const nc = [...R.acima.values()].reduce((s, o) => s + o.n, 0), por = {}; R.acima.forEach(o => Object.entries(o.por).forEach(([n, q]) => por[n] = (por[n] || 0) + q));
-    a('alta', `${qtd(nc)} compra(s) de ${qtd(pol.length)} funcionário(s) parceladas acima do limite de ${R.cfg.maxParc}x (${Object.entries(por).map(([n, q]) => `${qtd(q)} em ${n}x`).join(', ')}), ${brl(soma(pol))} em aberto.`, `Bloquear no sistema do crediário parcelamento acima de ${R.cfg.maxParc}x para funcionário e cobrar das lojas que liberaram.`); }
   if (c.folha && N.parcial && N.liquida > 0.009) a('media', `${brl(N.liquida)} descontados na folha não têm compra correspondente no arquivo: são compras já quitadas, que o relatório do crediário não traz.`, 'Para fechar centavo a centavo, pedir ao crediário o relatório de parcelas por vencimento (abertas e pagas) do período da folha.');
   const afa = tipo('Afastado sem salário'); if (afa.length) a('alta', `${qtd(afa.length)} afastado(s) sem salário com ${brl(soma(afa))} em aberto — o desconto em folha não acontece.`, 'Combinar cobrança direta ou suspender as parcelas.');
   const nome = tipo('Nome diferente no CPF'); if (nome.length) a('alta', `${qtd(nome.length)} CPF(s) de funcionário com compra em nome de outra pessoa.`, 'Confirmar com a loja quem comprou.');
@@ -1002,8 +995,8 @@ function observacaoGrafico() {
   const completa = R.porComp.find(x => !x.faltam.length && x.devido > 0), parcial = R.porComp.some(x => x.faltam.length && x.devido > 0);
   const ex = completa ? completa.comp : COMP;
   return [
-    ciclo ? `Compra feita do dia ${dia + 1} de um mês ao dia ${dia} do mês seguinte entra na folha desse mês (ex.: compras de ${dia + 1}/${addMes(ex, -1).slice(5)} a ${dia}/${ex.slice(5)} → folha de ${compBR(ex)}, paga no 5º dia útil de ${prox(ex)}); cada parcela seguinte entra na folha do mês seguinte, até ${R.cfg.maxParc}x.`
-      : `A parcela entra na folha pela data de vencimento (dia ${dia + 1} a ${dia}); a folha é paga no 5º dia útil do mês seguinte. Limite de ${R.cfg.maxParc}x.`,
+    ciclo ? `Compra feita do dia ${dia + 1} de um mês ao dia ${dia} do mês seguinte entra na folha desse mês (ex.: compras de ${dia + 1}/${addMes(ex, -1).slice(5)} a ${dia}/${ex.slice(5)} → folha de ${compBR(ex)}, paga no 5º dia útil de ${prox(ex)}); cada parcela seguinte entra na folha do mês seguinte.`
+      : `A parcela entra na folha pela data de vencimento (dia ${dia + 1} a ${dia}); a folha é paga no 5º dia útil do mês seguinte.`,
     `O funcionário pode comprar todo mês e várias vezes: as parcelas de compras diferentes se somam na mesma folha — isso não é duplicidade.`,
     ...(parcial ? [`A planilha do crediário traz só parcelas em aberto. Nos meses em que parte já foi descontada, as parcelas pagas são reconstruídas a partir do contrato e o devido (azul) é um <b>mínimo</b>: compras já quitadas não vêm na planilha, por isso o descontado (laranja) pode ficar maior sem ser erro.`] : []),
     ...(completa ? [`A partir de <b>${compBR(completa.comp)}</b> o devido é completo (a planilha tem todas as parcelas): diferença entre azul e laranja é erro de desconto.`] : [])];
@@ -1877,7 +1870,7 @@ function modeloPendencias(lista) {
   const soma = g => ls.filter(p => p.grav === g).length;
   return {titulo: 'Erros e faltas graves - desconto em folha', subtitulo: `Pendências abertas e em tratamento - todas as competências (selecionada: ${compBR(COMP)})`, marca: MARCA, paisagem: true, arquivo: `pendencias_desconto_folha_${hojeISO()}`,
     resumo: [['Pendências graves', qtd(soma('alta'))], ['Pendências médias', qtd(soma('media'))], ['Pendências baixas', qtd(soma('baixa'))], ['Total em jogo', brl(ls.reduce((s, p) => s + Math.abs(p.valor || 0), 0))]],
-    secoes: ['desconto', 'cadastro', 'politica', 'integridade'].map(cat => ({titulo: {desconto: 'Desconto em folha', cadastro: 'Cadastro', politica: 'Política de crédito (parcelamento)', integridade: 'Arquivos e integridade'}[cat] + ` (${ls.filter(p => p.cat === cat).length})`,
+    secoes: ['desconto', 'cadastro', 'integridade'].map(cat => ({titulo: {desconto: 'Desconto em folha', cadastro: 'Cadastro', politica: 'Política de crédito (parcelamento)', integridade: 'Arquivos e integridade'}[cat] + ` (${ls.filter(p => p.cat === cat).length})`,
       cab: CAB_PEND, linhas: ls.filter(p => p.cat === cat).map(linhaPend), direita: [8]})),
     assinaturas: ['Auditoria', 'RH / Departamento Pessoal']};
 }
