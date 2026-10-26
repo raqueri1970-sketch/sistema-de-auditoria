@@ -6,6 +6,22 @@ Objetivo: todo mês, saber **funcionário por funcionário** quanto deveria ser 
 - Banco: `supabase/migrations/20261023_cred_desconto_folha.sql` (tabelas `cred_*`, RLS, função `cred_importar`). Aplicada em produção em 23/10/2026.
 - PDF e gráficos: os mesmos dos módulos de Obras (`obras-contas-pagar/comum.js` → `gerarPDF`, `svgGrafico`), com logo e assinaturas.
 
+## Três bases (revisão de 26/10/2026)
+
+Antes o "COMPRA EM LOJA" era tratado como o desconto do RH — devido e descontado saíam da mesma base e batiam sempre. Agora:
+
+| Base | Arquivo | Papel |
+|---|---|---|
+| 1 · Compras em loja | "COMPRA EM LOJA" de cada ciclo (21 a 20, todas as parcelas) e/ou o crediário da loja (Seta) | **devido** — cada parcela na folha do seu mês (compra de 21 a 20 → 1ª parcela na folha do mês, +1 mês por parcela; regra conferida com as folhas de abr a set/2026) |
+| 2 · Funcionários e ex-funcionários | ativos (cadastro) e inativos/desligados — um card só, a tela reconhece qual é | quem está ativo, afastado, desligado (data e natureza) ou readmitido |
+| 3 · Folha de pagamento | planilha "FOLHA MM-AAAA", aba **Sheet1** (uma linha por verba) | **descontado** — só a verba **1260 "Compra Loja"**; competência pela coluna "Mês_Ano Folha". A "Data Desligament" da folha também entra como ex-funcionário (sem sobrescrever o relatório de desligados) |
+
+**Ex-funcionário**: não há folha depois da saída — as parcelas da folha do mês da saída em diante são o saldo que tem de sair na rescisão e passam todas para essa folha. A célula da rescisão compara esse saldo com a verba 1260 da folha do mês da saída: *Rescisão sem desconto do saldo*, *Rescisão descontou a menos* (cobrar) ou *a mais*. Sem a folha da rescisão importada, o saldo inteiro fica como "Ex-funcionário com débito em aberto" (pedir o TRCT). Readmitido segue como ativo.
+
+**A mais sem todas as compras**: enquanto faltarem compras de ciclos que ainda geram parcela (ex.: 21 a 31/12/2025), a diferença a mais fica em **Verificar** só se vier em todas as folhas desde a 1ª importada, sem interrupção (provável compra antiga). A mais depois de uma folha que bateu é **Descontou a mais / Desconto sem compra** — pedir ao RH a compra que originou o desconto; se não houver, devolver.
+
+O carregamento ficou só com as três bases (as baixas do crediário saíram dos cards e da central; os arquivos já importados continuam valendo).
+
 ## Central de carregamento (25/10/2026)
 
 Em "Arquivos do mês" (ou no botão **📥 Carregar arquivos** do topo) dá para soltar **todos os arquivos do mês de uma vez**. A tela reconhece cada um pelo nome e pelas colunas — compras no crediário (Seta), crediário dos funcionários (RH), ativos, inativos/desligados, planilha desconto de FOLHA, baixas —, mostra linhas, total, período e avisos de cada um, deixa trocar o tipo/aba/competência e grava na ordem cadastro → desligados → compras → descontos → baixas. Arquivo já importado é pulado.
