@@ -34,6 +34,8 @@
   .compra{border:1px solid var(--line);border-radius:12px;margin:10px 0;overflow:hidden}
   .compra .ch{display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:space-between;padding:9px 12px;background:var(--card2);font-size:13.5px}
   .compra table{font-size:12.5px}
+  .achados>div.clic,.chk-mes div.clic{cursor:pointer}.achados>div.clic:hover,.chk-mes div.clic:hover{border-color:rgba(59,130,246,.6)}
+  .ver{color:#93c5fd;font-weight:600}
   .kpi.clic{cursor:pointer}.kpi.clic:hover{outline:1px solid rgba(59,130,246,.6)}
   .okt{color:#86efac}.badt{color:#fca5a5}.wt{color:#fcd34d}
   .regra{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:12px;padding:10px 12px;font-size:13.5px;color:#bfdbfe;margin:10px 0}
@@ -960,25 +962,33 @@ function numeros(comp = COMP) {
     nMenos: (c.cont.menos || 0) + (c.cont.nao || 0), nMais: (c.cont.mais || 0) + (c.cont.semcompra || 0)};
 }
 // achados automáticos (painel e PDF executivo): {grav, txt, acao}
+// RH (COMPRA EM LOJA) × crediário da loja, parcela a parcela, no período do crediário mais novo
+function conjRH() {
+  const vale = p => R.credAtual && p.vencimento >= R.credIni && p.vencimento <= R.credFim && !p.rec;
+  return {ambos: R.par.filter(p => vale(p) && p.rh && p.noCred), soCred: R.par.filter(p => vale(p) && !p.rh && p.noCred && !p.semRH),
+    soRH: R.par.filter(p => vale(p) && p.rh && !p.noCred && quintoDiaUtil(p.comp) >= hojeISO()), semRHv: R.par.filter(p => p.semRH && p.noCred), dup: R.par.filter(p => p.rhArqs && p.rhArqs.length > 1)};
+}
 function achados(comp = COMP) {
-  const N = numeros(comp), c = N.c, out = [], a = (grav, txt, acao) => out.push({grav, txt, acao});
+  // dk = lista que abre ao clicar no achado (o que compõe o número)
+  const N = numeros(comp), c = N.c, out = [], a = (grav, txt, acao, dk = '') => out.push({grav, txt, acao, dk});
+  const futura = quintoDiaUtil(comp) > hojeISO();
   if (R.modoRH) {
-    // RH (COMPRA EM LOJA) × crediário da loja, parcela a parcela, no período do crediário mais novo
-    const vale = p => R.credAtual && p.vencimento >= R.credIni && p.vencimento <= R.credFim && !p.rec;
-    const ambos = R.par.filter(p => vale(p) && p.rh && p.noCred), soCred = R.par.filter(p => vale(p) && !p.rh && p.noCred && !p.semRH), soRH = R.par.filter(p => vale(p) && p.rh && !p.noCred && quintoDiaUtil(p.comp) >= hojeISO());
-    const semRHv = R.par.filter(p => p.semRH && p.noCred), dup = R.par.filter(p => p.rhArqs && p.rhArqs.length > 1), sm = ps => brl(ps.reduce((t, p) => t + p.valor, 0));
+    const {ambos, soCred, soRH, semRHv, dup} = conjRH(), sm = ps => brl(ps.reduce((t, p) => t + p.valor, 0));
     a(soCred.length || soRH.length || dup.length ? 'alta' : 'ok', `RH × crediário da loja (vencimentos de ${dataBR(R.credIni)} a ${dataBR(R.credFim)}): ${qtd(ambos.length)} parcelas batem (${sm(ambos)})${soCred.length ? `; ${qtd(soCred.length)} em aberto no crediário e fora do desconto do RH (${sm(soCred)})` : ''}${soRH.length ? `; ${qtd(soRH.length)} no desconto do RH que não estão em aberto no crediário (${sm(soRH)})` : ''}${dup.length ? `; ${qtd(dup.length)} parcela(s) em dois arquivos do RH (${sm(dup)})` : ''}.`,
-      soCred.length || soRH.length || dup.length ? 'Corrigir o desconto do RH antes de fechar a folha: incluir o que falta, tirar o que não está mais em aberto e o que está em dobro.' : 'O desconto do RH bate com o crediário da loja.');
-    if (semRHv.length) a('alta', `${qtd(semRHv.length)} parcela(s) em aberto no crediário (${sm(semRHv)}) são de compras de ciclos sem "COMPRA EM LOJA" do RH importado: ${[...new Set(semRHv.map(p => cicloDe(p.lancamento || p.vencimento, R.cfg.corte)))].sort().map(c => compBR(c)).join(', ')}.`, 'Importar o "COMPRA EM LOJA" desses ciclos (ex.: 21/05 a 20/06) para conferir se foram descontadas.');
+      soCred.length || soRH.length || dup.length ? 'Corrigir o desconto do RH antes de fechar a folha: incluir o que falta, tirar o que não está mais em aberto e o que está em dobro.' : 'O desconto do RH bate com o crediário da loja.', soCred.length || soRH.length || dup.length ? 'rh_dif' : 'rh_bate');
+    if (semRHv.length) a('alta', `${qtd(semRHv.length)} parcela(s) em aberto no crediário (${sm(semRHv)}) são de compras de ciclos sem "COMPRA EM LOJA" do RH importado: ${[...new Set(semRHv.map(p => cicloDe(p.lancamento || p.vencimento, R.cfg.corte)))].sort().map(c => compBR(c)).join(', ')}.`, 'Importar o "COMPRA EM LOJA" desses ciclos (ex.: 21/05 a 20/06) para conferir se foram descontadas.', 'semrh');
   }
   const tipo = t => N.pend.filter(p => p.tipo === t), soma = ps => ps.reduce((s, p) => s + Math.abs(p.valor || 0), 0);
   if (!c.folha) a('media', `A folha de ${compBR(comp)} ainda não foi importada — os números são a previsão (${brl(c.devido)} a descontar de ${qtd(c.n)} funcionários).`, 'Importar a planilha de desconto da folha do mês.');
-  else if (!N.aud.length && N.soRH.length) a('media', `A folha de ${compBR(comp)} não tem como ser conferida: as parcelas estão fora do período do crediário da loja importado${R.credAtual ? ` (vencimentos de ${dataBR(R.credIni)} a ${dataBR(R.credFim)})` : ''}. O RH ${quintoDiaUtil(comp) > hojeISO() ? 'programou' : 'descontou'} ${brl(c.desc)} de ${qtd(N.soRH.length)} funcionário(s).`, quintoDiaUtil(comp) > hojeISO() ? `Para conferir antes de descontar, importe o crediário da loja com os vencimentos até ${compBR(addMes(comp, 1))}.` : 'Folha passada: o crediário só traz parcelas em aberto, então vale o que o RH descontou.');
+  else if (!N.aud.length && N.soRH.length) a('media', `A folha de ${compBR(comp)} não tem como ser conferida: as parcelas estão fora do período do crediário da loja importado${R.credAtual ? ` (vencimentos de ${dataBR(R.credIni)} a ${dataBR(R.credFim)})` : ''}. O RH ${quintoDiaUtil(comp) > hojeISO() ? 'programou' : 'descontou'} ${brl(c.desc)} de ${qtd(N.soRH.length)} funcionário(s).`, quintoDiaUtil(comp) > hojeISO() ? `Para conferir antes de descontar, importe o crediário da loja com os vencimentos até ${compBR(addMes(comp, 1))}.` : 'Folha passada: o crediário só traz parcelas em aberto, então vale o que o RH descontou.', 'desc');
   else {
-    a(N.pctValor >= 99.5 ? 'ok' : N.pctValor >= 95 ? 'media' : 'alta', `${pctTxt(N.pctValor)} do valor devido foi descontado na folha (${brl(c.desc)} de ${brl(c.devido)}); ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem exatamente.`, N.pctValor >= 99.5 ? 'Manter a rotina.' : 'Tratar as divergências abaixo antes de fechar o mês.');
-    if (c.menos > 0.009) a('alta', `${qtd(N.nMenos)} funcionário(s) sem desconto ou com desconto menor: ${brl(c.menos)} deixaram de ser descontados.`, 'Lançar a diferença na próxima folha ou cobrar do funcionário.');
-    if (c.mais > 0.009) a('alta', `${qtd(N.nMais)} funcionário(s) com desconto acima do devido: ${brl(c.mais)} a mais.`, 'Devolver ao funcionário na próxima folha (risco trabalhista).');
-    if (!c.dataPag.length) a('media', `A folha de ${compBR(comp)} foi importada sem data de pagamento.`, 'Informar a data de pagamento em "Arquivos do mês".');
+    const vDev = N.aud.reduce((t, l) => t + l.devido, 0), vDesc = N.aud.reduce((t, l) => t + l.desc, 0);
+    a(N.pctValor >= 99.5 ? 'ok' : N.pctValor >= 95 ? 'media' : 'alta', R.modoRH
+      ? `Folha de ${compBR(comp)} (paga em ${dataBR(quintoDiaUtil(comp))}): ${brl(vDesc)} ${futura ? 'programados' : 'descontados'} pelo RH para ${brl(vDev)} devidos no crediário — ${pctTxt(N.pctValor)}; ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários conferidos batem.${N.soRH.length ? ` Outros ${qtd(N.soRH.length)} só no RH (fora do período do crediário).` : ''}`
+      : `${pctTxt(N.pctValor)} do valor devido foi descontado na folha (${brl(c.desc)} de ${brl(c.devido)}); ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem exatamente.`, N.pctValor >= 99.5 ? 'Manter a rotina.' : 'Tratar as divergências abaixo antes de fechar o mês.', 'batem');
+    if (c.menos > 0.009) a('alta', `${qtd(N.nMenos)} funcionário(s) sem desconto ou com desconto menor: ${brl(c.menos)} ${R.modoRH ? 'em aberto no crediário e fora do desconto do RH' : 'deixaram de ser descontados'}.`, R.modoRH ? 'Incluir no desconto do RH antes de fechar a folha.' : 'Lançar a diferença na próxima folha ou cobrar do funcionário.', 'menos');
+    if (c.mais > 0.009) a('alta', `${qtd(N.nMais)} funcionário(s) com desconto acima do devido: ${brl(c.mais)} a mais.`, 'Devolver ao funcionário na próxima folha (risco trabalhista).', 'mais');
+    if (!c.dataPag.length && !R.modoRH) a('media', `A folha de ${compBR(comp)} foi importada sem data de pagamento.`, 'Informar a data de pagamento em "Arquivos do mês".');
   }
   if (N.fora) { const vs = N.fora.vs.slice().sort();
     a('alta', `A lista de desconto do RH de ${compBR(comp)} só traz parcelas que vencem de ${N.jan.map(j => dataBR(j.ini) + ' a ' + dataBR(j.fim)).join(', ')}. ${qtd(N.fora.n)} parcela(s) desta folha, ${brl(N.fora.valor)} de ${qtd(N.fora.pessoas.size)} funcionário(s), vencem de ${dataBR(vs[0])} a ${dataBR(vs[vs.length - 1])} e não estão na lista — não seriam descontadas.`, 'Tirar de novo a listagem do crediário com o período de vencimento do ciclo inteiro (dia 21 a dia 20) e conferir antes de lançar na folha.'); }
@@ -986,11 +996,13 @@ function achados(comp = COMP) {
   else if (c.faltam.length) a('media', `O devido de ${compBR(comp)} pode estar incompleto: faltam as compras de ${faixas(c.faltam)}.`, 'Importar a listagem de compras que cobre esses meses.');
   if (c.folha && c.devido === 0) a('alta', `A folha de ${compBR(comp)} tem ${brl(c.desc)} descontados, mas nenhuma parcela das compras importadas cai nessa competência.`, 'Importar as compras do período (as parcelas já pagas saem da LISTAGEM DO RH) ou conferir a regra de competência em "Arquivos do mês".');
   const fora = [...tipo('Comprador fora do cadastro'), ...tipo('Saiu do cadastro')];
-  if (fora.length) a('alta', `${qtd(fora.length)} comprador(es) não estão no cadastro de funcionários (desligados ou terceiros), com ${brl(soma(fora))} em aberto.`, 'Descontar na rescisão ou cobrar por boleto; bloquear novas compras.');
+  if (fora.length) a('alta', `${qtd(fora.length)} comprador(es) não estão no cadastro de funcionários nem nos desligados (terceiros ou desligados antes de 2026), com ${brl(soma(fora))} em aberto.`, 'Sem folha para descontar: cobrar por boleto e bloquear novas compras.', 'fo_todos');
+  const exD = tipo('Ex-funcionário com débito em aberto'); if (exD.length) a('alta', `${qtd(exD.length)} ex-funcionário(s) com ${brl(soma(exD))} em aberto no crediário.`, 'Conferir no TRCT se o saldo saiu na rescisão; se não, cobrar.', 'ex_debito');
+  const exF = tipo('Desconto em folha depois do desligamento'); if (exF.length) a('alta', `${qtd(exF.length)} desconto(s) programado(s) para quem já saiu da empresa (${brl(soma(exF))}).`, 'Tirar do desconto da folha e cobrar na rescisão.', 'pt:Desconto em folha depois do desligamento');
   if (c.folha && N.parcial && N.liquida > 0.009) a('media', `${brl(N.liquida)} descontados na folha não têm compra correspondente no arquivo: são compras já quitadas, que o relatório do crediário não traz.`, 'Para fechar centavo a centavo, pedir ao crediário o relatório de parcelas por vencimento (abertas e pagas) do período da folha.');
-  const afa = tipo('Afastado sem salário'); if (afa.length) a('alta', `${qtd(afa.length)} afastado(s) sem salário com ${brl(soma(afa))} em aberto — o desconto em folha não acontece.`, 'Combinar cobrança direta ou suspender as parcelas.');
-  const nome = tipo('Nome diferente no CPF'); if (nome.length) a('alta', `${qtd(nome.length)} CPF(s) de funcionário com compra em nome de outra pessoa.`, 'Confirmar com a loja quem comprou.');
-  if (N.dups.length) a('alta', `${qtd(N.dups.length)} possível(is) duplicidade(s), ${brl(soma(N.dups))} envolvidos.`, 'Conferir em "Duplicidades" e estornar o que for repetido.');
+  const afa = tipo('Afastado sem salário'); if (afa.length) a('alta', `${qtd(afa.length)} afastado(s) sem salário com ${brl(soma(afa))} em aberto — o desconto em folha não acontece.`, 'Combinar cobrança direta ou suspender as parcelas.', 'pt:Afastado sem salário');
+  const nome = tipo('Nome diferente no CPF'); if (nome.length) a('alta', `${qtd(nome.length)} CPF(s) de funcionário com compra em nome de outra pessoa.`, 'Confirmar com a loja quem comprou.', 'pt:Nome diferente no CPF');
+  if (N.dups.length) a('alta', `${qtd(N.dups.length)} possível(is) duplicidade(s), ${brl(soma(N.dups))} envolvidos.`, 'Conferir em "Duplicidades" e estornar o que for repetido.', 'dups');
   if (!out.some(x => x.grav === 'alta')) a('ok', 'Nenhuma falta grave aberta nesta competência.', 'Fechar a competência.');
   return out;
 }
@@ -1037,22 +1049,32 @@ function telaPainel() {
   const tot = N.ls.length || 1;
   $('gSit').innerHTML = ordem.filter(k => c.cont[k]).map(k => { const ls = N.ls.filter(l => l.st === k), v = ls.reduce((s, l) => s + Math.abs(k === 'ok' || k === 'prev' || k === 'rh' ? l.devido : l.dif), 0);
     return `<div><span>${STAT[k][0]}</span><span class="b"><i style="width:${Math.max(2, c.cont[k] / tot * 100)}%;background:${corSt[k]}"></i></span><b>${qtd(c.cont[k])} · ${brlCurto(v)}</b></div>`; }).join('') || '<div class="vazio">Sem dados na competência.</div>';
-  $('achados').innerHTML = achados().map(x => `<div><i style="background:${COR_GRAV[x.grav]}"></i><span>${esc(x.txt)}<div class="acao">→ ${esc(x.acao)}</div></span></div>`).join('');
+  $('achados').innerHTML = achados().map(x => `<div ${x.dk ? `class="clic" onclick="drill('${x.dk.replace(/'/g, '')}')" title="Clique para ver o que compõe"` : ''}><i style="background:${COR_GRAV[x.grav]}"></i><span>${esc(x.txt)}<div class="acao">→ ${esc(x.acao)}${x.dk ? ' · <b class="ver">ver o que compõe ›</b>' : ''}</div></span></div>`).join('');
 
   // checklist do mês
   const cad = R.arqPorId.get(R.cadAtual), fArqs = D.arquivos.filter(a => a.tipo === 'folha' && (a.competencias || []).includes(COMP));
   const regraUso = R.calib && R.calib.find(x => x.regra === R.cfg.regra && x.corte === R.cfg.corte), regraMelhor = R.calib && R.calib[0] === regraUso;
-  const item = (ok, txt, acao = '') => `<div><b class="${ok === true ? 'okt' : ok === false ? 'badt' : 'wt'}">${ok === true ? '✔' : ok === false ? '✖' : '!'}</b><span>${txt}${acao}</span></div>`;
+  const item = (ok, txt, acao = '', dk = '') => `<div ${dk ? `class="clic" onclick="drill('${dk}')" title="Clique para ver o que compõe"` : ''}><b class="${ok === true ? 'okt' : ok === false ? 'badt' : 'wt'}">${ok === true ? '✔' : ok === false ? '✖' : '!'}</b><span>${txt}${acao}${dk ? ' · <b class="ver">ver ›</b>' : ''}</span></div>`;
   const ir = t => ` · <a href="javascript:void(0)" onclick="irPara('${t}')">resolver</a>`;
   const gravesComp = N.pend.filter(p => p.grav === 'alta');
-  $('checklist').innerHTML = [
+  const sr = R.semRH.get(COMP), credA = R.arqPorId.get(R.credAtual), cobreAte = addMes(COMP, 1) + '-' + String(R.cfg.corte).padStart(2, '0');
+  $('checklist').innerHTML = R.modoRH ? [
+    // com o RH: desconto = COMPRA EM LOJA; conferência = crediário da loja
+    item(R.compsRH.has(COMP) ? true : false, R.compsRH.has(COMP) ? `Desconto do RH (COMPRA EM LOJA) para a folha de ${compBR(COMP)}: ${brl(c.desc)} de ${qtd(c.n)} funcionário(s)` : `Nenhum COMPRA EM LOJA do RH tem parcela na folha de ${compBR(COMP)}`, R.compsRH.has(COMP) ? '' : ir('arq'), R.compsRH.has(COMP) ? 'desc' : ''),
+    item(credA ? (R.credFim >= cobreAte ? true : null) : false, credA ? `Crediário da loja: ${esc(credA.nome)} (vencimentos de ${dataBR(R.credIni)} a ${dataBR(R.credFim)})${R.credFim >= cobreAte ? '' : ` — não alcança a folha de ${compBR(COMP)}`}` : 'Crediário da loja não importado', credA ? '' : ir('arq')),
+    item(!sr, sr ? `Faltam os COMPRA EM LOJA dos ciclos ${[...sr.ciclos].sort().map(compBR).join(', ')}: ${brl(sr.valor)} desta folha fora da conferência` : 'Todos os ciclos de compra desta folha têm COMPRA EM LOJA do RH', sr ? ir('arq') : '', sr ? 'semrh' : ''),
+    item(!!cad, cad ? `Cadastro de funcionários de ${dtBR(cad.importado_em)} (${esc(cad.nome)})` : 'Cadastro de funcionários não importado', cad ? '' : ir('arq')),
+    item(true, `Regra: compra de ${String(R.cfg.corte + 1).padStart(2, '0')} a ${R.cfg.corte} → folha do mês, cada parcela na folha seguinte; folha paga no 5º dia útil (${compBR(COMP)}: ${dataBR(quintoDiaUtil(COMP))})`),
+    item(gravesComp.length === 0, gravesComp.length ? `${gravesComp.length} pendência(s) grave(s) sem tratativa` : 'Nenhuma pendência grave aberta', '', gravesComp.length ? 'graves' : ''),
+    item(fechada ? true : null, fechada ? `Competência fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : 'Competência ainda não fechada', fechada ? '' : ir('meses'))
+  ].join('') : [
     item(fArqs.length === 1 ? true : fArqs.length > 1 ? null : false, fArqs.length ? `Folha de ${compBR(COMP)} importada (${fArqs.map(a => esc(a.nome)).join(', ')})` : `Folha de ${compBR(COMP)} não importada`, fArqs.length === 1 ? '' : ir('arq')),
     ...(fArqs.length ? [item(c.dataPag.length ? true : false, c.dataPag.length ? `Folha paga em ${c.dataPag.map(dataBR).join(', ')}` : 'Data de pagamento da folha não informada', c.dataPag.length ? '' : ir('arq'))] : []),
     item(!!cad, cad ? `Cadastro de funcionários de ${dtBR(cad.importado_em)} (${esc(cad.nome)})` : 'Cadastro de funcionários não importado', cad ? '' : ir('arq')),
     item(c.devido > 0 && !c.faltam.length ? true : c.devido > 0 ? null : false, c.devido > 0 ? (c.faltam.length ? (c.faltam.length === 1 && c.faltam[0] === COMP && R.cfg.regra !== 'ciclo' ? 'A carteira importada foi tirada depois do início desta folha: parcelas já pagas não estão no arquivo (devido mínimo)' : `Compras importadas, mas faltam as de ${faixas(c.faltam)} para o devido ficar completo`) : 'Compras de todos os meses que geram parcela nesta folha importadas') : `Nenhuma parcela das compras importadas cai em ${compBR(COMP)}`, c.faltam.length || !c.devido ? ir('arq') : ''),
     item(R.calib ? (regraMelhor && regraUso.pct >= 0.9 ? true : null) : null, R.calib ? `Regra de competência explica ${((regraUso ? regraUso.pct : 0) * 100).toFixed(1)}% dos descontos${regraMelhor ? (regraUso.pct < 0.9 ? ' — baixo porque o devido dos meses passados é mínimo (compras quitadas fora da planilha)' : '') : ' — existe regra melhor'}` : 'Regra de competência ainda não conferida com a folha', R.calib && !regraMelhor ? ir('arq') : ''),
     item(D.baixas.length ? true : null, D.baixas.length ? 'Baixas do crediário importadas' : 'Baixas do crediário (opcional) não importadas'),
-    item(gravesComp.length === 0, gravesComp.length ? `${gravesComp.length} pendência(s) grave(s) sem tratativa` : 'Nenhuma pendência grave aberta', gravesComp.length ? ir('pend') : ''),
+    item(gravesComp.length === 0, gravesComp.length ? `${gravesComp.length} pendência(s) grave(s) sem tratativa` : 'Nenhuma pendência grave aberta', '', gravesComp.length ? 'graves' : ''),
     item(fechada ? true : null, fechada ? `Competência fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : 'Competência ainda não fechada', fechada ? '' : ir('meses'))
   ].join('');
 
@@ -1392,9 +1414,21 @@ function drill(k) {
   const pend = (t, ls) => lista(t, `Pendências abertas - ${comp} e gerais`, CAB_PEND, ls, linhaPend, p => p.cpf, [8]);
   const ex = (t, f) => lista(t, 'Ex-funcionários com crediário', CAB_EX, R.exs.filter(f), linhaEx, o => o.pe.cpf, [4, 5, 6, 7, 8], ls => ['Total', '', '', '', ls.reduce((t, o) => t + o.abertas.length, 0), ...['vencido', 'aVencer', 'aberto', 'descApos'].map(q => V(ls.reduce((t, o) => t + o[q], 0)))]);
   const fo = (t, f) => lista(t, 'Compradores fora do cadastro', CAB_FORA, R.foras.filter(f), linhaFora, o => o.pe.cpf, [3, 5, 6, 7, 8]);
+  const CAB_P = ['Funcionário', 'CPF', 'Situação', 'Documento', 'Compra', 'Vencimento', 'Folha', 'Valor', 'Relatórios'];
+  const par = (t, sub, ps) => lista(t, sub, CAB_P, ps.slice().sort((a, b) => (R.pessoas.get(a.cpf) || {nome: ''}).nome.localeCompare((R.pessoas.get(b.cpf) || {nome: ''}).nome) || a.vencimento.localeCompare(b.vencimento)),
+    p => { const pe = R.pessoas.get(p.cpf) || {}; return [pe.nome || p.nome, cpfF(p.cpf), pe.ex ? 'Ex-funcionário' : pe.cad && pe.cad.noCadastro ? (pe.cad.situacao || 'Ativo') : 'Fora do cadastro', p.documento, dataBR(p.lancamento), dataBR(p.vencimento), compBR(p.comp), V(p.valor),
+      [p.noCred ? 'crediário' : '', p.rhArqs && p.rhArqs.length ? `RH${p.rhArqs.length > 1 ? ' ' + p.rhArqs.length + 'x' : ''}` : ''].filter(Boolean).join(' + ')]; }, p => p.cpf, [7],
+    ps => ['Total', '', '', '', '', '', '', V(ps.reduce((t, p) => t + p.valor, 0)), '']);
+  const crd = R.credAtual ? `vencimentos de ${dataBR(R.credIni)} a ${dataBR(R.credFim)}` : '';
+  // pt:<tipo> = pendências daquele tipo
+  const tipoPt = k.startsWith('pt:') ? k.slice(3) : '';
   const D_ = {
+    _pt: () => pend(tipoPt, N.pend.filter(p => p.tipo === tipoPt)),
+    rh_bate: () => par('RH × crediário: parcelas que batem', crd, conjRH().ambos),
+    rh_dif: () => { const x = conjRH(); return par('RH × crediário: parcelas que não batem', `${crd} · em aberto no crediário e fora do RH, no RH e não em aberto no crediário, ou em dois arquivos do RH`, [...x.soCred, ...x.soRH, ...x.dup]); },
+    semrh: () => par('Parcelas de compras sem "COMPRA EM LOJA" do RH', 'Em aberto no crediário, de ciclos de compra sem o arquivo do RH', conjRH().semRHv),
     devido: () => cel(`Devido na folha de ${comp}`, l => l.devido > 0), desc: () => cel(`Descontado na folha de ${comp}`, l => l.desc > 0),
-    liq: () => cel(`Diferenças na folha de ${comp}`, l => l.st !== 'prev' && Math.abs(l.dif) > 0.009), batem: () => cel(`Funcionários que batem - ${comp}`, l => l.st === 'ok'),
+    liq: () => cel(`Diferenças na folha de ${comp}`, l => l.st !== 'prev' && Math.abs(l.dif) > 0.009), batem: () => cel(R.modoRH ? `Funcionários conferidos - ${comp}` : `Funcionários que batem - ${comp}`, l => R.modoRH ? !['prev', 'rh'].includes(l.st) : l.st === 'ok'),
     menos: () => cel(`Deixou de descontar - ${comp}`, l => ['menos', 'nao'].includes(l.st)), mais: () => cel(`Descontou a mais - ${comp}`, l => ['mais', 'semcompra'].includes(l.st)),
     graves: () => pend('Erros e faltas graves', N.graves), dups: () => pend('Duplicidades', N.dups),
     ex_debito: () => ex('Ex-funcionários com débito em aberto', o => o.st === 'aberto'), ex_vencido: () => ex('Ex-funcionários com parcela vencida', o => o.vencido > 0.009),
@@ -1404,6 +1438,7 @@ function drill(k) {
     fo_todos: () => fo('Fora do cadastro com crediário', () => true), fo_aberto: () => fo('Fora do cadastro com saldo em aberto', o => o.aberto > 0.009),
     fo_vencido: () => fo('Fora do cadastro com parcela vencida', o => o.vencido > 0.009), fo_lista: () => fo('Fora do cadastro na lista de desconto do RH', o => o.nLista)
   };
+  if (tipoPt) k = '_pt';
   if (!D_[k]) return;
   const m = DRILL = D_[k](), s = m.secoes[0];
   abrirModal(`<div class="row" style="justify-content:space-between"><h3>${esc(m.titulo)}</h3><div class="row"><button class="btn b-pri" onclick="baixarPDF(DRILL)">PDF</button><button class="btn" onclick="imprimirModelo(DRILL)">Imprimir</button><button class="btn" onclick="excelDrill()">Planilha</button><button class="btn" onclick="fecharModal()">Fechar</button></div></div>
