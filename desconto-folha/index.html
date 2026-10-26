@@ -146,6 +146,8 @@
   <section id="a-painel">
     <div class="card hero" id="hero"></div>
     <div class="grid kp4" id="kpis"></div>
+    <div class="grid kp4" id="kpisComp"></div>
+    <div class="card" id="concil"></div>
     <div class="g2" style="margin-top:14px">
       <div class="card viz"><h3>Devido × descontado por competência <span id="legCol"></span></h3><div id="gCol"></div><div class="obs-graf" id="obsCol"></div></div>
       <div class="card"><h3>Situação dos funcionários na competência</h3><div class="sitb" id="gSit"></div></div>
@@ -977,7 +979,21 @@ function numeros(comp = COMP) {
   const jan = R.janelas.get(comp) || null, fora = R.foraJanela.get(comp) || null;
   return {c, ls, aud, soRH, ok, vRec, parcial, verif, gravesMes, jan, fora, pctFunc: pct(ok, aud.length), pctValor: c.folha ? pct(aud.reduce((t, l) => t + Math.min(l.desc, l.devido), 0), aud.reduce((t, l) => t + l.devido, 0)) : 0, liquida: rd2(c.desc - c.devido), pend,
     graves: pend.filter(p => p.grav === 'alta' && p.cat !== 'duplicidade'), dups: pend.filter(p => p.cat === 'duplicidade'),
-    nMenos: (c.cont.menos || 0) + (c.cont.nao || 0), nMais: (c.cont.mais || 0) + (c.cont.semcompra || 0)};
+    nMenos: (c.cont.menos || 0) + (c.cont.nao || 0), nMais: (c.cont.mais || 0) + (c.cont.semcompra || 0), ...composicao(comp, ls)};
+}
+// devido da folha separado em compras do mês (1ª parcela das compras do ciclo), parcelas de compras anteriores e saldo de
+// rescisão; e a conciliação devido → descontado, com cada diferença no seu motivo (a soma fecha com a verba 1260)
+const ehResc = l => { const pe = R.pessoas.get(l.cpf); return !!(pe && pe.ex && l.comp === pe.desl.saida.slice(0, 7)); };
+function composicao(comp, ls) {
+  const resc = ls.filter(ehResc), normal = ls.filter(l => !ehResc(l)), ps = normal.flatMap(l => l.parcelas);
+  const doMes = p => cicloDe(p.lancamento || p.vencimento, R.cfg.corte) === comp && !p.rec;
+  const soma = (xs, f) => rd2(xs.reduce((t, x) => t + f(x), 0)), dif = st => soma(normal.filter(l => st.includes(l.st)), l => l.dif);
+  const k = {psMes: ps.filter(doMes), psAnt: ps.filter(p => !doMes(p)), psResc: resc.flatMap(l => l.parcelas), lsResc: resc};
+  k.dvMes = soma(k.psMes, p => p.valor); k.dvAnt = soma(k.psAnt, p => p.valor); k.dvResc = soma(resc, l => l.devido);
+  k.cMenos = dif(['nao', 'menos']); k.cMais = dif(['mais', 'semcompra']); k.cVerif = dif(['verif']); k.cArred = dif(['ok']);
+  k.cResc = soma(resc.filter(l => l.st !== 'prev'), l => l.dif);
+  k.nMenosA = normal.filter(l => ['nao', 'menos'].includes(l.st)).length; k.nMaisA = normal.filter(l => ['mais', 'semcompra'].includes(l.st)).length;
+  return k;
 }
 // achados automáticos (painel e PDF executivo): {grav, txt, acao}
 // RH (COMPRA EM LOJA) × crediário da loja, parcela a parcela, no período do crediário mais novo
@@ -1057,10 +1073,38 @@ function telaPainel() {
       ? kpi('Descontado acima das compras da base', brl(N.liquida), `faltam compras de ${faixas(c.faltam)} — parte é parcela de compra antiga`, 't-cinza', "drill('liq')")
       : kpi('Diferença líquida', c.folha ? brl(N.liquida) : '—', c.folha ? (N.liquida < -0.009 ? 'descontado a menos no total' : N.liquida > 0.009 ? 'descontado a mais no total' : 'confere') : '', !c.folha ? 't-cinza' : Math.abs(N.liquida) > 0.009 ? 't-laranja' : 't-verde', "drill('liq')")) +
     kpi('Funcionários que batem', c.folha ? `${qtd(N.ok)} de ${qtd(N.aud.length)}` : '—', c.folha ? `${pctTxt(N.pctFunc)}${N.verif ? ` · ${qtd(N.verif)} a verificar (provável compra anterior à base)` : ''}` : '', c.folha ? (N.pctFunc >= 99 ? 't-verde' : N.verif ? 't-cinza' : 't-laranja') : 't-cinza', "drill('batem')") +
-    kpi('Deixou de descontar', brl(c.menos), `${qtd(N.nMenos)} funcionário(s) — perda`, c.menos > 0.009 ? 't-vermelho' : 't-verde', "drill('menos')") +
-    kpi('Descontou a mais', brl(c.mais), `${qtd(N.nMais)} funcionário(s) — sem compra registrada`, c.mais > 0.009 ? 't-laranja' : 't-verde', "drill('mais')") +
+    kpi('Deixou de descontar', brl(-N.cMenos), `${qtd(N.nMenosA)} funcionário(s) ativo(s) — perda (rescisões na conciliação)`, N.cMenos < -0.009 ? 't-vermelho' : 't-verde', "drill('menos')") +
+    kpi('Descontou a mais', brl(N.cMais), `${qtd(N.nMaisA)} funcionário(s) — sem compra registrada`, N.cMais > 0.009 ? 't-laranja' : 't-verde', "drill('mais')") +
     kpi('Erros e faltas graves', qtd(N.graves.length), `${qtd(N.gravesMes)} deste mês · ${qtd(N.graves.length - N.gravesMes)} de cadastro e política (valem para todos os meses)`, N.graves.length ? 't-vermelho' : 't-verde', "drill('graves')") +
     kpi('Duplicidades', qtd(N.dups.length), brl(N.dups.reduce((s, p) => s + Math.abs(p.valor || 0), 0)), N.dups.length ? 't-vermelho' : 't-verde', "drill('dups')");
+
+  // compras do mês × compras anteriores × rescisão e conciliação com a folha
+  const pctD = v => c.devido ? ` · ${pctTxt(pct(v, c.devido))} do devido` : '';
+  $('kpisComp').innerHTML =
+    kpi('Compras do mês', brl(N.dvMes), `1ª parcela das compras de ${String(R.cfg.corte + 1).padStart(2, '0')}/${addMes(COMP, -1).slice(5)} a ${R.cfg.corte}/${COMP.slice(5)} · ${qtd(N.psMes.length)} parcelas${pctD(N.dvMes)}`, 't-roxo', "drill('dv_mes')") +
+    kpi('Parcelas de compras anteriores', brl(N.dvAnt), `2ª parcela em diante de compras de meses anteriores · ${qtd(N.psAnt.length)} parcelas${pctD(N.dvAnt)}`, 't-roxo', "drill('dv_ant')") +
+    kpi('Saldo de rescisão', brl(N.dvResc), `${qtd(N.lsResc.length)} ex-funcionário(s) que saíram neste mês — todas as parcelas restantes`, N.dvResc ? 't-laranja' : 't-cinza', "drill('dv_resc')") +
+    kpi('Descontado na folha', c.folha ? brl(c.desc) : '—', c.folha ? 'verba 1260 "Compra Loja"' : 'folha não importada', c.folha ? 't-verde' : 't-cinza', "drill('desc')");
+  const fecha = rd2(c.devido + N.cMenos + N.cMais + N.cVerif + N.cResc + N.cArred), bate = c.folha && Math.abs(fecha - c.desc) <= 0.01;
+  const lin = (t, v, dk, cls = '', nota = '') => `<tr ${dk ? `class="clicavel" onclick="drill('${dk}')" title="Clique para ver o que compõe"` : ''}><td class="${cls}">${t}${nota ? `<div class="small mut">${nota}</div>` : ''}</td><td class="r ${cls}">${v}</td></tr>`;
+  const sg = v => (v > 0 ? '+ ' : v < 0 ? '− ' : '') + brl(Math.abs(v));
+  $('concil').innerHTML = `<h3>Conciliação: compras × desconto da folha de ${compBR(COMP)}</h3>
+    <div class="small mut">De onde vem o devido e por que o descontado é diferente. Cada linha abre quem compõe o valor.</div>
+    <div class="tw"><table><tbody>
+    ${lin('Compras do mês (1ª parcela)', brl(N.dvMes), 'dv_mes')}
+    ${lin('Parcelas de compras anteriores', brl(N.dvAnt), 'dv_ant')}
+    ${lin('Saldo de rescisão (ex-funcionários)', brl(N.dvResc), 'dv_resc')}
+    ${lin('<b>= Total devido</b>', `<b>${brl(c.devido)}</b>`, 'devido')}
+    ${c.folha ? `
+    ${lin('Não descontou / descontou a menos (ativos)', sg(N.cMenos), 'menos', N.cMenos < -0.009 ? 'badt' : '', 'perda: cobrar ou lançar na próxima folha')}
+    ${lin('Descontado sem compra registrada', sg(N.cMais), 'mais', N.cMais > 0.009 ? 'badt' : '', 'pedir ao RH a compra que originou; se não houver, devolver')}
+    ${lin('Provável parcela de compra anterior à base', sg(N.cVerif), 'verif', N.cVerif > 0.009 ? 'wt' : '', c.faltam.length ? `faltam as compras de ${faixas(c.faltam)} — importar o COMPRA EM LOJA desses ciclos` : '')}
+    ${lin('Rescisões: descontado − saldo', sg(N.cResc), 'resc', Math.abs(N.cResc) > 0.009 ? 'badt' : '', 'ver a aba Ex-funcionários')}
+    ${Math.abs(N.cArred) > 0.009 ? lin('Arredondamento (até ' + brl(R.cfg.tol) + ' por funcionário)', sg(N.cArred), '') : ''}
+    ${lin('<b>= Descontado na folha (verba 1260)</b>', `<b>${brl(c.desc)}</b>`, 'desc')}
+    <tr><td colspan="2" class="${bate ? 'okt' : 'badt'}">${bate ? '✔ A conciliação fecha com a folha.' : `✖ A conciliação dá ${brl(fecha)} e a folha ${brl(c.desc)} — diferença de ${brl(rd2(c.desc - fecha))}.`}</td></tr>`
+    : '<tr><td colspan="2" class="wt">Folha desta competência não importada — o devido é a previsão do desconto.</td></tr>'}
+    </tbody></table></div>`;
 
   // situação dos funcionários
   const ordem = ['ok', 'nao', 'menos', 'mais', 'semcompra', 'verif', 'rh', 'prev'], corSt = {rh: '#60a5fa', ok: '#22c55e', nao: '#ef4444', menos: '#f87171', mais: '#f97316', semcompra: '#fb923c', verif: '#f5b301', prev: '#94a3b8'};
@@ -1447,7 +1491,10 @@ function drill(k) {
     semrh: () => par('Parcelas de compras sem "COMPRA EM LOJA" do RH', 'Em aberto no crediário, de ciclos de compra sem o arquivo do RH', conjRH().semRHv),
     devido: () => cel(`Devido na folha de ${comp}`, l => l.devido > 0), desc: () => cel(`Descontado na folha de ${comp}`, l => l.desc > 0),
     liq: () => cel(`Diferenças na folha de ${comp}`, l => l.st !== 'prev' && Math.abs(l.dif) > 0.009), batem: () => cel(R.modoRH ? `Funcionários conferidos - ${comp}` : `Funcionários que batem - ${comp}`, l => R.modoRH ? !['prev', 'rh'].includes(l.st) : l.st === 'ok'),
-    menos: () => cel(`Deixou de descontar - ${comp}`, l => ['menos', 'nao'].includes(l.st)), mais: () => cel(`Descontou a mais - ${comp}`, l => ['mais', 'semcompra'].includes(l.st)),
+    menos: () => cel(`Deixou de descontar - ${comp}`, l => ['menos', 'nao'].includes(l.st) && !ehResc(l)), mais: () => cel(`Descontado sem compra registrada - ${comp}`, l => ['mais', 'semcompra'].includes(l.st) && !ehResc(l)),
+    verif: () => cel(`Provável parcela de compra anterior à base - ${comp}`, l => l.st === 'verif' && !ehResc(l)), resc: () => cel(`Rescisões - ${comp}`, ehResc),
+    dv_mes: () => par(`Compras do mês - ${comp}`, '1ª parcela das compras do ciclo desta folha', N.psMes), dv_ant: () => par(`Parcelas de compras anteriores - ${comp}`, '2ª parcela em diante de compras de meses anteriores', N.psAnt),
+    dv_resc: () => par(`Saldo de rescisão - ${comp}`, 'Parcelas restantes de quem saiu neste mês (tinham de sair na rescisão)', N.psResc),
     graves: () => pend('Erros e faltas graves', N.graves), dups: () => pend('Duplicidades', N.dups),
     ex_debito: () => ex('Ex-funcionários com débito em aberto', o => o.st === 'aberto'), ex_vencido: () => ex('Ex-funcionários com parcela vencida', o => o.vencido > 0.009),
     ex_avencer: () => ex('Ex-funcionários com débito a vencer', o => o.aVencer > 0.009), ex_folha: () => ex('Descontados na folha depois da saída', o => o.folhaApos.length),
