@@ -146,22 +146,16 @@
   <section id="a-painel">
     <div class="card hero" id="hero"></div>
     <div class="card" id="conferente" style="margin-top:14px"></div>
-    <div class="grid kp4" id="kpis"></div>
-    <div class="card" id="concil"></div>
+    <!-- conferência com a folha: só quando a folha da competência foi importada -->
+    <div id="conferencia" style="margin-top:14px"><div class="grid kp4" id="kpis" style="margin-top:0"></div><div class="card" id="concil"></div></div>
+    <div class="card aviso hidden" id="semFolha" style="margin-top:14px"></div>
     <div class="g2" style="margin-top:14px">
-      <div class="card viz"><h3>Devido × descontado por competência <span id="legCol"></span></h3><div id="gCol"></div><div class="obs-graf" id="obsCol"></div></div>
-      <div class="card"><h3>Situação dos funcionários na competência</h3><div class="sitb" id="gSit"></div></div>
+      <div class="card viz"><h3>Devido × descontado por competência <span id="legCol"></span></h3><div id="gCol"></div></div>
+      <div class="card" id="cSit"><h3>Situação dos funcionários na competência</h3><div class="sitb" id="gSit"></div></div>
+      <div class="card hidden" id="cTipo"><h3>Pendências abertas por tipo</h3><div id="gTipo"></div></div>
     </div>
-    <div class="g2" style="margin-top:14px">
-      <div class="card viz"><h3>Diferença por loja (a menos + a mais)</h3><div id="gLoja"></div></div>
-      <div class="card"><h3>Pendências abertas por tipo</h3><div id="gTipo"></div></div>
-    </div>
-    <div class="g2" style="margin-top:14px">
-      <div class="card"><h3>Principais achados</h3><div class="achados" id="achados"></div></div>
-      <div class="card"><h3>O que falta para fechar o mês</h3><div class="chk-mes" id="checklist" style="margin-top:10px"></div></div>
-    </div>
-    <h2>Maiores diferenças da competência</h2>
-    <div class="card tw" id="topDif"></div>
+    <div class="card" id="auditoria" style="margin-top:14px"></div>
+    <details class="card" id="comoFunciona" style="margin-top:14px"><summary style="cursor:pointer;font-weight:700">Como funciona · regras e como ler os números</summary><div id="explica" class="small" style="margin-top:10px;line-height:1.6"></div></details>
   </section>
 
   <!-- PENDÊNCIAS -->
@@ -468,7 +462,8 @@ async function carregarDados() {
     sb.from('cred_config').select('*').eq('id', 1).maybeSingle().then(r => { if (r.error) throw r.error; return r.data; }),
     sel('cred_tratativas', '*', 'id'), sel('cred_fechamentos', '*', 'competencia'),
     todos(() => sb.from('cred_desligados').select('*').order('cpf').order('saida'))]);
-  D = {arquivos, parcelas, funcionarios, folha, baixas, cfg: cfg || {regra: 'ciclo', corte: 20, tolerancia: 0.05}, tratativas, fechamentos, desligados};
+  const verificacoes = await todos(() => sb.from('cred_verificacoes').select('*').order('id')).catch(e => { console.warn('[Desconto em folha] verificações:', e); return null; });
+  D = {arquivos, parcelas, funcionarios, folha, baixas, cfg: cfg || {regra: 'ciclo', corte: 20, tolerancia: 0.05}, tratativas, fechamentos, desligados, verificacoes};
 }
 
 /* ---------- regra de competência ---------- */
@@ -944,7 +939,9 @@ async function recarregar() {
     const ultFolhas = [...R.compsFolha].filter(c => comDevido.has(c)).sort(), maxL = Math.max(0, ...ultFolhas.map(c => nLanc[c] || 0));
     // com o RH: a próxima folha a ser paga (a de agora)
     const proxFolha = R.modoRH ? [...R.compsFolha].sort().find(c => quintoDiaUtil(c) >= hojeISO()) : null;
-    if (!COMP_ESCOLHIDA || !opts.includes(COMP)) COMP = proxFolha || ultFolhas.filter(c => (nLanc[c] || 0) >= maxL * 0.2).pop()
+    // abre na folha que vai ser paga agora (5º dia útil ainda não passou): a de outubro, paga no início de novembro
+    const aPagar = opts.find(c => quintoDiaUtil(c) >= hojeISO() && comDevido.has(c));
+    if (!COMP_ESCOLHIDA || !opts.includes(COMP)) COMP = proxFolha || aPagar || ultFolhas.filter(c => (nLanc[c] || 0) >= maxL * 0.2).pop()
       || [...comDevido].sort().find(c => c >= addMes(R.compHoje, -1)) || [...R.compsFolha].sort().pop() || (opts.includes(R.compHoje) ? R.compHoje : opts[0] || R.compHoje);
     $('selComp').innerHTML = (opts.length ? opts : [COMP]).map(c => `<option value="${c}" ${c === COMP ? 'selected' : ''}>${compBR(c)}${R.compsFolha.has(c) ? '' : R.compsReais.has(c) ? ' (prevista)' : ' (só reconstruída)'}</option>`).join('');
     const abertas = R.pend.filter(p => !encerrada(p) && p.cat !== 'duplicidade' && p.grav === 'alta').length;
@@ -1060,95 +1057,113 @@ function telaPainel() {
   const N = numeros(), c = N.c;
   const fechada = c.fech && c.fech.status === 'fechada';
   const corG = N.pctValor >= 99.5 ? '#22c55e' : N.pctValor >= 95 ? '#f5b301' : '#ef4444';
+  // topo curto: competência, data do desconto e situação da folha (as explicações ficam em "Como funciona", no fim)
   $('hero').innerHTML = `<div><div class="t">Competência</div><div class="c">${compBR(COMP)}${fechada ? ' <span class="st st-ok">fechada</span>' : ''}</div>
-    <div class="f">${R.modoRH ? 'Devido = parcelas do crediário da loja e das compras do RH · Descontado = "COMPRA EM LOJA" do RH, cada parcela na folha do seu mês' : 'Devido = compras em loja (COMPRA EM LOJA e crediário), cada parcela na folha do seu mês · Descontado = verba 1260 "Compra Loja" da folha'}${N.vRec > 0.009 ? ` <span class="wt">(${brl(N.vRec)} reconstruídos de contratos ainda abertos — compras já quitadas não vêm no arquivo, então é o mínimo)</span>` : c.faltam.length ? ' <span class="wt">(faltam compras de ' + faixas(c.faltam) + ')</span>' : ''}<br>
-    ${R.semRH.get(COMP) ? `<span class="wt">${brl(R.semRH.get(COMP).valor)} desta folha (${qtd(R.semRH.get(COMP).n)} parcelas do crediário) são de compras de ciclos sem "COMPRA EM LOJA" do RH (${[...R.semRH.get(COMP).ciclos].sort().map(compBR).join(', ')}) — ficam fora até o arquivo ser importado.</span><br>` : ''}
-    ${N.fora ? `<span class="badt">Lista do RH só com vencimentos de ${N.jan.map(j => dataBR(j.ini) + ' a ' + dataBR(j.fim)).join(', ')} — ${qtd(N.fora.n)} parcelas (${brl(N.fora.valor)}) desta folha ficaram fora da lista.</span><br>` : ''}
-    ${c.folha ? `Folha importada · ${c.dataPag.length ? 'paga em <b>' + c.dataPag.map(dataBR).join(', ') + '</b>' : `<span class="wt">sem data de pagamento</span> (previsto: 5º dia útil, ${dataBR(quintoDiaUtil(COMP))}) · <a href="javascript:void(0)" onclick="irPara(\'arq\')">informar</a>`}` : `<span class="wt">Folha ainda não importada</span> · pagamento previsto no 5º dia útil: ${dataBR(quintoDiaUtil(COMP))}`}
+    <div class="f">Desconto no 5º dia útil: <b>${dataBR(c.dataPag.length ? c.dataPag[0] : quintoDiaUtil(COMP))}</b> · ${c.folha ? `folha importada${c.dataPag.length ? '' : ' <span class="wt">sem data de pagamento</span> · <a href="javascript:void(0)" onclick="irPara(\'arq\')">informar</a>'}` : '<span class="wt">folha ainda não importada</span> · <a href="javascript:void(0)" onclick="irPara(\'arq\')">importar</a>'}
+    ${N.vRec > 0.009 || c.faltam.length ? '<br><span class="wt">Devido mínimo: faltam compras antigas na base — <a href="javascript:void(0)" onclick="$(\'comoFunciona\').open = true; $(\'comoFunciona\').scrollIntoView({behavior: \'smooth\'})">ver por quê</a></span>' : ''}
     ${fechada ? `<br>Fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : ''}</div></div>
-    <div class="gauge">${c.folha && !N.aud.length && N.soRH.length ? `<div class="v" style="color:#93c5fd;font-size:30px">Sem conferência</div><div class="l">${R.credAtual ? `O crediário da loja importado traz vencimentos de ${dataBR(R.credIni)} a ${dataBR(R.credFim)}; as parcelas desta folha estão fora desse período. ` : ''}O RH ${quintoDiaUtil(COMP) > hojeISO() ? 'programou' : 'descontou'} ${brl(c.desc)} de ${qtd(N.soRH.length)} funcionário(s) — para conferir, importe o crediário com os vencimentos até ${compBR(addMes(COMP, 1))}.</div>` : c.folha ? `<div class="v" style="color:${corG}">${pctTxt(N.pctValor)}</div><div class="barra"><i style="width:${Math.min(100, N.pctValor)}%;background:${corG}"></i></div>
+    <div class="gauge">${c.folha && !N.aud.length && N.soRH.length ? `<div class="v" style="color:#93c5fd;font-size:30px">Sem conferência</div><div class="l">As parcelas desta folha estão fora do período do crediário importado.</div>` : c.folha ? `<div class="v" style="color:${corG}">${pctTxt(N.pctValor)}</div><div class="barra"><i style="width:${Math.min(100, N.pctValor)}%;background:${corG}"></i></div>
       <div class="l">do valor devido${N.parcial ? ' (mínimo)' : ''} foi descontado · ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem (${pctTxt(N.pctFunc)})</div>`
-      : `<div class="v" style="color:#c4b5fd">${brl(c.devido)}</div><div class="l">a descontar na folha de ${compBR(COMP)} · ${qtd(c.n)} funcionários</div>`}</div>`;
-  $('kpis').innerHTML =
-    kpi('Total devido', brl(c.devido), c.devido > 0 ? (N.vRec > 0.009 ? `inclui ${brl(N.vRec)} reconstruídos (mínimo)` : 'parcelas das compras em loja') : '<span class="wt">nenhuma parcela das compras importadas cai nesta competência</span>', c.devido > 0 ? 't-roxo' : 't-laranja', "drill('devido')") +
-    kpi(R.modoRH ? (quintoDiaUtil(COMP) <= hojeISO() ? 'Descontado pelo RH (Compra em loja)' : 'Programado pelo RH (folha ainda não paga)') : 'Descontado na folha', c.folha ? brl(c.desc) : '—', c.folha ? `${qtd(c.n)} funcionários` : 'folha não importada', c.folha ? 't-verde' : 't-cinza', "drill('desc')") +
-    (N.parcial && c.folha && N.liquida > 0.009
-      ? kpi('Descontado acima das compras da base', brl(N.liquida), `faltam compras de ${faixas(c.faltam)} — parte é parcela de compra antiga`, 't-cinza', "drill('liq')")
-      : kpi('Diferença líquida', c.folha ? brl(N.liquida) : '—', c.folha ? (N.liquida < -0.009 ? 'descontado a menos no total' : N.liquida > 0.009 ? 'descontado a mais no total' : 'confere') : '', !c.folha ? 't-cinza' : Math.abs(N.liquida) > 0.009 ? 't-laranja' : 't-verde', "drill('liq')")) +
-    kpi('Funcionários que batem', c.folha ? `${qtd(N.ok)} de ${qtd(N.aud.length)}` : '—', c.folha ? `${pctTxt(N.pctFunc)}${N.verif ? ` · ${qtd(N.verif)} a verificar (provável compra anterior à base)` : ''}` : '', c.folha ? (N.pctFunc >= 99 ? 't-verde' : N.verif ? 't-cinza' : 't-laranja') : 't-cinza', "drill('batem')") +
-    kpi('Deixou de descontar', brl(-N.cMenos), `${qtd(N.nMenosA)} funcionário(s) ativo(s) — perda (rescisões na conciliação)`, N.cMenos < -0.009 ? 't-vermelho' : 't-verde', "drill('menos')") +
-    kpi('Descontou a mais', brl(N.cMais), `${qtd(N.nMaisA)} funcionário(s) — sem compra registrada`, N.cMais > 0.009 ? 't-laranja' : 't-verde', "drill('mais')") +
-    kpi('Erros e faltas graves', qtd(N.graves.length), `${qtd(N.gravesMes)} deste mês · ${qtd(N.graves.length - N.gravesMes)} de cadastro e política (valem para todos os meses)`, N.graves.length ? 't-vermelho' : 't-verde', "drill('graves')") +
-    kpi('Duplicidades', qtd(N.dups.length), brl(N.dups.reduce((s, p) => s + Math.abs(p.valor || 0), 0)), N.dups.length ? 't-vermelho' : 't-verde', "drill('dups')");
+      : `<div class="v" style="color:#c4b5fd">${brl(c.devido)}</div><div class="l">devido na folha de ${compBR(COMP)} · ${qtd(c.n)} pessoas (folha + Diretoria + rescisão)</div>`}</div>`;
 
-  // compras do mês × compras anteriores × rescisão e conciliação com a folha
-  const fecha = rd2(c.devido + N.cMenos + N.cMais + N.cVerif + N.cResc + N.cArred), bate = c.folha && Math.abs(fecha - c.desc) <= 0.01;
-  const lin = (t, v, dk, cls = '', nota = '') => `<tr ${dk ? `class="clicavel" onclick="drill('${dk}')" title="Clique para ver o que compõe"` : ''}><td class="${cls}">${t}${nota ? `<div class="small mut">${nota}</div>` : ''}</td><td class="r ${cls}">${v}</td></tr>`;
-  const sg = v => (v > 0 ? '+ ' : v < 0 ? '− ' : '') + brl(Math.abs(v));
-  $('concil').innerHTML = `<h3>Conciliação: compras × desconto da folha de ${compBR(COMP)}</h3>
-    <div class="small mut">De onde vem o devido e por que o descontado é diferente. Cada linha abre quem compõe o valor.</div>
-    <div class="tw"><table><tbody>
-    ${lin('Compras do mês (1ª parcela)', brl(N.dvMes), 'dv_mes')}
-    ${lin('Parcelas de compras anteriores', brl(N.dvAnt), 'dv_ant')}
-    ${lin('Saldo de rescisão (ex-funcionários)', brl(N.dvResc), 'dv_resc')}
-    ${lin('<b>= Total devido</b>', `<b>${brl(c.devido)}</b>`, 'devido')}
-    ${c.folha ? `
-    ${lin('Não descontou / descontou a menos (ativos)', sg(N.cMenos), 'menos', N.cMenos < -0.009 ? 'badt' : '', 'perda: cobrar ou lançar na próxima folha')}
-    ${lin('Descontado sem compra registrada', sg(N.cMais), 'mais', N.cMais > 0.009 ? 'badt' : '', 'pedir ao RH a compra que originou; se não houver, devolver')}
-    ${lin('Provável parcela de compra anterior à base', sg(N.cVerif), 'verif', N.cVerif > 0.009 ? 'wt' : '', c.faltam.length ? `faltam as compras de ${faixas(c.faltam)} — importar o COMPRA EM LOJA desses ciclos` : '')}
-    ${lin('Rescisões: descontado − saldo', sg(N.cResc), 'resc', Math.abs(N.cResc) > 0.009 ? 'badt' : '', 'ver a aba Ex-funcionários')}
-    ${Math.abs(N.cArred) > 0.009 ? lin('Arredondamento (até ' + brl(R.cfg.tol) + ' por funcionário)', sg(N.cArred), '') : ''}
-    ${lin('<b>= Descontado na folha (verba 1260)</b>', `<b>${brl(c.desc)}</b>`, 'desc')}
-    <tr><td colspan="2" class="${bate ? 'okt' : 'badt'}">${bate ? '✔ A conciliação fecha com a folha.' : `✖ A conciliação dá ${brl(fecha)} e a folha ${brl(c.desc)} — diferença de ${brl(rd2(c.desc - fecha))}.`}</td></tr>`
-    : '<tr><td colspan="2" class="wt">Folha desta competência não importada — o devido é a previsão do desconto.</td></tr>'}
-    </tbody></table></div>`;
+  // conferência com a folha: só existe com a folha importada
+  $('conferencia').classList.toggle('hidden', !c.folha);
+  $('semFolha').classList.toggle('hidden', !!c.folha);
+  $('semFolha').innerHTML = `A conferência <b>devido × descontado</b> da folha de ${compBR(COMP)} aparece aqui quando a folha for importada. <a href="javascript:void(0)" onclick="irPara('arq')">Importar a folha</a> · ou escolha uma competência já paga no seletor acima.`;
+  if (c.folha) {
+    $('kpis').innerHTML =
+      kpi('Total devido', brl(c.devido), N.vRec > 0.009 ? `inclui ${brl(N.vRec)} reconstruídos (mínimo)` : 'parcelas das compras em loja', 't-roxo', "drill('devido')") +
+      kpi('Descontado na folha', brl(c.desc), `${qtd(c.n)} funcionários · verba 1260`, 't-verde', "drill('desc')") +
+      (N.parcial && N.liquida > 0.009
+        ? kpi('Descontado acima das compras da base', brl(N.liquida), 'parte é parcela de compra antiga', 't-cinza', "drill('liq')")
+        : kpi('Diferença líquida', brl(N.liquida), N.liquida < -0.009 ? 'descontado a menos no total' : N.liquida > 0.009 ? 'descontado a mais no total' : 'confere', Math.abs(N.liquida) > 0.009 ? 't-laranja' : 't-verde', "drill('liq')")) +
+      kpi('Funcionários que batem', `${qtd(N.ok)} de ${qtd(N.aud.length)}`, `${pctTxt(N.pctFunc)}${N.verif ? ` · ${qtd(N.verif)} a verificar` : ''}`, N.pctFunc >= 99 ? 't-verde' : N.verif ? 't-cinza' : 't-laranja', "drill('batem')");
+    // compras do mês × compras anteriores × rescisão e conciliação com a folha
+    const fecha = rd2(c.devido + N.cMenos + N.cMais + N.cVerif + N.cResc + N.cArred), bate = Math.abs(fecha - c.desc) <= 0.01;
+    const lin = (t, v, dk, cls = '', nota = '') => `<tr ${dk ? `class="clicavel" onclick="drill('${dk}')" title="Clique para ver o que compõe"` : ''}><td class="${cls}">${t}${nota ? `<div class="small mut">${nota}</div>` : ''}</td><td class="r ${cls}">${v}</td></tr>`;
+    const sg = v => (v > 0 ? '+ ' : v < 0 ? '− ' : '') + brl(Math.abs(v));
+    $('concil').innerHTML = `<h3>Conciliação: compras × desconto da folha de ${compBR(COMP)} <span class="small mut">(clique na linha para ver quem compõe)</span></h3>
+      <div class="tw"><table><tbody>
+      ${lin('Compras do mês (1ª parcela)', brl(N.dvMes), 'dv_mes')}
+      ${lin('Parcelas de compras anteriores', brl(N.dvAnt), 'dv_ant')}
+      ${lin('Saldo de rescisão (ex-funcionários)', brl(N.dvResc), 'dv_resc')}
+      ${lin('<b>= Total devido</b>', `<b>${brl(c.devido)}</b>`, 'devido')}
+      ${lin('Não descontou / descontou a menos (ativos)', sg(N.cMenos), 'menos', N.cMenos < -0.009 ? 'badt' : '')}
+      ${lin('Descontado sem compra registrada', sg(N.cMais), 'mais', N.cMais > 0.009 ? 'badt' : '')}
+      ${lin('Provável parcela de compra anterior à base', sg(N.cVerif), 'verif', N.cVerif > 0.009 ? 'wt' : '')}
+      ${lin('Rescisões: descontado − saldo', sg(N.cResc), 'resc', Math.abs(N.cResc) > 0.009 ? 'badt' : '')}
+      ${Math.abs(N.cArred) > 0.009 ? lin('Arredondamento (até ' + brl(R.cfg.tol) + ' por funcionário)', sg(N.cArred), '') : ''}
+      ${lin('<b>= Descontado na folha (verba 1260)</b>', `<b>${brl(c.desc)}</b>`, 'desc')}
+      <tr><td colspan="2" class="${bate ? 'okt' : 'badt'}">${bate ? '✔ A conciliação fecha com a folha.' : `✖ A conciliação dá ${brl(fecha)} e a folha ${brl(c.desc)} — diferença de ${brl(rd2(c.desc - fecha))}.`}</td></tr>
+      </tbody></table></div>`;
+  }
 
-  // situação dos funcionários
-  const ordem = ['ok', 'nao', 'menos', 'mais', 'semcompra', 'verif', 'rh', 'prev'], corSt = {rh: '#60a5fa', ok: '#22c55e', nao: '#ef4444', menos: '#f87171', mais: '#f97316', semcompra: '#fb923c', verif: '#f5b301', prev: '#94a3b8'};
-  const tot = N.ls.length || 1;
-  $('gSit').innerHTML = ordem.filter(k => c.cont[k]).map(k => { const ls = N.ls.filter(l => l.st === k), v = ls.reduce((s, l) => s + Math.abs(k === 'ok' || k === 'prev' || k === 'rh' ? l.devido : l.dif), 0);
-    return `<div><span>${STAT[k][0]}</span><span class="b"><i style="width:${Math.max(2, c.cont[k] / tot * 100)}%;background:${corSt[k]}"></i></span><b>${qtd(c.cont[k])} · ${brlCurto(v)}</b></div>`; }).join('') || '<div class="vazio">Sem dados na competência.</div>';
-  $('achados').innerHTML = achados().map(x => `<div ${x.dk ? `class="clic" onclick="drill('${x.dk.replace(/'/g, '')}')" title="Clique para ver o que compõe"` : ''}><i style="background:${COR_GRAV[x.grav]}"></i><span>${esc(x.txt)}<div class="acao">→ ${esc(x.acao)}${x.dk ? ' · <b class="ver">ver o que compõe ›</b>' : ''}</div></span></div>`).join('');
-
-  // checklist do mês
-  const cad = R.arqPorId.get(R.cadAtual), fArqs = D.arquivos.filter(a => a.tipo === 'folha' && (a.competencias || []).includes(COMP));
-  const regraUso = R.calib && R.calib.find(x => x.regra === R.cfg.regra && x.corte === R.cfg.corte), regraMelhor = R.calib && R.calib[0] === regraUso;
-  const item = (ok, txt, acao = '', dk = '') => `<div ${dk ? `class="clic" onclick="drill('${dk}')" title="Clique para ver o que compõe"` : ''}><b class="${ok === true ? 'okt' : ok === false ? 'badt' : 'wt'}">${ok === true ? '✔' : ok === false ? '✖' : '!'}</b><span>${txt}${acao}${dk ? ' · <b class="ver">ver ›</b>' : ''}</span></div>`;
-  const ir = t => ` · <a href="javascript:void(0)" onclick="irPara('${t}')">resolver</a>`;
-  const gravesComp = N.pend.filter(p => p.grav === 'alta');
-  const sr = R.semRH.get(COMP), credA = R.arqPorId.get(R.credAtual), cobreAte = addMes(COMP, 1) + '-' + String(R.cfg.corte).padStart(2, '0');
-  $('checklist').innerHTML = R.modoRH ? [
-    // com o RH: desconto = COMPRA EM LOJA; conferência = crediário da loja
-    item(R.compsRH.has(COMP) ? true : false, R.compsRH.has(COMP) ? `Desconto do RH (COMPRA EM LOJA) para a folha de ${compBR(COMP)}: ${brl(c.desc)} de ${qtd(c.n)} funcionário(s)` : `Nenhum COMPRA EM LOJA do RH tem parcela na folha de ${compBR(COMP)}`, R.compsRH.has(COMP) ? '' : ir('arq'), R.compsRH.has(COMP) ? 'desc' : ''),
-    item(credA ? (R.credFim >= cobreAte ? true : null) : false, credA ? `Crediário da loja: ${esc(credA.nome)} (vencimentos de ${dataBR(R.credIni)} a ${dataBR(R.credFim)})${R.credFim >= cobreAte ? '' : ` — não alcança a folha de ${compBR(COMP)}`}` : 'Crediário da loja não importado', credA ? '' : ir('arq')),
-    item(!sr, sr ? `Faltam os COMPRA EM LOJA dos ciclos ${[...sr.ciclos].sort().map(compBR).join(', ')}: ${brl(sr.valor)} desta folha fora da conferência` : 'Todos os ciclos de compra desta folha têm COMPRA EM LOJA do RH', sr ? ir('arq') : '', sr ? 'semrh' : ''),
-    item(!!cad, cad ? `Cadastro de funcionários de ${dtBR(cad.importado_em)} (${esc(cad.nome)})` : 'Cadastro de funcionários não importado', cad ? '' : ir('arq')),
-    item(true, `Regra: compra de ${String(R.cfg.corte + 1).padStart(2, '0')} a ${R.cfg.corte} → folha do mês, cada parcela na folha seguinte; folha paga no 5º dia útil (${compBR(COMP)}: ${dataBR(quintoDiaUtil(COMP))})`),
-    item(gravesComp.length === 0, gravesComp.length ? `${gravesComp.length} pendência(s) grave(s) sem tratativa` : 'Nenhuma pendência grave aberta', '', gravesComp.length ? 'graves' : ''),
-    item(fechada ? true : null, fechada ? `Competência fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : 'Competência ainda não fechada', fechada ? '' : ir('meses'))
-  ].join('') : [
-    item(fArqs.length === 1 ? true : fArqs.length > 1 ? null : false, fArqs.length ? `Folha de ${compBR(COMP)} importada (${fArqs.map(a => esc(a.nome)).join(', ')})` : `Folha de ${compBR(COMP)} não importada`, fArqs.length === 1 ? '' : ir('arq')),
-    ...(fArqs.length ? [item(c.dataPag.length ? true : false, c.dataPag.length ? `Folha paga em ${c.dataPag.map(dataBR).join(', ')}` : 'Data de pagamento da folha não informada', c.dataPag.length ? '' : ir('arq'))] : []),
-    item(!!cad, cad ? `Cadastro de funcionários de ${dtBR(cad.importado_em)} (${esc(cad.nome)})` : 'Cadastro de funcionários não importado', cad ? '' : ir('arq')),
-    item(c.devido > 0 && !c.faltam.length ? true : c.devido > 0 ? null : false, c.devido > 0 ? (c.faltam.length ? (c.faltam.length === 1 && c.faltam[0] === COMP && R.cfg.regra !== 'ciclo' ? 'A carteira importada foi tirada depois do início desta folha: parcelas já pagas não estão no arquivo (devido mínimo)' : `Compras importadas, mas faltam as de ${faixas(c.faltam)} para o devido ficar completo`) : 'Compras de todos os meses que geram parcela nesta folha importadas') : `Nenhuma parcela das compras importadas cai em ${compBR(COMP)}`, c.faltam.length || !c.devido ? ir('arq') : ''),
-    item(R.calib ? (regraMelhor && regraUso.pct >= 0.9 ? true : null) : null, R.calib ? `Regra de competência explica ${((regraUso ? regraUso.pct : 0) * 100).toFixed(1)}% dos descontos${regraMelhor ? (regraUso.pct < 0.9 ? ' — baixo porque o devido dos meses passados é mínimo (compras quitadas fora da planilha)' : '') : ' — existe regra melhor'}` : 'Regra de competência ainda não conferida com a folha', R.calib && !regraMelhor ? ir('arq') : ''),
-    item(D.baixas.length ? true : null, D.baixas.length ? 'Baixas do crediário importadas' : 'Baixas do crediário (opcional) não importadas'),
-    item(gravesComp.length === 0, gravesComp.length ? `${gravesComp.length} pendência(s) grave(s) sem tratativa` : 'Nenhuma pendência grave aberta', '', gravesComp.length ? 'graves' : ''),
-    item(fechada ? true : null, fechada ? `Competência fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : 'Competência ainda não fechada', fechada ? '' : ir('meses'))
-  ].join('');
-
-  // gráficos
+  // gráficos: devido × descontado e, ao lado, a situação dos funcionários (com folha) ou as pendências por tipo (sem folha)
   const serie = R.porComp.filter(x => x.comp <= COMP).slice(-12);
   $('legCol').innerHTML = legenda(['Devido', 'Descontado']);
-  $('obsCol').innerHTML = `<b>Como ler:</b><ul>${observacaoGrafico().map(t => `<li>${t}</li>`).join('')}</ul>`;
   graficoColunas($('gCol'), serie.map(x => ({rotulo: MESES[+x.comp.slice(5) - 1] + '/' + x.comp.slice(2, 4), titulo: compBR(x.comp), a: x.devido, b: x.folha ? x.desc : 0,
     det: x.folha ? `<div><span>Diferença</span><span>${brl(x.desc - x.devido)}</span></div>` : '<div><span>Folha</span><span>não importada</span></div>'})), ['Devido', 'Descontado']);
-  const lojas = porLoja(COMP).filter(l => l.menos + l.mais > 0.009).sort((a, b) => b.menos + b.mais - a.menos - a.mais).slice(0, 10);
-  graficoBarrasH($('gLoja'), lojas.map(l => ({rotulo: l.loja, valor: rd2(l.menos + l.mais), det: `<div><span>A menos</span><span>${brl(l.menos)}</span></div><div><span>A mais</span><span>${brl(l.mais)}</span></div><div><span>Funcionários</span><span>${l.nDiv}</span></div>`})), {vazio: c.folha ? 'Nenhuma diferença nesta competência.' : 'Importe a folha para comparar.'});
-  const tipos = {}; N.pend.forEach(p => tipos[p.tipo] = (tipos[p.tipo] || 0) + (Math.abs(p.valor) || 0));
-  graficoRosca($('gTipo'), Object.entries(tipos).sort((a, b) => b[1] - a[1]).map(([rotulo, valor]) => ({rotulo, valor})), {vazio: 'Nenhuma pendência aberta com valor.', centro: 'Em jogo', aoClicar: () => irPara('pend')});
-  const top = N.ls.filter(l => !['ok', 'prev'].includes(l.st)).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif)).slice(0, 10);
-  $('topDif').innerHTML = top.length ? tabelaLinhas(top) : `<div class="vazio">${c.folha ? 'Nenhuma diferença nesta competência. ✔' : 'Folha de ' + compBR(COMP) + ' ainda não importada — o painel mostra a previsão.'}</div>`;
+  $('cSit').classList.toggle('hidden', !c.folha); $('cTipo').classList.toggle('hidden', !!c.folha);
+  if (c.folha) {
+    const ordem = ['ok', 'nao', 'menos', 'mais', 'semcompra', 'verif', 'rh', 'prev'], corSt = {rh: '#60a5fa', ok: '#22c55e', nao: '#ef4444', menos: '#f87171', mais: '#f97316', semcompra: '#fb923c', verif: '#f5b301', prev: '#94a3b8'};
+    const tot = N.ls.length || 1;
+    $('gSit').innerHTML = ordem.filter(k => c.cont[k]).map(k => { const ls = N.ls.filter(l => l.st === k), v = ls.reduce((s, l) => s + Math.abs(k === 'ok' || k === 'prev' || k === 'rh' ? l.devido : l.dif), 0);
+      return `<div><span>${STAT[k][0]}</span><span class="b"><i style="width:${Math.max(2, c.cont[k] / tot * 100)}%;background:${corSt[k]}"></i></span><b>${qtd(c.cont[k])} · ${brlCurto(v)}</b></div>`; }).join('') || '<div class="vazio">Sem dados na competência.</div>';
+  } else {
+    const tipos = {}; N.pend.forEach(p => tipos[p.tipo] = (tipos[p.tipo] || 0) + (Math.abs(p.valor) || 0));
+    graficoRosca($('gTipo'), Object.entries(tipos).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([rotulo, valor]) => ({rotulo, valor})), {vazio: 'Nenhuma pendência aberta com valor.', centro: 'Em jogo', aoClicar: () => irPara('pend')});
+  }
+  telaAuditoria(N);
+  telaExplica(N);
+}
+
+/* ---------- AUDITORIA · VERIFICAÇÃO: cada achado da competência recebe Auditado ou Recusado ---------- */
+let AUD_ITENS = [], AUD_ABERTO = false;
+const idAchado = x => (x.dk || '') + '|' + nomeN(x.acao || x.txt).slice(0, 60);
+function verificacaoDe(id, comp = COMP) {
+  let v = null; (D.verificacoes || []).forEach(x => { if (x.competencia === comp && x.item === id) v = x; }); return v;
+}
+function telaAuditoria(N = numeros()) {
+  const its = achados().filter(x => x.grav !== 'ok' || x.dk);
+  if (N.graves.length && !its.some(x => x.dk === 'graves')) its.push({grav: 'alta', txt: `${qtd(N.graves.length)} erro(s) e falta(s) grave(s) (${qtd(N.gravesMes)} deste mês).`, acao: 'Tratar cada um na aba Erros e faltas graves.', dk: 'graves'});
+  AUD_ITENS = its.map(x => ({...x, id: idAchado(x), v: verificacaoDe(idAchado(x))}));
+  const nA = AUD_ITENS.filter(x => x.v && x.v.status === 'auditado').length, nR = AUD_ITENS.filter(x => x.v && x.v.status === 'recusado').length, nP = AUD_ITENS.length - nA - nR;
+  const semTabela = D.verificacoes === null;
+  const linha = (x, i) => `<div style="display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-top:1px solid var(--line)">
+    <i style="width:10px;height:10px;border-radius:50%;margin-top:5px;background:${COR_GRAV[x.grav] || '#94a3b8'}"></i>
+    <div class="small">${esc(x.txt)}<div class="mut">→ ${esc(x.acao)}${x.dk ? ` · <a href="javascript:void(0)" onclick="drill('${x.dk.replace(/'/g, '')}')">ver o que compõe ›</a>` : ''}</div>
+      ${x.v ? `<div class="${x.v.status === 'auditado' ? 'okt' : 'badt'}">${x.v.status === 'auditado' ? '✔ Auditado' : '✖ Recusado'} por ${esc(quemCurto(x.v.usuario))} em ${dtBR(x.v.criado_em)}${x.v.observacao ? ` — ${esc(x.v.observacao)}` : ''}</div>` : ''}</div>
+    <div class="row" style="gap:6px;flex-wrap:nowrap">${semTabela ? '' : `<button class="btn" onclick="verificar(${i}, 'auditado')" ${x.v && x.v.status === 'auditado' ? 'disabled' : ''}>✔ Auditado</button><button class="btn" onclick="verificar(${i}, 'recusado')" ${x.v && x.v.status === 'recusado' ? 'disabled' : ''}>✖ Recusado</button>`}</div></div>`;
+  $('auditoria').innerHTML = `<div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div><h3 style="margin:0">Auditoria · verificação da folha de ${compBR(COMP)}</h3>
+        <div class="small mut">${qtd(AUD_ITENS.length)} itens para verificar · <span class="okt">${qtd(nA)} auditado(s)</span> · <span class="badt">${qtd(nR)} recusado(s)</span> · ${qtd(nP)} pendente(s)</div></div>
+      <div class="row" style="gap:6px"><button class="btn b-pri" onclick="AUD_ABERTO = !AUD_ABERTO; telaAuditoria()">${AUD_ABERTO ? 'Fechar verificação' : 'Abrir verificação'}</button><button class="btn" onclick="irPara('meses')">Fechar competência</button></div></div>
+    <div style="display:flex;height:8px;border-radius:5px;overflow:hidden;margin-top:10px;background:rgba(148,163,184,.15)">${AUD_ITENS.length ? `<i style="width:${nA / AUD_ITENS.length * 100}%;background:#22c55e"></i><i style="width:${nR / AUD_ITENS.length * 100}%;background:#ef4444"></i>` : ''}</div>
+    ${semTabela ? '<div class="small wt" style="margin-top:8px">Registro de Auditado/Recusado ainda não disponível no banco.</div>' : ''}
+    ${AUD_ABERTO ? `<div style="margin-top:8px">${AUD_ITENS.map(linha).join('') || '<div class="vazio">Nada para verificar. ✔</div>'}</div>` : ''}`;
+}
+async function verificar(i, status) {
+  const x = AUD_ITENS[i]; if (!x) return;
+  let observacao = null;
+  if (status === 'recusado') { observacao = prompt('Motivo da recusa (o que precisa ser corrigido):'); if (observacao === null) return; observacao = observacao.trim() || null; }
+  const r = await sb.from('cred_verificacoes').insert({competencia: COMP, item: x.id, status, observacao}).select().single();
+  if (r.error) { toast('Não gravou: ' + msgErro(r.error), 6000); return; }
+  D.verificacoes.push(r.data); telaAuditoria(); toast(status === 'auditado' ? 'Marcado como auditado.' : 'Marcado como recusado.');
+}
+
+/* ---------- COMO FUNCIONA: todas as explicações do painel, no fim ---------- */
+function telaExplica(N = numeros()) {
+  const c = N.c, d2 = String(R.cfg.corte + 1).padStart(2, '0'), sr = R.semRH.get(COMP);
+  const itens = [
+    `<b>Folha do mês:</b> compra de ${d2} de um mês a ${R.cfg.corte} do seguinte entra na folha desse mês (ex.: 21/09 a 20/10 → folha de outubro), descontada no 5º dia útil do mês seguinte; cada parcela seguinte entra na folha seguinte.`,
+    `<b>Devido</b> = parcelas das compras em loja (COMPRA EM LOJA e crediário) que caem na folha. <b>Descontado</b> = verba 1260 "Compra Loja" da folha.`,
+    `<b>A folha tem que descontar</b> = só de quem está no cadastro (ativo). <b>Herdado</b> = 2ª parcela em diante de compras anteriores. <b>Compras novas</b> = valor da 1ª parcela de cada compra do ciclo (compra à vista entra inteira). <b>Projetado</b> = parcela que o crediário ainda não trouxe (valor da última parcela, uma folha depois da outra).`,
+    `<b>Destino da cobrança:</b> ativo → folha (verba 1260); ex-funcionário → rescisão ou cobrança; PJ ou fora do cadastro → a compra é permitida, vai para a Diretoria descontar ou cobrar por fora e acompanhar até a baixa (Relatório Diretoria).`,
+    ...(N.vRec > 0.009 ? [`<b>Devido mínimo:</b> ${brl(N.vRec)} do devido de ${compBR(COMP)} são parcelas já pagas reconstruídas a partir dos contratos em aberto; compras já quitadas não aparecem na carteira.`] : c.faltam.length ? [`<b>Devido incompleto:</b> faltam as compras de ${faixas(c.faltam)}.`] : []),
+    ...(sr ? [`<b>Sem COMPRA EM LOJA do RH:</b> ${brl(sr.valor)} desta folha são de ciclos sem o arquivo do RH (${[...sr.ciclos].sort().map(compBR).join(', ')}).`] : []),
+    ...observacaoGrafico().map(t => `<b>Gráfico devido × descontado:</b> ${t}`),
+    `<b>Auditoria · verificação:</b> cada achado da competência é marcado como Auditado ou Recusado (com o motivo), com quem e quando; "Fechar competência" fica na aba Mês a mês.`];
+  $('explica').innerHTML = `<ul style="margin:0;padding-left:18px">${itens.map(t => `<li>${t}</li>`).join('')}</ul>`;
 }
 function tabelaLinhas(ls) {
   return `<table><thead><tr><th>Funcionário</th><th>Loja</th><th class="r">Devido</th><th class="r">Descontado</th><th class="r">Diferença</th><th>Situação</th><th>Pago em</th></tr></thead><tbody>` +
@@ -1423,44 +1438,48 @@ function valorCompras(C) {
 function listaConferente(comp, filtro = 'folha') {
   const C = conferente(), x = C.comps.find(c => c.comp === comp) || {ps: []}, [rot, f] = FILTRO_CF[filtro] || FILTRO_CF.folha;
   const ps = x.ps.filter(f), cpfs = new Set(ps.map(p => p.cpf));
-  // colunas mês a mês: as folhas seguintes à escolhida (até 6) e o saldo que ainda falta descontar
-  const prox = C.comps.filter(c => c.comp > comp).slice(0, 6), mm = new Map(mesAMes(p => f(p) && cpfs.has(p.cpf), C).map(o => [o.cpf, o]));
+  // atual + próxima folha (com a data do desconto) + o saldo que ainda falta: o mês a mês completo está no gráfico do painel
+  const prox = C.comps.find(c => c.comp > comp), mm = new Map(mesAMes(p => f(p) && cpfs.has(p.cpf), C).map(o => [o.cpf, o]));
   const gs = [...grpConta(ps, p => p.cpf)].map(([cpf, xs]) => { const pe = R.pessoas.get(cpf), s = g => rd2(xs.filter(g).reduce((t, p) => t + p.valor, 0)), o = mm.get(cpf);
-    return {cpf, nome: pe.nome, loja: pe.cad ? pe.cad.loja || '' : '', dest: DESTINO[grupoDe(pe)], compras: new Set(xs.map(p => p.ck)).size, n: xs.length,
+    return {cpf, nome: pe.nome, loja: pe.cad ? pe.cad.loja || '' : DESTINO[grupoDe(pe)], n: xs.length,
       herdado: s(p => p.parcela !== 1), novo: s(p => p.parcela === 1), total: s(() => true),
-      prox: prox.map(c => rd2((o.por[c.comp] || {t: 0}).t)), saldo: rd2(C.comps.filter(c => c.comp >= comp).reduce((t, c) => t + ((o.por[c.comp] || {t: 0}).t), 0))}; })
+      prox: prox ? rd2((o.por[prox.comp] || {t: 0}).t) : 0, saldo: rd2(C.comps.filter(c => c.comp >= comp).reduce((t, c) => t + ((o.por[c.comp] || {t: 0}).t), 0))}; })
     .sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome));
+  const cab = ['Colaborador', 'CPF', 'Loja', 'Prest.', 'Herdado', 'Compras novas (parcela)', `Total ${compBR(comp)}`, ...(prox ? [`Próxima: ${cabMes(prox)}`] : []), 'Saldo a descontar'];
   const m = lista(`${rot} - folha de ${compBR(comp)}`,
-    `Desconto em ${dataBR(quintoDiaUtil(comp))} · ${qtd(gs.length)} pessoa(s) · total ${brl(rd2(ps.reduce((t, p) => t + p.valor, 0)))} · herdado = 2ª prestação em diante de compras anteriores · compras novas = valor da 1ª prestação (compra à vista entra inteira) · colunas seguintes = o que cada um desconta nas próximas folhas (com a data do desconto) · inclui prestações projetadas`,
-    ['Colaborador', 'CPF', 'Loja', 'Destino', 'Compras', 'Prestações', 'Herdado', 'Compras novas (parcela)', `Total ${compBR(comp)}`, ...prox.map(cabMes), 'Saldo a descontar'], gs,
-    g => [g.nome, cpfF(g.cpf), g.loja, g.dest, g.compras, g.n, V(g.herdado), V(g.novo), V(g.total), ...g.prox.map(V), V(g.saldo)], g => g.cpf,
-    [4, 5, 6, 7, 8, ...prox.map((c, k) => 9 + k), 9 + prox.length],
-    ls => ['Total', '', '', '', ls.reduce((t, g) => t + g.compras, 0), ls.reduce((t, g) => t + g.n, 0), ...['herdado', 'novo', 'total'].map(k => V(ls.reduce((t, g) => t + g[k], 0))),
-      ...prox.map((c, k) => V(ls.reduce((t, g) => t + g.prox[k], 0))), V(ls.reduce((t, g) => t + g.saldo, 0))]);
+    `Desconto em ${dataBR(quintoDiaUtil(comp))} · ${qtd(gs.length)} pessoa(s) · total ${brl(rd2(ps.reduce((t, p) => t + p.valor, 0)))} · compras novas = valor da 1ª parcela (à vista entra inteira)`,
+    cab, gs, g => [g.nome, cpfF(g.cpf), g.loja, g.n, V(g.herdado), V(g.novo), V(g.total), ...(prox ? [V(g.prox)] : []), V(g.saldo)], g => g.cpf,
+    cab.map((h, k) => k).filter(k => k >= 3),
+    ls => ['Total', '', '', ls.reduce((t, g) => t + g.n, 0), ...['herdado', 'novo', 'total', ...(prox ? ['prox'] : []), 'saldo'].map(k => V(ls.reduce((t, g) => t + g[k], 0)))]);
   // cada prestação que forma o total, com a parcela (x/n) e o valor da compra
   const nome = cpf => (R.pessoas.get(cpf) || {}).nome || '', vc = valorCompras(C), ord = ps.slice().sort((a, b) => nome(a.cpf).localeCompare(nome(b.cpf)) || String(a.lancamento).localeCompare(String(b.lancamento)) || a.parcela - b.parcela);
   m.secoes.push({titulo: 'Prestações que formam o total', cab: ['Colaborador', 'CPF', 'Documento', 'Data da compra', 'Valor da compra', 'Prestação', 'Vencimento', 'Tipo', 'Valor da prestação'], direita: [4, 8], cpfs: ord.map(p => p.cpf),
     linhas: ord.map(p => [nome(p.cpf), cpfF(p.cpf), p.documento, dataBR(p.lancamento), V(rd2(vc.get(p.ck) || p.valor)), `${p.parcela}/${p.n_parcelas || '?'}`, p.proj ? 'projetada' : dataBR(p.vencimento), p.parcela === 1 ? (p.n_parcelas === 1 ? 'Compra nova (à vista)' : 'Compra nova') : 'Herdado', V(p.valor)])});
   return m;
 }
-// Diretoria: PJ / fora do cadastro não têm folha — quanto descontar (ou cobrar) de cada um mês a mês, com a data
+// Diretoria: PJ / fora do cadastro não têm folha — quanto descontar (ou cobrar) de cada um no mês passado, no ATUAL
+// (a folha que vai ser paga agora) e no próximo, com a data; o mês atual separado em herdado + parcela das compras novas
 function modeloDiretoria() {
-  const C = conferente(), cs = C.comps.slice(0, 8), dep = C.comps.slice(8), ls = mesAMes(FILTRO_CF.fora[1], C);
-  const tot = (o, c) => rd2((o.por[c.comp] || {t: 0}).t), depois = o => rd2(dep.reduce((t, c) => t + tot(o, c), 0)), soma = f => rd2(ls.reduce((t, o) => t + f(o), 0));
-  const base = modeloFora(R.foras);
-  return {...base, titulo: 'Relatório Diretoria - PJ e fora do cadastro',
-    subtitulo: `Compra permitida, mas sem folha: desconto ou cobrança por fora, mês a mês (herdado + parcela das compras novas), acompanhar até a baixa - posição de ${dataBR(hojeISO())}`,
-    arquivo: `diretoria_pj_fora_cadastro_${hojeISO()}`, assinaturas: ['Auditoria', 'Diretoria'],
-    resumo: [['PJ / fora do cadastro com desconto previsto', qtd(ls.length)], ...cs.slice(0, 3).map(c => [`Folha de ${compBR(c.comp)} - descontar em ${dataBR(c.pag)}`, brl(soma(o => tot(o, c)))]),
-      ['Total previsto (todas as folhas)', brl(soma(o => o.total))], ...base.resumo.slice(1)],
+  const C = conferente(), atu = C.comps[0], prx = C.comps[1], ant = atu ? addMes(atu.comp, -1) : '', ehFora = FILTRO_CF.fora[1];
+  const ls = mesAMes(ehFora, C), ab = new Map();
+  // mês passado: parcelas da folha anterior de quem está fora do cadastro (sem folha, ficam em aberto até a baixa)
+  R.par.filter(p => !p.rec && p.comp === ant && grupoDe(R.pessoas.get(p.cpf) || {}) === 'fora').forEach(p => ab.set(p.cpf, (ab.get(p.cpf) || 0) + p.valor));
+  ab.forEach((v, cpf) => { if (!ls.some(o => o.cpf === cpf)) ls.push({cpf, nome: R.pessoas.get(cpf).nome, por: {}, total: 0}); });
+  const v = (o, c) => rd2(c ? (o.por[c.comp] || {t: 0}).t : 0), passado = o => rd2(ab.get(o.cpf) || 0), saldo = o => rd2(passado(o) + o.total);
+  const soma = f => rd2(ls.reduce((t, o) => t + f(o), 0)), x = o => (atu && o.por[atu.comp]) || {h: 0, n: 0, t: 0};
+  ls.sort((a, b) => v(b, atu) - v(a, atu) || saldo(b) - saldo(a));
+  const rot = (c, t) => c ? `${t} · ${compBR(c.comp)} · ${dataBR(c.pag)}` : t;
+  return {titulo: 'Relatório Diretoria - PJ e fora do cadastro', marca: MARCA, paisagem: false, arquivo: `diretoria_pj_fora_cadastro_${hojeISO()}`,
+    subtitulo: `Sem folha: a Diretoria desconta ou cobra por fora e acompanha até a baixa · posição de ${dataBR(hojeISO())}`,
+    resumo: [[`Mês passado · ${compBR(ant)}`, brl(soma(passado))], [rot(atu, 'MÊS ATUAL'), brl(soma(o => v(o, atu)))], [rot(prx, 'Próximo mês'), brl(soma(o => v(o, prx)))], ['Saldo total em aberto', `${brl(soma(saldo))} · ${qtd(ls.length)} pessoa(s)`]],
     secoes: [
-      {titulo: `Quanto descontar de cada um, mês a mês (${ls.length})`, cab: ['Comprador', 'CPF', ...cs.map(cabMes), ...(dep.length ? ['Depois'] : []), 'Total'],
-        direita: cs.map((c, k) => 2 + k).concat([2 + cs.length, 3 + cs.length]),
-        linhas: ls.map(o => [o.nome, cpfF(o.cpf), ...cs.map(c => V(tot(o, c))), ...(dep.length ? [V(depois(o))] : []), V(rd2(o.total))]),
-        rodape: ['Total', '', ...cs.map(c => V(soma(o => tot(o, c)))), ...(dep.length ? [V(soma(depois))] : []), V(soma(o => o.total))]},
-      {titulo: 'Detalhe por mês - herdado + parcela das compras novas', cab: ['Comprador', 'CPF', 'Folha', 'Data do desconto', 'Herdado', 'Compras novas (parcela)', 'Total do mês'], direita: [4, 5, 6],
-        linhas: ls.flatMap(o => C.comps.filter(c => o.por[c.comp]).map(c => { const x = o.por[c.comp]; return [o.nome, cpfF(o.cpf), compBR(c.comp), dataBR(c.pag), V(rd2(x.h)), V(rd2(x.n)), V(rd2(x.t))]; }))},
-      ...base.secoes]};
+      {titulo: `Quanto descontar de cada um (${ls.length})`, cab: ['Comprador', 'CPF', `Passado ${MESES[+ant.slice(5) - 1]}/${ant.slice(2, 4)}`, `ATUAL ${atu ? cabMes(atu) : ''}`, `Próximo ${prx ? cabMes(prx) : ''}`, 'Saldo total'], direita: [2, 3, 4, 5],
+        linhas: ls.map(o => [o.nome, cpfF(o.cpf), V(passado(o)), V(v(o, atu)), V(v(o, prx)), V(saldo(o))]),
+        rodape: ['Total', '', V(soma(passado)), V(soma(o => v(o, atu))), V(soma(o => v(o, prx))), V(soma(saldo))]},
+      {titulo: `Mês atual - folha de ${atu ? compBR(atu.comp) : '-'} (desconto em ${atu ? dataBR(atu.pag) : '-'}): herdado + parcela das compras novas`, cab: ['Comprador', 'CPF', 'Herdado', 'Compras novas (parcela)', 'Total do mês'], direita: [2, 3, 4],
+        linhas: ls.filter(o => x(o).t > 0.009).map(o => [o.nome, cpfF(o.cpf), V(rd2(x(o).h)), V(rd2(x(o).n)), V(rd2(x(o).t))]),
+        rodape: ['Total', '', V(soma(o => x(o).h)), V(soma(o => x(o).n)), V(soma(o => x(o).t))]}],
+    assinaturas: ['Auditoria', 'Diretoria']};
 }
 // quem mais pesa no total da folha (prévia dentro do card; o clique abre a lista inteira)
 function topFolha(c, n = 5) {
@@ -1519,9 +1538,6 @@ function telaConferente() {
   </div>
   <h3 style="margin-top:18px">Próximas folhas — quanto cada uma desconta <span class="small mut">(clique na coluna)</span></h3>
   ${graficoFolhas(C.comps.slice(0, 12))}
-  <div class="small" style="margin-top:14px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;line-height:1.7">
-    <b>Fluxo:</b> 1 · Compra no crediário → 2 · CPF classificado (ativo · ex · PJ/fora) → 3 · Cobrança: <b>ativo</b> na folha (verba 1260), <b>ex</b> na rescisão, <b>PJ/fora</b> com a Diretoria (por fora) → 4 · Conferência até a baixa.
-  </div>
   <div class="row" style="margin-top:10px;flex-wrap:wrap"><button class="btn b-pri" onclick="baixarPDF(modeloDiretoria())">Relatório Diretoria · PJ / fora (PDF, mês a mês)</button>
     <button class="btn" onclick="irPara('fora')">Fora do cadastro (${qtd(R.foras.length)})</button><button class="btn" onclick="irPara('fluxo')">Fluxo de caixa completo</button></div>`;
 }

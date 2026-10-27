@@ -758,7 +758,10 @@ async function gerarPDF(doc) {
   if (logo) pdf.addImage(logo, 'JPEG', M, 16, 44, 44);
   const tx = logo ? M + 54 : M;
   pdf.setTextColor(15, 30, 60); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(15); pdf.text(pdfTxt(doc.titulo), tx, 34);
-  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); pdf.setTextColor(70); pdf.text(pdfTxt(doc.subtitulo || 'Obras & Reformas - Esposende'), tx, 50);
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); pdf.setTextColor(70);
+  // subtítulo longo quebra em até 2 linhas antes da data de emissão (antes passava por cima dela)
+  const sub = pdf.splitTextToSize(pdfTxt(doc.subtitulo || 'Obras & Reformas - Esposende'), W - M - tx - 150).slice(0, 2);
+  pdf.text(sub, tx, sub.length > 1 ? 46 : 50);
   pdf.text('Emitido em ' + new Date().toLocaleString('pt-BR'), W - M, 50, {align: 'right'});
   pdf.setDrawColor(14, 74, 107); pdf.setLineWidth(1.5); pdf.line(M, 68, W - M, 68); pdf.setLineWidth(.5);
   pdf.setTextColor(20); let y = 92;
