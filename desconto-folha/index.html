@@ -1193,14 +1193,50 @@ function filtrar(lista, busca, sit) {
     return (q && nomeN(p.nome + ' ' + p.loja + ' ' + p.tipo + ' ' + p.txt).includes(q)) || (qd && (p.cpf.includes(qd) || String(p.matricula || '').includes(qd)));
   });
 }
-function tabelaPend(ls) {
-  if (!ls.length) return `<div class="vazio">Nada com esse filtro. ✔</div>`;
-  return `<table><thead><tr><th>Gravidade</th><th>Tipo</th><th>Funcionário</th><th>Comp.</th><th>Detalhe</th><th class="r">Valor</th><th>Tratativa</th><th></th></tr></thead><tbody>` +
-    ls.slice(0, 600).map(p => `<tr><td>${gravChip(p.grav)}</td><td><b>${esc(p.tipo)}</b></td>
+// tratativa em lote: caixinha em cada linha, "marcar todas" (todas as filtradas, não só as 600 da tela) e um botão que trata as
+// selecionadas de uma vez (mesma decisão e observação para todas)
+const SEL_TRAT = new Set();
+const listaCtx = ctx => ctx === 'dup' ? listaDup() : listaPend(), telaCtx = ctx => ctx === 'dup' ? telaDup() : telaPend();
+function marcarTrat(id, on, ctx) { on ? SEL_TRAT.add(id) : SEL_TRAT.delete(id); telaCtx(ctx); }
+function marcarTodasTrat(on, ctx) { listaCtx(ctx).forEach(p => on ? SEL_TRAT.add(p.id) : SEL_TRAT.delete(p.id)); telaCtx(ctx); }
+function tabelaPend(ls, ctx = 'pend') {
+  const ids = new Set(R.pend.map(p => p.id)); [...SEL_TRAT].forEach(id => { if (!ids.has(id)) SEL_TRAT.delete(id); });
+  const sel = R.pend.filter(p => SEL_TRAT.has(p.id)), todas = ls.length > 0 && ls.every(p => SEL_TRAT.has(p.id));
+  const barra = sel.length ? `<div class="row" style="gap:10px;align-items:center;margin:8px 0;padding:8px 12px;border:1px solid rgba(59,130,246,.5);border-radius:10px;background:rgba(37,99,235,.12)">
+      <b>${qtd(sel.length)} selecionada(s)</b><span class="small mut">· ${brl(rd2(sel.reduce((t, p) => t + Math.abs(p.valor || 0), 0)))}</span>
+      <button class="btn b-pri" onclick="tratarLote('${ctx}')">Tratar as ${qtd(sel.length)} selecionadas</button>
+      <a href="javascript:void(0)" class="small" onclick="SEL_TRAT.clear(); telaCtx('${ctx}')">desmarcar todas</a></div>` : '';
+  if (!ls.length) return barra + `<div class="vazio">Nada com esse filtro. ✔</div>`;
+  return barra + `<table><thead><tr><th style="width:28px"><input type="checkbox" title="Marcar todas as ${qtd(ls.length)} da lista filtrada" ${todas ? 'checked' : ''} onchange="marcarTodasTrat(this.checked, '${ctx}')"></th><th>Gravidade</th><th>Tipo</th><th>Funcionário</th><th>Comp.</th><th>Detalhe</th><th class="r">Valor</th><th>Tratativa</th><th></th></tr></thead><tbody>` +
+    ls.slice(0, 600).map((p, i) => `<tr ${SEL_TRAT.has(p.id) ? 'style="background:rgba(37,99,235,.10)"' : ''}><td><input type="checkbox" data-i="${i}" ${SEL_TRAT.has(p.id) ? 'checked' : ''} onchange="marcarTrat(LISTA_TRAT['${ctx}'][${i}], this.checked, '${ctx}')"></td><td>${gravChip(p.grav)}</td><td><b>${esc(p.tipo)}</b></td>
       <td>${p.cpf ? `<a href="javascript:void(0)" data-pes="${p.cpf}" data-c="${p.comp}">${esc(p.nome)}</a><br><span class="mut small">${cpfF(p.cpf)}${p.matricula ? ' · ' + esc(p.matricula) : ''}${p.loja ? ' · ' + esc(p.loja) : ''}</span>` : `<span class="mut">${esc(p.nome || '—')}</span>`}</td>
       <td class="small">${compBR(p.comp)}</td><td class="small">${esc(p.txt)}${p.trat && p.trat.observacao ? `<div class="mut">↳ ${esc(p.trat.observacao)} — ${esc(quemCurto(p.trat.usuario))} ${dtBR(p.trat.criado_em)}</div>` : ''}</td>
       <td class="r">${p.valor ? nfm(p.valor) : ''}</td><td>${tratChip(p.trat)}</td><td><button class="btn" data-tratar="${esc(p.id)}">Tratar</button></td></tr>`).join('') + `</tbody></table>` +
-    (ls.length > 600 ? `<div class="small mut">Mostrando 600 de ${ls.length}. O PDF e o Excel trazem todas.</div>` : '');
+    (ls.length > 600 ? `<div class="small mut">Mostrando 600 de ${ls.length}. "Marcar todas" marca as ${ls.length}; o PDF e o Excel trazem todas.</div>` : '');
+}
+// ids das linhas na tela (o onchange da caixinha usa o índice, sem pôr o id no HTML)
+const LISTA_TRAT = {pend: [], dup: []};
+function tratarLote(ctx) {
+  const sel = R.pend.filter(p => SEL_TRAT.has(p.id)); if (!sel.length) return;
+  const tipos = [...grpConta(sel, p => p.tipo)].map(([t, xs]) => `${esc(t)}: ${qtd(xs.length)}`).join(' · ');
+  abrirModal(`<h3>Tratar ${qtd(sel.length)} pendência(s) de uma vez</h3>
+    <div class="small">${tipos} · ${brl(rd2(sel.reduce((t, p) => t + Math.abs(p.valor || 0), 0)))}</div>
+    <div class="aviso small" style="max-height:160px;overflow:auto">${sel.slice(0, 40).map(p => `${esc(p.nome || '—')} · ${compBR(p.comp)} · ${p.valor ? nfm(p.valor) : ''}`).join('<br>')}${sel.length > 40 ? `<br>… e mais ${qtd(sel.length - 40)}` : ''}</div>
+    <label>Decisão (vale para todas)</label><select id="tStatus">${Object.entries(TRAT).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+    <label>Observação (o que foi feito, quem confirmou)</label><textarea id="tObs" rows="3"></textarea>
+    <div class="row"><button class="btn b-pri" id="bTrat">Gravar nas ${qtd(sel.length)}</button><button class="btn" onclick="fecharModal()">Cancelar</button></div>`);
+  $('bTrat').onclick = () => salvarTratativaLote(sel);
+}
+async function salvarTratativaLote(sel) {
+  const status = $('tStatus').value, obs = $('tObs').value.trim();
+  if (['justificado', 'resolvido'].includes(status) && !obs) { toast('Escreva a justificativa antes de encerrar.'); return; }
+  $('bTrat').disabled = true;
+  const linhas = sel.map(p => ({pendencia: p.id, cpf: p.cpf || null, competencia: p.comp || null, status, observacao: obs || null, valor: p.valor || null}));
+  for (let k = 0; k < linhas.length; k += 500) {
+    const r = await sb.from('cred_tratativas').insert(linhas.slice(k, k + 500));
+    if (r.error) { toast(`Não gravou${k ? ` (as primeiras ${k} foram gravadas)` : ''}: ` + msgErro(r.error), 8000); $('bTrat').disabled = false; await recarregar(); return; }
+  }
+  SEL_TRAT.clear(); fecharModal(); toast(`Tratativa gravada em ${qtd(linhas.length)} pendência(s).`); await recarregar();
 }
 // sem o filtro de tipo: base dos chips (contagem de cada tipo com os outros filtros) e das opções do seletor de tipo
 function listaPendBase() {
@@ -1218,10 +1254,10 @@ function telaPend() {
   $('pTipo').value = sel;
   $('pCont').innerHTML = tipos.map(([t, n]) => `<span class="chip ${t === sel ? 's-aberta' : 's-cinza'}" style="cursor:pointer${t === sel ? ';outline:2px solid rgba(59,130,246,.8)' : ''}" title="${t === sel ? 'Clique para mostrar todos os tipos' : 'Clique para ver só este tipo'}" onclick="filtrarTipo(this.dataset.t)" data-t="${esc(t)}">${esc(t)}: ${qtd(n)}</span>`).join('') +
     (sel ? ` <a href="javascript:void(0)" class="small" onclick="filtrarTipo('')">✕ limpar tipo</a>` : '');
-  $('tPend').innerHTML = tabelaPend(listaPend());
+  const ls = listaPend(); LISTA_TRAT.pend = ls.slice(0, 600).map(p => p.id); $('tPend').innerHTML = tabelaPend(ls, 'pend');
 }
 const listaDup = () => filtrar(R.pend.filter(p => p.cat === 'duplicidade'), $('dBusca').value, $('dSit').value);
-function telaDup() { $('tDup').innerHTML = tabelaPend(listaDup()); }
+function telaDup() { const ls = listaDup(); LISTA_TRAT.dup = ls.slice(0, 600).map(p => p.id); $('tDup').innerHTML = tabelaPend(ls, 'dup'); }
 ['pBusca', 'pCat', 'pGrav', 'pSit', 'pComp', 'pTipo'].forEach(id => $(id).addEventListener('input', telaPend));
 ['dBusca', 'dSit'].forEach(id => $(id).addEventListener('input', telaDup));
 
