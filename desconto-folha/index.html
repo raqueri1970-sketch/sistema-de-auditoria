@@ -145,6 +145,7 @@
   <!-- PAINEL -->
   <section id="a-painel">
     <div class="card hero" id="hero"></div>
+    <div class="card" id="conferente" style="margin-top:14px"></div>
     <div class="grid kp4" id="kpis"></div>
     <div class="grid kp4" id="kpisComp"></div>
     <div class="card" id="concil"></div>
@@ -325,6 +326,8 @@
 
 <script src="../obras-contas-pagar/comum.js?v=20261025-3"></script>
 <script>
+// o Conferente de Crediário agora é do módulo: o script que o Portal injetava (conferente-crediario-ui.js) não roda mais aqui
+window.__conferenteCrediarioUI = window.__conferenteCrediario = true;
 'use strict';
 /* =====================================================================================================
    Auditoria de Desconto em Folha do Crediário (23/10/2026)
@@ -1054,6 +1057,7 @@ function observacaoGrafico() {
 }
 const COR_GRAV = {alta: '#ef4444', media: '#f5b301', ok: '#22c55e', baixa: '#94a3b8'};
 function telaPainel() {
+  telaConferente();
   const N = numeros(), c = N.c;
   const fechada = c.fech && c.fech.status === 'fechada';
   const corG = N.pctValor >= 99.5 ? '#22c55e' : N.pctValor >= 95 ? '#f5b301' : '#ef4444';
@@ -1375,6 +1379,66 @@ function listaFluxo() {
 const somaSf = (ps, ks) => rd2(ps.filter(p => !p.paga && ks.includes(p.sf.k)).reduce((t, p) => t + p.valor, 0));
 const A_DESC = ['prev', 'prog'], NAO_DESC = ['nao', 'resc', 'semrh'];
 const ROT_GRUPO = {ativo: '', ex: 'ex-funcionário', fora: 'fora do cadastro'};
+
+/* ---------- CONFERENTE DE CREDIÁRIO: o que cada uma das próximas folhas tem de descontar ---------- */
+// A partir da próxima folha a ser paga (5º dia útil ainda não passou), pela regra de competência em uso: herdado = 2ª prestação
+// em diante de compras anteriores, compras novas = 1ª prestação. O crediário só traz os vencimentos em aberto até a data em que
+// foi tirado: as prestações que faltam até o total do contrato são projetadas (valor da última, uma folha depois da outra).
+// Ex-funcionário não tem folha (o saldo vai para a rescisão, aba Ex-funcionários); fora do cadastro/PJ vai para a Diretoria.
+function conferente() {
+  const hoje = hojeISO(); let ini = addMes(R.compHoje, -2); while (quintoDiaUtil(ini) < hoje) ini = addMes(ini, 1);
+  const ok = p => { const pe = R.pessoas.get(p.cpf); return pe && !pe.ex; };
+  const ps = R.par.filter(p => !p.rec && !p.baixa && p.comp >= ini && ok(p));
+  for (const xs of grpConta(R.par.filter(p => !p.rec && ok(p)), p => p.ck).values()) {
+    const u = xs.reduce((a, b) => b.parcela > a.parcela ? b : a);
+    for (let j = u.parcela + 1; j <= (u.n_parcelas || 0); j++) { const comp = addMes(u.comp, j - u.parcela);
+      if (comp >= ini) ps.push({...u, chave: 'proj|' + u.chave + '|' + j, documento: `${u.contrato}-${j}/${u.n_parcelas}`, parcela: j, comp, vencimento: '', baixa: null, descontos: [], proj: true}); }
+  }
+  const comps = [...grpConta(ps, p => p.comp)].sort((a, b) => a[0].localeCompare(b[0])).map(([comp, xs]) => {
+    const s = f => rd2(xs.filter(f).reduce((t, p) => t + p.valor, 0)), fora = xs.filter(p => grupoDe(R.pessoas.get(p.cpf)) === 'fora');
+    return {comp, pag: quintoDiaUtil(comp), ps: xs, n: xs.length, pessoas: new Set(xs.map(p => p.cpf)).size, total: s(() => true), herdado: s(p => p.parcela !== 1), novo: s(p => p.parcela === 1),
+      proj: s(p => p.proj), fora: rd2(fora.reduce((t, p) => t + p.valor, 0)), nFora: new Set(fora.map(p => p.cpf)).size};
+  });
+  return {ini, comps};
+}
+const DESTINO = {ativo: 'Folha', fora: 'Diretoria (por fora)'};
+function listaConferente(comp, soFora) {
+  const x = conferente().comps.find(c => c.comp === comp) || {ps: []};
+  const ps = x.ps.filter(p => !soFora || grupoDe(R.pessoas.get(p.cpf)) === 'fora');
+  const gs = [...grpConta(ps, p => p.cpf)].map(([cpf, xs]) => { const pe = R.pessoas.get(cpf), s = f => rd2(xs.filter(f).reduce((t, p) => t + p.valor, 0));
+    return {cpf, nome: pe.nome, loja: pe.cad ? pe.cad.loja || '' : '', dest: DESTINO[grupoDe(pe)], n: xs.length, herdado: s(p => p.parcela !== 1), novo: s(p => p.parcela === 1), proj: s(p => p.proj), total: s(() => true)}; })
+    .sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome));
+  return lista(soFora ? `Diretoria - fora do cadastro / PJ - folha de ${compBR(comp)}` : `Parcelas a descontar - folha de ${compBR(comp)}`,
+    `Paga em ${dataBR(quintoDiaUtil(comp))} · herdado = 2ª prestação em diante de compras anteriores · compras novas = 1ª prestação · projetado = prestação que o crediário ainda não trouxe`,
+    ['Colaborador', 'CPF', 'Loja', 'Destino', 'Prestações', 'Herdado', 'Compras novas', 'Projetado', 'Total'], gs,
+    g => [g.nome, cpfF(g.cpf), g.loja, g.dest, g.n, V(g.herdado), V(g.novo), V(g.proj), V(g.total)], g => g.cpf, [4, 5, 6, 7, 8],
+    ls => ['Total', '', '', '', ls.reduce((t, g) => t + g.n, 0), ...['herdado', 'novo', 'proj', 'total'].map(k => V(ls.reduce((t, g) => t + g[k], 0)))]);
+}
+const modeloDiretoria = () => ({...modeloFora(R.foras), titulo: 'Relatório Diretoria - PJ e fora do cadastro',
+  subtitulo: `Compra permitida, mas sem folha para descontar: desconto ou cobrança por fora, acompanhar até a baixa - posição de ${dataBR(hojeISO())}`,
+  arquivo: `diretoria_pj_fora_cadastro_${hojeISO()}`, assinaturas: ['Auditoria', 'Diretoria']});
+function telaConferente() {
+  const el = $('conferente'); if (!el) return;
+  const C = conferente(), [a, ...resto] = C.comps, nEx = numerosEx();
+  const topo = '<div class="small" style="color:#86efac;font-weight:800;letter-spacing:.04em">CONFERENTE DE CREDIÁRIO · PRÓXIMA FOLHA</div>';
+  el.style.borderColor = 'rgba(34,197,94,.45)';
+  el.innerHTML = (a ? `${topo}<div style="font-size:22px;font-weight:800;margin:6px 0 2px">Parcelas a descontar na folha de ${compBR(a.comp)} <span class="mut" style="font-size:14px;font-weight:600">· paga no 5º dia útil, ${dataBR(a.pag)}</span></div>
+    <div class="grid kp4">${
+      kpi('Total previsto', brl(a.total), `${qtd(a.pessoas)} colaboradores · ${qtd(a.n)} prestações${a.proj > 0.009 ? ` · ${brl(a.proj)} projetados` : ''}`, 't-roxo', `drill('cf:${a.comp}')`) +
+      kpi('Herdado', brl(a.herdado), '2ª prestação em diante de compras anteriores', 't-cinza', `drill('cf:${a.comp}')`) +
+      kpi('Compras novas', brl(a.novo), '1ª prestação das compras do ciclo', 't-verde', `drill('cf:${a.comp}')`) +
+      kpi('Diretoria · PJ / fora do cadastro', brl(a.fora), a.nFora ? `${qtd(a.nFora)} pessoa(s) sem folha — desconto por fora` : 'ninguém fora do cadastro', a.fora > 0.009 ? 't-laranja' : 't-verde', `drill('cfd:${a.comp}')`)}</div>
+    ${resto.length ? `<h3 style="margin-top:16px">Próximas folhas</h3><div class="grid kp4">${resto.slice(0, 8).map(c => kpi(`Folha de ${compBR(c.comp)}`, brl(c.total),
+      `paga em ${dataBR(c.pag)} · ${qtd(c.pessoas)} colaboradores${c.novo > 0.009 ? ` · novas ${brl(c.novo)}` : ''}${c.proj > 0.009 ? ` · ${c.proj >= c.total - 0.009 ? 'projetado' : brl(c.proj) + ' projetados'}` : ''}`, 't-cinza', `drill('cf:${c.comp}')`)).join('')}</div>` : ''}`
+    : `${topo}<div class="vazio">Nenhuma prestação a descontar nas próximas folhas.</div>`) +
+    `${nEx.aberto > 0.009 ? `<div class="aviso">Ex-funcionários: ${brl(nEx.aberto)} em aberto de ${qtd(nEx.nAberto)} pessoa(s) — sem folha, sai na rescisão ou é cobrado. <a href="javascript:void(0)" onclick="irPara('ex')">Ver ex-funcionários</a></div>` : ''}
+    <h3 style="margin-top:16px">Fluxograma de pagamento por colaborador</h3>
+    <div class="grid kp4">${[['1 · Compra', 'Crediário', 'contrato e nº de prestações'], ['2 · Classifica', 'CPF', 'ativo · ex-funcionário · PJ / fora'], ['3 · Cobrança', 'Destino', 'folha · rescisão · Diretoria'], ['4 · Conferência', 'Baixa', 'descontada · pendente · divergente']]
+      .map(([l, v, n]) => kpi(l, v, n)).join('')}</div>
+    <div class="regra"><b>Ativo:</b> desconto na folha (verba 1260). <b>Ex-funcionário:</b> saldo na rescisão ou cobrança. <b>PJ ou fora do cadastro:</b> a compra é permitida, não é erro — vai para a Diretoria descontar ou cobrar por fora e acompanhar até a baixa.</div>
+    <div class="row" style="margin-top:10px;flex-wrap:wrap"><button class="btn b-pri" onclick="baixarPDF(modeloDiretoria())">Relatório Diretoria · PJ / fora do cadastro (PDF)</button>
+      <button class="btn" onclick="irPara('fora')">Fora do cadastro (${qtd(R.foras.length)})</button><button class="btn" onclick="irPara('fluxo')">Fluxo de caixa completo</button></div>`;
+}
 function telaFluxo() {
   const M = fluxoMes();
   $('legFluxo').innerHTML = legenda(['Prestações da folha', 'Descontadas / pagas']);
@@ -1470,6 +1534,7 @@ function lista(titulo, sub, cab, objs, linha, cpf, direita, total) {
   return {titulo, subtitulo: sub, marca: MARCA, paisagem: true, arquivo: titulo.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '_').slice(0, 60) + '_' + hojeISO(),
     secoes: [{titulo: `${titulo} (${linhas.length})`, cab, linhas, direita, rodape: total ? total(objs) : null}], cpfs: objs.map(cpf), assinaturas: ['Auditoria']};
 }
+let D_cf = null;
 function drill(k) {
   const N = numeros(), comp = compBR(COMP), cel = (t, f) => lista(t, `Folha de ${comp}`, CAB_CEL, N.ls.filter(f).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif) || b.devido - a.devido), linhaCel, l => l.cpf, [4, 5, 6, 7],
     ls => ['Total', '', '', '', ls.reduce((t, l) => t + l.parcelas.length, 0), V(ls.reduce((t, l) => t + l.devido, 0)), V(ls.reduce((t, l) => t + (l.st === 'prev' ? 0 : l.desc), 0)), V(ls.reduce((t, l) => t + (l.st === 'prev' ? 0 : l.dif), 0)), '']);
@@ -1484,8 +1549,10 @@ function drill(k) {
   const crd = R.credAtual ? `vencimentos de ${dataBR(R.credIni)} a ${dataBR(R.credFim)}` : '';
   // pt:<tipo> = pendências daquele tipo
   const tipoPt = k.startsWith('pt:') ? k.slice(3) : '';
+  if (k.startsWith('cf:') || k.startsWith('cfd:')) { const m = listaConferente(k.split(':')[1], k.startsWith('cfd:')); D_cf = () => m; k = '_cf'; }
   const D_ = {
     _pt: () => pend(tipoPt, N.pend.filter(p => p.tipo === tipoPt)),
+    _cf: () => D_cf(),
     rh_bate: () => par('RH × crediário: parcelas que batem', crd, conjRH().ambos),
     rh_dif: () => { const x = conjRH(); return par('RH × crediário: parcelas que não batem', `${crd} · em aberto no crediário e fora do RH, no RH e não em aberto no crediário, ou em dois arquivos do RH`, [...x.soCred, ...x.soRH, ...x.dup]); },
     semrh: () => par('Parcelas de compras sem "COMPRA EM LOJA" do RH', 'Em aberto no crediário, de ciclos de compra sem o arquivo do RH', conjRH().semRHv),
