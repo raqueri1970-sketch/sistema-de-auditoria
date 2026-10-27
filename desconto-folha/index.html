@@ -1239,13 +1239,17 @@ async function salvarTratativa(id) {
 function telaMeses() {
   if (!R.porComp.length) { $('tMeses').innerHTML = `<div class="vazio">Importe o relatório de compras para começar.</div>`; return; }
   $('tMeses').innerHTML = `<table><thead><tr><th>Competência</th><th class="r">Funcionários</th><th class="r">Devido</th><th class="r">Descontado</th><th class="r">A menos</th><th class="r">A mais</th><th>Situação</th><th>Pago em</th><th>Compras</th><th>Fechamento</th></tr></thead><tbody>` +
-    R.porComp.slice().reverse().map(c => {
+    R.porComp.slice().reverse().map((c, i, cs) => {
       const f = c.fech, fechada = f && f.status === 'fechada';
+      // futura = a folha ainda não foi paga (5º dia útil não chegou): só existe o devido; a conferência começa quando ela for importada
+      const pag = quintoDiaUtil(c.comp), futura = !c.folha && pag >= hojeISO(), ant = cs[i - 1], antFutura = ant && !ant.folha && quintoDiaUtil(ant.comp) >= hojeISO();
+      const divisa = i === 0 && futura ? `<tr><td colspan="10" class="small mut" style="padding-top:4px">▼ Folhas a pagar — previsão (o desconto aparece quando a folha do mês for importada)</td></tr>`
+        : antFutura && !futura ? `<tr><td colspan="10" class="small" style="padding-top:14px;border-top:2px solid var(--line2)"><b>▼ Folhas já pagas — conferência devido × descontado</b></td></tr>` : '';
       const mudou = fechada && (Math.abs(Number(f.devido) - c.devido) > 0.01 || Math.abs(Number(f.descontado) - c.desc) > 0.01);
-      return `<tr class="${c.comp === COMP ? 'semrow' : ''}"><td><a href="javascript:void(0)" data-ircomp="${c.comp}"><b>${compBR(c.comp)}</b></a></td><td class="r">${c.n}</td><td class="r">${nfm(c.devido)}</td><td class="r">${c.folha ? nfm(c.desc) : '—'}</td>
+      return `${divisa}<tr class="${c.comp === COMP ? 'semrow' : ''}"><td><a href="javascript:void(0)" data-ircomp="${c.comp}"><b>${compBR(c.comp)}</b></a></td><td class="r">${c.n}</td><td class="r">${nfm(c.devido)}</td><td class="r">${c.folha ? nfm(c.desc) : futura ? '<span class="mut small">a descontar</span>' : '<span class="badt small">folha não importada</span>'}</td>
       <td class="r ${c.menos > 0.009 ? 'badt' : ''}">${c.folha ? nfm(c.menos) : '—'}</td><td class="r ${c.mais > 0.009 ? 'wt' : ''}">${c.folha ? nfm(c.mais) : '—'}</td>
       <td>${Object.entries(c.cont).map(([s, n]) => `<span class="st ${STAT[s][1]}">${n} ${STAT[s][0].toLowerCase()}</span>`).join(' ')}</td>
-      <td class="small">${c.dataPag.map(dataBR).join(', ') || (c.folha ? '<span class="wt">sem data</span>' : '—')}</td>
+      <td class="small">${c.dataPag.map(dataBR).join(', ') || `<span class="mut">previsto ${dataBR(pag)}</span>${c.folha ? '<br><a href="javascript:void(0)" onclick="irPara(\'arq\')">informar data</a>' : ''}`}</td>
       <td class="small">${c.faltam.length ? `<span class="wt">parcial</span><br><span class="mut">faltam ${faixas(c.faltam)}</span>` : '<span class="okt">completas</span>'}${R.foraJanela.get(c.comp) ? `<br><span class="badt">${qtd(R.foraJanela.get(c.comp).n)} parcelas fora da lista do RH</span>` : ''}</td>
       <td class="small">${fechada ? `<span class="okt">Fechada</span> por ${esc(quemCurto(f.fechado_por))}<br>${dtBR(f.fechado_em)}${mudou ? '<br><span class="badt">números mudaram depois do fechamento</span>' : ''}<br><button class="btn" data-reabrir="${c.comp}">Reabrir</button>`
         : c.folha ? `<button class="btn b-ok" data-fechar="${c.comp}">Fechar</button>${f ? '<br><span class="mut">reaberta</span>' : ''}` : '<span class="mut">aguardando folha</span>'}</td></tr>`;
