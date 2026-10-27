@@ -957,8 +957,16 @@ const kpi = (l, v, n, tipo = '', click = '') => `<div class="card kpi ${tipo} ${
 const pc = (comp = COMP) => R.porComp.find(c => c.comp === comp) || {comp, folha: false, devido: 0, desc: 0, menos: 0, mais: 0, n: 0, cont: {}, faltam: R.cobertura(comp), dataPag: [], abertas: 0, fech: null};
 const pct = (a, b) => b ? Math.round(a / b * 1000) / 10 : 0;
 // a folha da competência M é paga no 5º dia útil de M+1 (segunda a sexta; feriados não entram na conta)
-function quintoDiaUtil(comp) { const d = new Date(addMes(comp, 1) + '-01T12:00:00'); let n = 0;
-  while (true) { const w = d.getDay(); if (w > 0 && w < 6 && ++n === 5) return d.toISOString().slice(0, 10); d.setDate(d.getDate() + 1); } }
+// feriados nacionais (fixos + Sexta-feira Santa, pela Páscoa): 27/10/2026 — sem eles a folha de outubro saía paga em 06/11,
+// mas 02/11 (Finados) cai na segunda e o 5º dia útil é 09/11
+function feriadosNacionais(ano) {
+  const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const pascoa = new Date(ano, Math.floor((h + l - 7 * m + 114) / 31) - 1, ((h + l - 7 * m + 114) % 31) + 1, 12); pascoa.setDate(pascoa.getDate() - 2);
+  return new Set(['01-01', '04-21', '05-01', '09-07', '10-12', '11-02', '11-15', '11-20', '12-25'].map(x => ano + '-' + x).concat(pascoa.toISOString().slice(0, 10)));
+}
+function quintoDiaUtil(comp) { const d = new Date(addMes(comp, 1) + '-01T12:00:00'), fer = feriadosNacionais(d.getFullYear()); let n = 0;
+  while (true) { const w = d.getDay(), iso = d.toISOString().slice(0, 10); if (w > 0 && w < 6 && !fer.has(iso) && ++n === 5) return iso; d.setDate(d.getDate() + 1); } }
 const pctTxt = v => v.toLocaleString('pt-BR', {maximumFractionDigits: 1}) + '%';
 // números da competência usados no painel, no PDF executivo e nos relatórios
 // % descontado é somado funcionário a funcionário: o desconto a mais de um não cobre o a menos de outro
