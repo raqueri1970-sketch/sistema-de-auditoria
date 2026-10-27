@@ -1488,6 +1488,7 @@ function telaConferente() {
   const C = conferente(), a = C.comps[0], nEx = numerosEx();
   const topo = '<div class="small" style="color:#86efac;font-weight:800;letter-spacing:.04em">CONFERENTE DE CREDIÁRIO · O QUE A FOLHA TEM QUE DESCONTAR</div>';
   el.style.borderColor = 'rgba(34,197,94,.45)';
+  el.dataset.pronto = '1';   // o Portal lê o resumo do módulo quando isto aparece (crediario-patch.js)
   if (!a) { el.innerHTML = `${topo}<div class="vazio">Nenhuma prestação a descontar nas próximas folhas.</div>`; return; }
   const dr = f => `drill('cf:${a.comp}:${f}')`, pct = v => a.folha > 0 ? Math.max(0, Math.min(100, v / a.folha * 100)) : 0, top = topFolha(a, 8), mx = top.length ? top[0].v : 1;
   const chip = (t, v, n, cor, click) => `<span class="clic" onclick="${click}" style="cursor:pointer;padding:6px 10px;border:1px solid var(--line);border-left:3px solid ${cor};border-radius:10px;white-space:nowrap">${t} <b>${brl(v)}</b>${n ? ` <span class="mut">· ${n}</span>` : ''}</span>`;
