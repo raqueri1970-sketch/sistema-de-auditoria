@@ -202,7 +202,7 @@
         <select id="fSt"><option value="">Todos</option><option value="div">Só com divergência</option><option value="alerta">Só com pendência</option></select>
       </div>
       <div class="leg" id="legenda"></div>
-      <div class="small mut">Em cada mês: <b>devido</b> em cima e <b>descontado</b> embaixo. Clique para ver as parcelas, a folha e baixar o extrato do funcionário.</div>
+      <div class="small mut">Clique numa situação acima para ver só quem a tem em algum mês. Em cada mês: <b>devido</b> (parcelas das compras) em cima e <b>descontado</b> (verba 1260 da folha) embaixo; "—" = folha ainda não importada. <b>Diferença</b> = soma das folhas importadas: <span class="badt">− deixou de descontar</span> · <span class="wt">+ descontou a mais</span> · <span class="mut">verificar = provável compra já quitada, fora da base (não é erro)</span>. Clique no nome para o extrato.</div>
       <div class="tw" id="tFunc"></div>
     </div>
   </section>
@@ -1278,21 +1278,27 @@ async function reabrir(comp) {
 }
 
 /* ---------- FUNCIONÁRIOS ---------- */
+// situação clicada na legenda (ok, menos, nao, mais, semcompra, verif, prev, rh): mostra só quem a tem em algum mês
+let FUNC_ST = '';
+function filtrarSit(k) { FUNC_ST = FUNC_ST === k ? '' : k; telaFunc(); }
 function listaFunc() {
   const q = nomeN($('fBusca').value), qd = soDig($('fBusca').value), loja = $('fLoja').value, st = $('fSt').value;
   return [...R.pessoas.values()].filter(p => {
     if (loja && (p.cad ? p.cad.loja || '(sem loja)' : 'FORA DO CADASTRO') !== loja) return false;
     if (st === 'div' && !p.nDiv) return false;
     if (st === 'alerta' && !p.pend.some(x => !encerrada(x))) return false;
+    if (FUNC_ST && !Object.values(p.celulas).some(x => x.st === FUNC_ST)) return false;
     if (!q && !qd) return true;
     return (q && nomeN(p.nome + ' ' + p.nomeCred + ' ' + (p.cad ? p.cad.loja : '')).includes(q)) || (qd && (p.cpf.includes(qd) || (p.cad && String(p.cad.matricula || '').includes(qd))));
-  }).sort((a, b) => (b.menos + b.mais + b.verif) - (a.menos + a.mais + a.verif) || a.nome.localeCompare(b.nome));
+  }).sort((a, b) => (b.menos + b.mais) - (a.menos + a.mais) || b.verif - a.verif || a.nome.localeCompare(b.nome));   // erro real antes do "verificar"
 }
 function telaFunc() {
   const lojas = [...new Set([...R.pessoas.values()].map(p => p.cad ? p.cad.loja || '(sem loja)' : 'FORA DO CADASTRO'))].sort();
   const sel = $('fLoja').value;
   $('fLoja').innerHTML = `<option value="">Todas as lojas</option>` + lojas.map(l => `<option ${l === sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
-  $('legenda').innerHTML = Object.keys(STAT).map(stChip).join('');
+  const nSt = {}; [...R.pessoas.values()].forEach(p => new Set(Object.values(p.celulas).map(x => x.st)).forEach(k => nSt[k] = (nSt[k] || 0) + 1));
+  $('legenda').innerHTML = Object.keys(STAT).map(k => `<span class="st ${STAT[k][1]}" onclick="filtrarSit('${k}')" title="${FUNC_ST === k ? 'Clique para mostrar todos' : 'Clique para ver só quem tem esta situação'}" style="cursor:pointer;${FUNC_ST && FUNC_ST !== k ? 'opacity:.4' : ''}${FUNC_ST === k ? ';outline:2px solid currentColor' : ''}">${STAT[k][0]} · ${qtd(nSt[k] || 0)}</span>`).join('') +
+    (FUNC_ST ? ` <a href="javascript:void(0)" class="small" onclick="filtrarSit('')">✕ limpar situação</a>` : '');
   const ps = listaFunc();
   const comps = R.comps.filter(c => difMes(c, COMP) <= 5 && difMes(COMP, c) <= 6);
   if (!ps.length) { $('tFunc').innerHTML = `<div class="vazio">Nenhum funcionário.</div>`; return; }
@@ -1300,7 +1306,8 @@ function telaFunc() {
   $('tFunc').innerHTML = `<table class="mtz"><thead><tr><th>Funcionário</th>${comps.map(c => `<th class="r ${c === COMP ? 'foco' : ''}">${compBR(c)}</th>`).join('')}<th class="r">Diferença</th></tr></thead><tbody>` +
     lim.map(p => `<tr><td><a href="javascript:void(0)" data-pes="${p.cpf}"><b>${esc(p.nome)}</b></a><br><span class="mut small">${cpfF(p.cpf)}${p.cad ? ' · ' + esc(p.cad.matricula || '') + ' · ' + esc(p.cad.loja || '') : ' · <span class="badt">fora do cadastro</span>'}</span>${p.pend.some(x => !encerrada(x)) ? ` <span class="st st-verif">${p.pend.filter(x => !encerrada(x)).length} pendência(s)</span>` : ''}</td>` +
       comps.map(c => { const x = p.celulas[c]; if (!x) return `<td class="c ${c === COMP ? 'foco' : ''}"></td>`; return `<td class="c c-${x.st} ${c === COMP ? 'foco' : ''}" data-pes="${p.cpf}" data-c="${c}" title="${STAT[x.st][0]}">${nfm(x.devido)}<small>${x.st === 'prev' ? '—' : nfm(x.desc)}</small></td>`; }).join('') +
-      `<td class="r ${p.menos > 0.009 ? 'badt' : p.mais + p.verif > 0.009 ? 'wt' : ''}">${p.menos > 0.009 ? '−' + nfm(p.menos) : p.mais + p.verif > 0.009 ? '+' + nfm(p.mais + p.verif) : '—'}</td></tr>`).join('') + `</tbody></table>` +
+      `<td class="r" style="white-space:nowrap">${[p.menos > 0.009 ? `<div class="badt" title="Deixou de descontar">−${nfm(p.menos)}</div>` : '', p.mais > 0.009 ? `<div class="wt" title="Descontou a mais (folha com todas as compras)">+${nfm(p.mais)}</div>` : '',
+        p.verif > 0.009 ? `<div class="mut small" title="Provável compra já quitada, fora da base — não é erro">verificar ${nfm(p.verif)}</div>` : ''].join('') || '—'}</td></tr>`).join('') + `</tbody></table>` +
     (ps.length > lim.length ? `<div class="small mut">Mostrando ${lim.length} de ${ps.length}. Use a busca ou o Excel.</div>` : '');
 }
 ['fBusca', 'fLoja', 'fSt'].forEach(id => $(id).addEventListener('input', telaFunc));
