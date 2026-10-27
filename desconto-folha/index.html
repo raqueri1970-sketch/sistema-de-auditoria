@@ -165,6 +165,7 @@
       <div class="busca">
         <input id="pBusca" placeholder="Buscar nome, CPF, matrícula ou loja">
         <select id="pCat"><option value="">Todas as categorias</option><option value="desconto">Desconto em folha</option><option value="cadastro">Cadastro</option><option value="integridade">Arquivos e integridade</option></select>
+        <select id="pTipo"><option value="">Todos os tipos</option></select>
         <select id="pGrav"><option value="">Todas as gravidades</option><option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option></select>
         <select id="pSit"><option value="abertas">Abertas e em tratamento</option><option value="">Todas</option><option value="encerradas">Encerradas</option></select>
         <select id="pComp"><option value="sel">Só a competência selecionada</option><option value="">Todas as competências</option></select>
@@ -1193,18 +1194,27 @@ function tabelaPend(ls) {
       <td class="r">${p.valor ? nfm(p.valor) : ''}</td><td>${tratChip(p.trat)}</td><td><button class="btn" data-tratar="${esc(p.id)}">Tratar</button></td></tr>`).join('') + `</tbody></table>` +
     (ls.length > 600 ? `<div class="small mut">Mostrando 600 de ${ls.length}. O PDF e o Excel trazem todas.</div>` : '');
 }
-function listaPend() {
+// sem o filtro de tipo: base dos chips (contagem de cada tipo com os outros filtros) e das opções do seletor de tipo
+function listaPendBase() {
   const comp = $('pComp').value === 'sel' ? COMP : '';
   return filtrar(R.pend.filter(p => p.cat !== 'duplicidade' && (!$('pCat').value || p.cat === $('pCat').value) && (!$('pGrav').value || p.grav === $('pGrav').value) && (!comp || p.comp === comp || !p.comp)), $('pBusca').value, $('pSit').value);
 }
+function listaPend() { const t = $('pTipo').value; return listaPendBase().filter(p => !t || p.tipo === t); }
+// tipo = filtro: seletor "Todos os tipos" e chips clicáveis (ex.: só "Descontou a menos")
+function filtrarTipo(t) { $('pTipo').value = $('pTipo').value === t ? '' : t; telaPend(); }
 function telaPend() {
-  const ls = listaPend(); const cont = {}; ls.forEach(p => cont[p.tipo] = (cont[p.tipo] || 0) + 1);
-  $('pCont').innerHTML = Object.entries(cont).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span class="chip s-cinza">${esc(t)}: ${n}</span>`).join('');
-  $('tPend').innerHTML = tabelaPend(ls);
+  const base = listaPendBase(), cont = {}; base.forEach(p => cont[p.tipo] = (cont[p.tipo] || 0) + 1);
+  const tipos = Object.entries(cont).sort((a, b) => b[1] - a[1]), sel = $('pTipo').value;
+  $('pTipo').innerHTML = `<option value="">Todos os tipos (${qtd(base.length)})</option>` + tipos.map(([t, n]) => `<option value="${esc(t)}">${esc(t)} (${qtd(n)})</option>`).join('') +
+    (sel && !cont[sel] ? `<option value="${esc(sel)}">${esc(sel)} (0)</option>` : '');
+  $('pTipo').value = sel;
+  $('pCont').innerHTML = tipos.map(([t, n]) => `<span class="chip ${t === sel ? 's-aberta' : 's-cinza'}" style="cursor:pointer${t === sel ? ';outline:2px solid rgba(59,130,246,.8)' : ''}" title="${t === sel ? 'Clique para mostrar todos os tipos' : 'Clique para ver só este tipo'}" onclick="filtrarTipo(this.dataset.t)" data-t="${esc(t)}">${esc(t)}: ${qtd(n)}</span>`).join('') +
+    (sel ? ` <a href="javascript:void(0)" class="small" onclick="filtrarTipo('')">✕ limpar tipo</a>` : '');
+  $('tPend').innerHTML = tabelaPend(listaPend());
 }
 const listaDup = () => filtrar(R.pend.filter(p => p.cat === 'duplicidade'), $('dBusca').value, $('dSit').value);
 function telaDup() { $('tDup').innerHTML = tabelaPend(listaDup()); }
-['pBusca', 'pCat', 'pGrav', 'pSit', 'pComp'].forEach(id => $(id).addEventListener('input', telaPend));
+['pBusca', 'pCat', 'pGrav', 'pSit', 'pComp', 'pTipo'].forEach(id => $(id).addEventListener('input', telaPend));
 ['dBusca', 'dSit'].forEach(id => $(id).addEventListener('input', telaDup));
 
 function tratar(id) {
