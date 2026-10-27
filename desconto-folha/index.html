@@ -10,6 +10,8 @@
 <link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261027-dark">
 <style>
   .topo-comp{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .marca{display:flex;align-items:center;gap:12px}.marca img{width:150px;height:46px;object-fit:cover;border-radius:9px;flex:none;box-shadow:0 0 0 1px rgba(148,163,184,.25)}
+  @media (max-width:600px){.marca img{width:110px;height:34px}}
   .topo-comp select{width:auto;margin:0;padding:8px 10px;font-size:14px}
   .tabs{margin-top:16px}
   .fonte{display:flex;flex-direction:column;gap:6px}
@@ -110,7 +112,7 @@
 <body>
 
 <div id="vLogin" class="hidden" style="max-width:420px;margin:40px auto">
-  <h1>🧾 Desconto em Folha</h1><div class="sub">Entre com o mesmo usuário do Portal Esposende</div>
+  <img src="../obras-contas-pagar/logo-esposende.jpg" alt="Esposende" style="width:180px;height:56px;object-fit:cover;border-radius:10px;display:block;margin:0 auto 12px"><h1>Desconto em Folha</h1><div class="sub">Entre com o mesmo usuário do Portal Esposende</div>
   <div class="card" style="margin-top:16px">
     <label class="small">Email do Portal</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
     <label class="small">Senha</label><input id="lSenha" type="password" autocomplete="current-password">
@@ -121,8 +123,8 @@
 
 <div id="vApp" class="hidden">
   <div class="top">
-    <div><h1>🧾 Desconto em Folha · Crediário</h1>
-      <div class="sub" id="origem">Compras dos funcionários × folha de pagamento</div></div>
+    <div class="marca"><img src="../obras-contas-pagar/logo-esposende.jpg" alt="Esposende"><div><h1>Desconto em Folha · Crediário</h1>
+      <div class="sub" id="origem">Compras dos funcionários × folha de pagamento</div></div></div>
     <div class="topo-comp">
       <label class="small" for="selComp">Competência</label><select id="selComp"></select>
       <button class="btn b-pri" onclick="abrirCentral()">📥 Carregar arquivos</button><button class="btn" onclick="recarregar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button>
