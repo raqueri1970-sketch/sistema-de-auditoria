@@ -485,7 +485,7 @@ const REGRAS = [
 const SEM_SAL = /doen|acid|invalid|aposent|resc|susp|inss/i;
 const STAT = {
   ok: ['OK', 'st-ok'], menos: ['Descontou a menos', 'st-menos'], nao: ['Não descontou', 'st-nao'], mais: ['Descontou a mais', 'st-mais'],
-  semcompra: ['Desconto sem compra', 'st-semcompra'], verif: ['Verificar (faltam compras anteriores)', 'st-verif'], prev: ['Previsto (folha não importada)', 'st-prev'],
+  semcompra: ['Desconto sem compra', 'st-semcompra'], verif: ['Verificar (compra quitada fora da base)', 'st-verif'], prev: ['Previsto (folha não importada)', 'st-prev'],
   rh: ['Só no RH (o crediário importado não alcança)', 'st-prog']
 };
 const stChip = s => `<span class="st ${STAT[s][1]}">${STAT[s][0]}</span>`;
@@ -669,16 +669,9 @@ function cruzar() {
     if (c.st === 'verif') { pe.verif += c.dif; pe.nDiv++; }
     linhas.push({cpf, comp, ...c});
   }
-  // "a mais" sem todas as compras importadas só fica em Verificar quando pode ser parcela de compra anterior à base: a mais em
-  // todas as folhas desde a 1ª importada, sem interrupção. A mais depois de uma folha que bateu (ou de quem não tinha desconto
-  // na 1ª folha) não é compra antiga — é desconto sem compra registrada.
-  const compsF = [...compsFolha].sort(), linhaDe = new Map(linhas.map(l => [l.cpf + '|' + l.comp, l]));
-  for (const pe of pessoas.values()) {
-    let seq = true;
-    for (const comp of compsF) { const c = pe.celulas[comp], v = !!c && c.st === 'verif';
-      if (v && !seq) { c.st = c.devido === 0 ? 'semcompra' : 'mais'; linhaDe.get(pe.cpf + '|' + comp).st = c.st; pe.verif -= c.dif; pe.mais += c.dif; }
-      if (!v) seq = false; }
-  }
+  // "a mais" numa folha sem todas as compras importadas fica em Verificar: o crediário importado é a carteira em aberto e não
+  // traz as compras já quitadas, de qualquer mês — um desconto acima do devido pode ser parcela delas. (27/10/2026: a regra
+  // antiga só aceitava "a mais desde a 1ª folha, sem interrupção" e acusava como erro quem comprou e quitou no meio do ano.)
 
   // tratativas (a mais recente de cada pendência vale)
   const trat = new Map(); D.tratativas.forEach(t => trat.set(t.pendencia, t));
@@ -717,7 +710,7 @@ function cruzar() {
     else if (l.st === 'menos') add('desconto', 'alta', 'Descontou a menos', l.cpf, l.comp, `Devido ${brl(l.devido)} × descontado ${brl(l.desc)} na folha de ${compBR(l.comp)}.`, -l.dif);
     else if (l.st === 'mais') add('desconto', 'alta', 'Descontou a mais', l.cpf, l.comp, `Devido ${brl(l.devido)} × descontado ${brl(l.desc)} na folha de ${compBR(l.comp)}: ${brl(l.dif)} sem compra registrada — pedir ao RH a compra que originou o desconto; se não houver, devolver ao funcionário.`, l.dif);
     else if (l.st === 'semcompra') add('desconto', 'alta', 'Desconto sem compra', l.cpf, l.comp, `Descontou ${brl(l.desc)} na folha de ${compBR(l.comp)} sem nenhuma compra registrada para essa folha — pedir ao RH a compra que originou o desconto; se não houver, devolver ao funcionário.`, l.dif);
-    else if (l.st === 'verif') add('desconto', 'media', 'Desconto acima do previsto', l.cpf, l.comp, `Descontou ${brl(l.dif)} a mais que as compras da base desde a 1ª folha importada — provável parcela de compra anterior (faltam compras de ${faixas(l.faltam)}). Importe o COMPRA EM LOJA desses ciclos para confirmar.`, l.dif);
+    else if (l.st === 'verif') add('desconto', 'media', 'Desconto acima do previsto', l.cpf, l.comp, `Descontou ${brl(l.dif)} a mais que as compras da base — provável parcela de compra já quitada, que a carteira em aberto não traz (faltam compras de ${faixas(l.faltam)}). Importe o COMPRA EM LOJA desses ciclos para confirmar.`, l.dif);
   }
   // 2) cadastro
   // ex-funcionários: o que ficou em aberto no crediário depois da saída (devia sair na rescisão)
@@ -1090,7 +1083,7 @@ function telaPainel() {
       ${lin('<b>= Total devido</b>', `<b>${brl(c.devido)}</b>`, 'devido')}
       ${lin('Não descontou / descontou a menos (ativos)', sg(N.cMenos), 'menos', N.cMenos < -0.009 ? 'badt' : '')}
       ${lin('Descontado sem compra registrada', sg(N.cMais), 'mais', N.cMais > 0.009 ? 'badt' : '')}
-      ${lin('Provável parcela de compra anterior à base', sg(N.cVerif), 'verif', N.cVerif > 0.009 ? 'wt' : '')}
+      ${lin('A verificar: provável compra já quitada (fora da base)', sg(N.cVerif), 'verif', N.cVerif > 0.009 ? 'wt' : '')}
       ${lin('Rescisões: descontado − saldo', sg(N.cResc), 'resc', Math.abs(N.cResc) > 0.009 ? 'badt' : '')}
       ${Math.abs(N.cArred) > 0.009 ? lin('Arredondamento (até ' + brl(R.cfg.tol) + ' por funcionário)', sg(N.cArred), '') : ''}
       ${lin('<b>= Descontado na folha (verba 1260)</b>', `<b>${brl(c.desc)}</b>`, 'desc')}
@@ -1661,7 +1654,7 @@ function drill(k) {
     devido: () => cel(`Devido na folha de ${comp}`, l => l.devido > 0), desc: () => cel(`Descontado na folha de ${comp}`, l => l.desc > 0),
     liq: () => cel(`Diferenças na folha de ${comp}`, l => l.st !== 'prev' && Math.abs(l.dif) > 0.009), batem: () => cel(R.modoRH ? `Funcionários conferidos - ${comp}` : `Funcionários que batem - ${comp}`, l => R.modoRH ? !['prev', 'rh'].includes(l.st) : l.st === 'ok'),
     menos: () => cel(`Deixou de descontar - ${comp}`, l => ['menos', 'nao'].includes(l.st) && !ehResc(l)), mais: () => cel(`Descontado sem compra registrada - ${comp}`, l => ['mais', 'semcompra'].includes(l.st) && !ehResc(l)),
-    verif: () => cel(`Provável parcela de compra anterior à base - ${comp}`, l => l.st === 'verif' && !ehResc(l)), resc: () => cel(`Rescisões - ${comp}`, ehResc),
+    verif: () => cel(`A verificar: provável compra já quitada - ${comp}`, l => l.st === 'verif' && !ehResc(l)), resc: () => cel(`Rescisões - ${comp}`, ehResc),
     dv_mes: () => par(`Compras do mês - ${comp}`, '1ª parcela das compras do ciclo desta folha', N.psMes), dv_ant: () => par(`Parcelas de compras anteriores - ${comp}`, '2ª parcela em diante de compras de meses anteriores', N.psAnt),
     dv_resc: () => par(`Saldo de rescisão - ${comp}`, 'Parcelas restantes de quem saiu neste mês (tinham de sair na rescisão)', N.psResc),
     graves: () => pend('Erros e faltas graves', N.graves), dups: () => pend('Duplicidades', N.dups),
