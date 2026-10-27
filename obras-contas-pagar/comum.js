@@ -568,7 +568,7 @@ function cicloHTML(ci, s) {
     saldo: r2(Number(s.adiantamento_disponivel || 0) - Number(s.em_aberto || 0) - Number(s.com_financeiro || 0)), recarga: Number(s.saldo_devedor || 0)};
   const cx = (l, v, c, sub) => `<div><b style="color:${c}">${brl(v)}</b><span>${l}${sub ? ' · ' + sub : ''}</span></div>`;
   return `<div class="mini">${cx('saldo inicial', ci.ini, '#e2e8f0')}${cx('entrada', ci.entrada, '#86efac')}
-      ${cx('saída', ci.saida, '#fdba74', ci.n + ' recibo(s)')}${cx('saldo', ci.saldo, ci.saldo < 0 ? '#fca5a5' : '#86efac')}${cx('recarga', ci.recarga, '#93c5fd')}${ci.glosa && Math.abs(ci.glosa) > 0.004 ? cx('divergência', ci.glosa, '#c4b5fd') : ''}</div>
+      ${cx('saída', ci.saida, '#fdba74', ci.n + ' recibo(s)')}${cx('saldo', ci.saldo, ci.saldo < 0 ? '#fca5a5' : '#86efac')}${cx('recarga', ci.recarga, '#93c5fd')}${ci.glosa && Math.abs(ci.glosa) > 0.004 ? cx('divergência', ci.glosa, '#7dd3fc') : ''}</div>
     ${ci.desde ? `<div class="small mut" style="margin:-4px 0 6px">desde a recarga de ${dBR(ci.desde.slice(0, 10))} às ${ci.desde.slice(11)} (${brl(ci.deposito)})${ci.faltou > 0.004 ? ` · a saída inclui ${brl(ci.faltou)} de recibos de antes que o depósito não pagou` : ''}</div>` : ''}`;
 }
 // Cartão do prestador nas listas: Recarga em destaque e Saldo inicial · Saída · Saldo
@@ -725,10 +725,10 @@ const celTxt = c => c && typeof c === 'object' ? c.t : c;
 const V = v => ({t: brl(v), n: Number(v || 0)});
 
 // Cor de cada quadro de resumo pelo significado (16/10/2026): azul = crédito/adiantamento, verde = pago/caixa positivo,
-// laranja = em aberto/a pagar, vermelho = negativo/duplicidade/crítico, roxo = totais de despesas, cinza = informação
+// laranja = em aberto/a pagar, vermelho = negativo/duplicidade/crítico, azul-aço (tom "roxo" no código) = totais de despesas, cinza = informação
 const TONS = {azul: {tela: '#93c5fd', bar: [57, 135, 229], fundo: [235, 243, 254], txt: [29, 78, 216]}, verde: {tela: '#86efac', bar: [22, 163, 74], fundo: [234, 249, 239], txt: [21, 128, 61]},
   laranja: {tela: '#fdba74', bar: [234, 88, 12], fundo: [255, 243, 232], txt: [194, 65, 12]}, vermelho: {tela: '#fca5a5', bar: [220, 38, 38], fundo: [254, 236, 236], txt: [185, 28, 28]},
-  roxo: {tela: '#c4b5fd', bar: [124, 58, 237], fundo: [243, 238, 254], txt: [109, 40, 217]}, cinza: {tela: '#e2e8f0', bar: [148, 163, 184], fundo: [246, 247, 250], txt: [30, 41, 59]}};
+  roxo: {tela: '#7dd3fc', bar: [2, 132, 199], fundo: [235, 248, 255], txt: [3, 105, 161]}, cinza: {tela: '#e2e8f0', bar: [148, 163, 184], fundo: [246, 247, 250], txt: [30, 41, 59]}};
 function tomResumo(rotulo, valor) {
   const l = String(rotulo || '').toLowerCase(), v = String(valor ?? ''), zero = /^(r\$\s*)?0([,.]00)?$|^0 de /i.test(v.trim()), neg = /^[-−]|empresa deve/i.test(v.trim());
   if (/pix|conta$|recibos|despesas$|semanas em|fornecedores$/.test(l) && !/semanas quitadas/.test(l)) return /recibos|despesas$|fornecedores$/.test(l) ? 'roxo' : 'cinza';
@@ -996,7 +996,7 @@ function graficoBarrasH(el, itens, {vazio = 'Nada em aberto.'} = {}) {
 }
 
 // Rosca: participação de cada item no total (ex.: total a pagar por prestador). Fatia e legenda clicáveis (aoClicar(i)).
-const PALETA = ['#3987e5', '#f5b301', '#22c55e', '#d95926', '#a78bfa', '#2dd4bf', '#f472b6', '#94a3b8'];
+const PALETA = ['#3987e5', '#f5b301', '#22c55e', '#d95926', '#38bdf8', '#2dd4bf', '#a3e635', '#94a3b8'];
 function graficoRosca(el, itens, {vazio = 'Nada em aberto.', aoClicar = null, centro = 'Total'} = {}) {
   itens = itens.filter(i => i.valor > 0);
   if (!itens.length) { el.innerHTML = `<div class="vazio">${esc(vazio)}</div>`; return; }

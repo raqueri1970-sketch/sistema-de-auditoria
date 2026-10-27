@@ -27,7 +27,7 @@ h3{font-size:15px;margin:0 0 4px;font-weight:700}
 .kpi .v{font-size:clamp(21px,2.2vw,27px);font-weight:800;margin-top:6px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .kpi .n{font-size:12.5px;color:var(--txt2);margin-top:4px}
 .kpi.clic .n b{color:#93c5fd}
-.k-orc::before{background:#a78bfa}.k-orc{border-color:rgba(167,139,250,.35)}.k-orc .v{color:#c4b5fd}
+.k-orc::before{background:#38bdf8}.k-orc{border-color:rgba(56,189,248,.35)}.k-orc .v{color:#7dd3fc}
 .k-pagar::before{background:var(--warn)}.k-pagar .v{color:#fcd34d}
 .k-ok::before{background:var(--ok)}.k-ok .v{color:#86efac}
 .k-bad::before{background:var(--bad)}.k-bad .v{color:#fca5a5}
@@ -124,8 +124,8 @@ a{color:#93c5fd}
 .orc .itens{margin:8px 0 0;padding:0;list-style:none;font-size:13.5px;color:var(--txt2)}
 .orc .itens li{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px dashed rgba(148,163,184,.14)}
 .orc .itens li b{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--txt)}
-.dica-ia{background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.3);border-radius:12px;padding:10px 12px;margin:8px 0;font-size:13.5px;color:#ddd6fe}
-.tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(167,139,250,.15);color:#c4b5fd;border:1px solid rgba(167,139,250,.35);white-space:nowrap}
+.dica-ia{background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.3);border-radius:12px;padding:10px 12px;margin:8px 0;font-size:13.5px;color:#e0f2fe}
+.tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(56,189,248,.15);color:#7dd3fc;border:1px solid rgba(56,189,248,.35);white-space:nowrap}
 /* Rosca */
 .rosca{display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:center}
 .rosca svg{width:180px;max-width:55%;flex:0 0 auto}
@@ -238,7 +238,7 @@ details.card>summary::before{content:"▸ ";color:var(--mut)}details.card[open]>
 .kpi.t-verde::before{background:var(--ok)}.kpi.t-verde .v{color:#86efac}.kpi.t-verde{background:linear-gradient(180deg,rgba(34,197,94,.09),var(--card));border-color:rgba(34,197,94,.28)}
 .kpi.t-laranja::before{background:#ea580c}.kpi.t-laranja .v{color:#fdba74}.kpi.t-laranja{background:linear-gradient(180deg,rgba(234,88,12,.10),var(--card));border-color:rgba(234,88,12,.32)}
 .kpi.t-vermelho::before{background:var(--bad)}.kpi.t-vermelho .v{color:#fca5a5}.kpi.t-vermelho{background:linear-gradient(180deg,rgba(239,68,68,.10),var(--card));border-color:rgba(239,68,68,.34)}
-.kpi.t-roxo::before{background:#7c3aed}.kpi.t-roxo .v{color:#c4b5fd}.kpi.t-roxo{background:linear-gradient(180deg,rgba(124,58,237,.10),var(--card));border-color:rgba(124,58,237,.30)}
+.kpi.t-roxo::before{background:#0ea5e9}.kpi.t-roxo .v{color:#7dd3fc}.kpi.t-roxo{background:linear-gradient(180deg,rgba(14,165,233,.10),var(--card));border-color:rgba(14,165,233,.30)}
 .kpi.t-cinza .v{color:var(--txt)}
 .kpi .l{text-transform:none}
 /* tons também nos blocos da Visão geral e do Presidente */

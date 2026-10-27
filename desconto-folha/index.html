@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#0b1020">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261025-3">
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261027-dark">
 <style>
   .topo-comp{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .topo-comp select{width:auto;margin:0;padding:8px 10px;font-size:14px}
@@ -252,7 +252,7 @@
   <!-- RELATÓRIOS -->
   <section id="a-rel" class="hidden">
     <div class="pgrid" style="margin-top:16px">
-      <div class="card rel" style="border-color:rgba(124,58,237,.45)"><h3>Relatório executivo (Diretoria)</h3><div class="small mut">Uma visão da competência para a diretoria: números, evolução, achados com a ação recomendada, maiores riscos e situação dos funcionários.</div>
+      <div class="card rel" style="border-color:rgba(59,130,246,.45)"><h3>Relatório executivo (Diretoria)</h3><div class="small mut">Uma visão da competência para a diretoria: números, evolução, achados com a ação recomendada, maiores riscos e situação dos funcionários.</div>
         <div class="row"><button class="btn" onclick="relatorio('exec','ver')">Ver</button><button class="btn b-pri" onclick="relatorio('exec','pdf')">PDF</button><button class="btn" onclick="relatorio('exec','imprimir')">Imprimir</button></div></div>
       <div class="card rel"><h3>Auditoria da competência</h3><div class="small mut">Resumo, gráficos, divergências de desconto, duplicidades, faltas graves e resumo por loja, com assinaturas.</div>
         <div class="row"><button class="btn" onclick="relatorio('comp','ver')">Ver</button><button class="btn b-pri" onclick="relatorio('comp','pdf')">PDF</button><button class="btn" onclick="relatorio('comp','imprimir')">Imprimir</button></div></div>
@@ -318,7 +318,7 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="../obras-contas-pagar/comum.js?v=20261025-3"></script>
+<script src="../obras-contas-pagar/comum.js?v=20261027-dark"></script>
 <script>
 // o Conferente de Crediário agora é do módulo: o script que o Portal injetava (conferente-crediario-ui.js) não roda mais aqui
 window.__conferenteCrediarioUI = window.__conferenteCrediario = true;
@@ -1066,7 +1066,7 @@ function telaPainel() {
     ${fechada ? `<br>Fechada por ${esc(quemCurto(c.fech.fechado_por))} em ${dtBR(c.fech.fechado_em)}` : ''}</div></div>
     <div class="gauge">${c.folha && !N.aud.length && N.soRH.length ? `<div class="v" style="color:#93c5fd;font-size:30px">Sem conferência</div><div class="l">As parcelas desta folha estão fora do período do crediário importado.</div>` : c.folha ? `<div class="v" style="color:${corG}">${pctTxt(N.pctValor)}</div><div class="barra"><i style="width:${Math.min(100, N.pctValor)}%;background:${corG}"></i></div>
       <div class="l">do valor devido${N.parcial ? ' (mínimo)' : ''} foi descontado · ${qtd(N.ok)} de ${qtd(N.aud.length)} funcionários batem (${pctTxt(N.pctFunc)})</div>`
-      : `<div class="v" style="color:#c4b5fd">${brl(c.devido)}</div><div class="l">devido na folha de ${compBR(COMP)} · ${qtd(c.n)} pessoas (folha + Diretoria + rescisão)</div>`}</div>`;
+      : `<div class="v" style="color:#f1f5f9">${brl(c.devido)}</div><div class="l">devido na folha de ${compBR(COMP)} · ${qtd(c.n)} pessoas (folha + Diretoria + rescisão)</div>`}</div>`;
 
   // conferência com a folha: só existe com a folha importada
   $('conferencia').classList.toggle('hidden', !c.folha);
@@ -1552,19 +1552,19 @@ function graficoFolhas(cs) {
     return `<div onclick="drill('cf:${c.comp}:folha')" title="Folha de ${compBR(c.comp)} · desconto em ${dataBR(c.pag)}&#10;Herdado ${brl(c.herdado)} + Compras novas ${brl(c.novo)} = ${brl(c.folha)}${c.proj > 0.009 ? `&#10;(${brl(c.proj)} projetados)` : ''}${c.fora > 0.009 ? `&#10;Diretoria (por fora) ${brl(c.fora)}` : ''}&#10;${qtd(c.pessoas)} colaboradores — clique para ver os nomes"
       style="flex:1;min-width:0;max-width:90px;cursor:pointer;display:flex;flex-direction:column;justify-content:flex-end;align-items:stretch">
       <div class="small" style="text-align:center;font-weight:${i ? 600 : 800};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nfm(Math.round(c.folha)).replace(',00', '')}</div>
-      ${c.fora > 0.009 ? `<div style="height:${h(c.fora)}px;background:#f97316;opacity:.75;border-radius:4px 4px 0 0"></div>` : ''}
-      <div style="height:${h(c.novo)}px;background:#22c55e;${c.fora > 0.009 ? '' : 'border-radius:4px 4px 0 0'}"></div>
-      <div style="height:${h(c.herdado - c.proj)}px;background:${i ? '#64748b' : '#7c3aed'}"></div>
+      ${c.fora > 0.009 ? `<div style="height:${h(c.fora)}px;background:#f59e0b;opacity:.75;border-radius:4px 4px 0 0"></div>` : ''}
+      <div style="height:${h(c.novo)}px;background:#14b8a6;${c.fora > 0.009 ? '' : 'border-radius:4px 4px 0 0'}"></div>
+      <div style="height:${h(c.herdado - c.proj)}px;background:${i ? '#64748b' : '#3b82f6'}"></div>
       <div style="height:${h(c.proj)}px;background:repeating-linear-gradient(45deg,#475569 0 4px,#334155 4px 8px)"></div></div>`; }).join('')}</div>
     <div style="display:flex;gap:8px;padding:4px 4px 0">${cs.map(c => `<div class="small mut" style="flex:1;min-width:0;max-width:90px;text-align:center;white-space:nowrap">${MESES[+c.comp.slice(5) - 1]}/${c.comp.slice(2, 4)}<br><span style="font-size:10.5px">${dataBR(c.pag).slice(0, 5)}</span></div>`).join('')}</div>
-    <div class="small mut" style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">${[['#7c3aed', 'Herdado (próxima folha)'], ['#64748b', 'Herdado'], ['repeating-linear-gradient(45deg,#475569 0 4px,#334155 4px 8px)', 'Projetado'], ['#22c55e', 'Compras novas (parcela)'], ['#f97316', 'Diretoria · PJ / fora']]
+    <div class="small mut" style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">${[['#3b82f6', 'Herdado (próxima folha)'], ['#64748b', 'Herdado'], ['repeating-linear-gradient(45deg,#475569 0 4px,#334155 4px 8px)', 'Projetado'], ['#14b8a6', 'Compras novas (parcela)'], ['#f59e0b', 'Diretoria · PJ / fora']]
       .map(([c, t]) => `<span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${c};margin-right:5px;vertical-align:-1px"></i>${t}</span>`).join('')}</div>`;
 }
 function telaConferente() {
   const el = $('conferente'); if (!el) return;
   const C = conferente(), a = C.comps[0], nEx = numerosEx();
-  const topo = '<div class="small" style="color:#86efac;font-weight:800;letter-spacing:.04em">CONFERENTE DE CREDIÁRIO · O QUE A FOLHA TEM QUE DESCONTAR</div>';
-  el.style.borderColor = 'rgba(34,197,94,.45)';
+  const topo = '<div class="small" style="color:#93c5fd;font-weight:800;letter-spacing:.04em">CONFERENTE DE CREDIÁRIO · O QUE A FOLHA TEM QUE DESCONTAR</div>';
+  el.style.borderColor = 'rgba(59,130,246,.35)';
   el.dataset.pronto = '1';   // o Portal lê o resumo do módulo quando isto aparece (crediario-patch.js)
   if (!a) { el.innerHTML = `${topo}<div class="vazio">Nenhuma prestação a descontar nas próximas folhas.</div>`; return; }
   const dr = f => `drill('cf:${a.comp}:${f}')`, pct = v => a.folha > 0 ? Math.max(0, Math.min(100, v / a.folha * 100)) : 0, top = topFolha(a, 8), mx = top.length ? top[0].v : 1;
@@ -1573,24 +1573,24 @@ function telaConferente() {
   <div class="g2" style="margin-top:10px;align-items:stretch">
     <div class="clic" onclick="${dr('folha')}" style="cursor:pointer">
       <div class="small mut">Folha de ${compBR(a.comp)} · desconto no 5º dia útil, ${dataBR(a.pag)}</div>
-      <div style="font-size:42px;font-weight:900;line-height:1.1;color:#c4b5fd">${brl(a.folha)}</div>
+      <div style="font-size:42px;font-weight:900;line-height:1.1;color:#f1f5f9">${brl(a.folha)}</div>
       <div class="small mut">${qtd(a.pessoas)} colaboradores · ${qtd(a.n)} prestações${a.proj > 0.009 ? ` · ${brl(a.proj)} projetados` : ''} · clique para ver os nomes mês a mês</div>
-      <div style="display:flex;height:12px;border-radius:6px;overflow:hidden;margin:12px 0 8px;background:rgba(148,163,184,.15)"><i style="width:${pct(a.herdado)}%;background:#7c3aed"></i><i style="width:${pct(a.novo)}%;background:#22c55e"></i></div>
+      <div style="display:flex;height:12px;border-radius:6px;overflow:hidden;margin:12px 0 8px;background:rgba(148,163,184,.15)"><i style="width:${pct(a.herdado)}%;background:#3b82f6"></i><i style="width:${pct(a.novo)}%;background:#14b8a6"></i></div>
       <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <span class="clic" onclick="event.stopPropagation();${dr('herdado')}" style="cursor:pointer"><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#7c3aed;margin-right:5px"></i>Herdado <b>${brl(a.herdado)}</b> <span class="mut">· ${qtd(a.nHerdado)}</span></span>
-        <span class="clic" onclick="event.stopPropagation();${dr('novo')}" style="cursor:pointer"><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#22c55e;margin-right:5px"></i>Compras novas (parcela) <b>${brl(a.novo)}</b> <span class="mut">· ${qtd(a.nNovo)}</span></span>
+        <span class="clic" onclick="event.stopPropagation();${dr('herdado')}" style="cursor:pointer"><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#3b82f6;margin-right:5px"></i>Herdado <b>${brl(a.herdado)}</b> <span class="mut">· ${qtd(a.nHerdado)}</span></span>
+        <span class="clic" onclick="event.stopPropagation();${dr('novo')}" style="cursor:pointer"><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#14b8a6;margin-right:5px"></i>Compras novas (parcela) <b>${brl(a.novo)}</b> <span class="mut">· ${qtd(a.nNovo)}</span></span>
       </div>
     </div>
     <div>
       <div class="small mut" style="margin-bottom:6px">Quem mais pesa nesta folha (clique no nome para o extrato)</div>
       ${top.map(t => `<div data-pes="${t.cpf}" data-c="${a.comp}" style="cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center;margin:3px 0">
-        <div style="position:relative;padding:3px 6px;border-radius:6px;overflow:hidden"><i style="position:absolute;inset:0 auto 0 0;width:${t.v / mx * 100}%;background:rgba(124,58,237,.25)"></i><span class="small" style="position:relative;white-space:nowrap">${esc(t.nome)}</span></div>
+        <div style="position:relative;padding:3px 6px;border-radius:6px;overflow:hidden"><i style="position:absolute;inset:0 auto 0 0;width:${t.v / mx * 100}%;background:rgba(59,130,246,.20)"></i><span class="small" style="position:relative;white-space:nowrap">${esc(t.nome)}</span></div>
         <b class="small" style="text-align:right">${brl(t.v)}</b></div>`).join('')}
       <a href="javascript:void(0)" class="small" onclick="${dr('folha')}">Ver todos os ${qtd(a.pessoas)} ›</a>
     </div>
   </div>
   <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:12px">
-    ${chip('Diretoria · PJ / fora', a.fora, a.nFora ? `${qtd(a.nFora)} pessoa(s)` : '', '#f97316', dr('fora'))}
+    ${chip('Diretoria · PJ / fora', a.fora, a.nFora ? `${qtd(a.nFora)} pessoa(s)` : '', '#f59e0b', dr('fora'))}
     ${chip('Ex-funcionários · rescisão', nEx.aberto, nEx.nAberto ? `${qtd(nEx.nAberto)} pessoa(s)` : '', '#ef4444', "irPara('ex')")}
     ${chip('Total do crediário no mês', a.total, 'folha + Diretoria', '#94a3b8', dr('todos'))}
   </div>
