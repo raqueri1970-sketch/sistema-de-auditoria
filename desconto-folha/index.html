@@ -1395,44 +1395,86 @@ function conferente() {
       if (comp >= ini) ps.push({...u, chave: 'proj|' + u.chave + '|' + j, documento: `${u.contrato}-${j}/${u.n_parcelas}`, parcela: j, comp, vencimento: '', baixa: null, descontos: [], proj: true}); }
   }
   const comps = [...grpConta(ps, p => p.comp)].sort((a, b) => a[0].localeCompare(b[0])).map(([comp, xs]) => {
-    const s = f => rd2(xs.filter(f).reduce((t, p) => t + p.valor, 0)), fora = xs.filter(p => grupoDe(R.pessoas.get(p.cpf)) === 'fora');
-    return {comp, pag: quintoDiaUtil(comp), ps: xs, n: xs.length, pessoas: new Set(xs.map(p => p.cpf)).size, total: s(() => true), herdado: s(p => p.parcela !== 1), novo: s(p => p.parcela === 1),
-      proj: s(p => p.proj), fora: rd2(fora.reduce((t, p) => t + p.valor, 0)), nFora: new Set(fora.map(p => p.cpf)).size};
+    const ehFora = p => grupoDe(R.pessoas.get(p.cpf)) === 'fora', fol = xs.filter(p => !ehFora(p)), fora = xs.filter(ehFora);
+    const s = (ys, f = () => true) => rd2(ys.filter(f).reduce((t, p) => t + p.valor, 0)), np = ys => new Set(ys.map(p => p.cpf)).size;
+    // a folha desconta só de quem está no cadastro (ativo); o fora do cadastro / PJ é da Diretoria
+    return {comp, pag: quintoDiaUtil(comp), ps: xs, total: s(xs), folha: s(fol), pessoas: np(fol), n: fol.length,
+      herdado: s(fol, p => p.parcela !== 1), nHerdado: np(fol.filter(p => p.parcela !== 1)), novo: s(fol, p => p.parcela === 1), nNovo: np(fol.filter(p => p.parcela === 1)),
+      proj: s(fol, p => p.proj), fora: s(fora), nFora: np(fora)};
   });
   return {ini, comps};
 }
 const DESTINO = {ativo: 'Folha', fora: 'Diretoria (por fora)'};
-function listaConferente(comp, soFora) {
-  const x = conferente().comps.find(c => c.comp === comp) || {ps: []};
-  const ps = x.ps.filter(p => !soFora || grupoDe(R.pessoas.get(p.cpf)) === 'fora');
-  const gs = [...grpConta(ps, p => p.cpf)].map(([cpf, xs]) => { const pe = R.pessoas.get(cpf), s = f => rd2(xs.filter(f).reduce((t, p) => t + p.valor, 0));
-    return {cpf, nome: pe.nome, loja: pe.cad ? pe.cad.loja || '' : '', dest: DESTINO[grupoDe(pe)], n: xs.length, herdado: s(p => p.parcela !== 1), novo: s(p => p.parcela === 1), proj: s(p => p.proj), total: s(() => true)}; })
+// o que forma cada número do Conferente: folha (ativos), herdado, compras novas, Diretoria (fora/PJ) ou tudo
+const FILTRO_CF = {
+  folha: ['A folha tem que descontar', p => grupoDe(R.pessoas.get(p.cpf)) !== 'fora'],
+  herdado: ['Herdado (2ª prestação em diante)', p => grupoDe(R.pessoas.get(p.cpf)) !== 'fora' && p.parcela !== 1],
+  novo: ['Compras novas (1ª prestação)', p => grupoDe(R.pessoas.get(p.cpf)) !== 'fora' && p.parcela === 1],
+  fora: ['Diretoria - fora do cadastro / PJ', p => grupoDe(R.pessoas.get(p.cpf)) === 'fora'],
+  todos: ['Folha + Diretoria', () => true]};
+function listaConferente(comp, filtro = 'folha') {
+  const x = conferente().comps.find(c => c.comp === comp) || {ps: []}, [rot, f] = FILTRO_CF[filtro] || FILTRO_CF.folha;
+  const ps = x.ps.filter(f);
+  const gs = [...grpConta(ps, p => p.cpf)].map(([cpf, xs]) => { const pe = R.pessoas.get(cpf), s = g => rd2(xs.filter(g).reduce((t, p) => t + p.valor, 0));
+    return {cpf, nome: pe.nome, loja: pe.cad ? pe.cad.loja || '' : '', dest: DESTINO[grupoDe(pe)], n: xs.length, herdado: s(p => p.parcela !== 1), novo: s(p => p.parcela === 1), proj: s(p => p.proj), total: s(() => true),
+      compras: [...new Set(xs.map(p => p.contrato))].length}; })
     .sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome));
-  return lista(soFora ? `Diretoria - fora do cadastro / PJ - folha de ${compBR(comp)}` : `Parcelas a descontar - folha de ${compBR(comp)}`,
-    `Paga em ${dataBR(quintoDiaUtil(comp))} · herdado = 2ª prestação em diante de compras anteriores · compras novas = 1ª prestação · projetado = prestação que o crediário ainda não trouxe`,
-    ['Colaborador', 'CPF', 'Loja', 'Destino', 'Prestações', 'Herdado', 'Compras novas', 'Projetado', 'Total'], gs,
-    g => [g.nome, cpfF(g.cpf), g.loja, g.dest, g.n, V(g.herdado), V(g.novo), V(g.proj), V(g.total)], g => g.cpf, [4, 5, 6, 7, 8],
-    ls => ['Total', '', '', '', ls.reduce((t, g) => t + g.n, 0), ...['herdado', 'novo', 'proj', 'total'].map(k => V(ls.reduce((t, g) => t + g[k], 0)))]);
+  const m = lista(`${rot} - folha de ${compBR(comp)}`,
+    `Paga em ${dataBR(quintoDiaUtil(comp))} · ${qtd(gs.length)} pessoa(s) · total ${brl(rd2(ps.reduce((t, p) => t + p.valor, 0)))} · herdado = 2ª prestação em diante de compras anteriores · compras novas = 1ª prestação · projetado = prestação que o crediário ainda não trouxe`,
+    ['Colaborador', 'CPF', 'Loja', 'Destino', 'Compras', 'Prestações', 'Herdado', 'Compras novas', 'Projetado', 'Total'], gs,
+    g => [g.nome, cpfF(g.cpf), g.loja, g.dest, g.compras, g.n, V(g.herdado), V(g.novo), V(g.proj), V(g.total)], g => g.cpf, [4, 5, 6, 7, 8, 9],
+    ls => ['Total', '', '', '', ls.reduce((t, g) => t + g.compras, 0), ls.reduce((t, g) => t + g.n, 0), ...['herdado', 'novo', 'proj', 'total'].map(k => V(ls.reduce((t, g) => t + g[k], 0)))]);
+  // no PDF e na planilha: cada prestação que forma o total
+  const nome = cpf => (R.pessoas.get(cpf) || {}).nome || '';
+  m.secoes.push({titulo: 'Prestações que formam o total', cab: ['Colaborador', 'CPF', 'Documento', 'Compra', 'Prestação', 'Vencimento', 'Tipo', 'Valor'], direita: [7],
+    linhas: ps.slice().sort((a, b) => nome(a.cpf).localeCompare(nome(b.cpf)) || String(a.contrato).localeCompare(String(b.contrato)) || a.parcela - b.parcela)
+      .map(p => [nome(p.cpf), cpfF(p.cpf), p.documento, dataBR(p.lancamento), `${p.parcela}/${p.n_parcelas || '?'}`, p.proj ? 'projetada' : dataBR(p.vencimento), p.parcela === 1 ? 'Compra nova' : 'Herdado', V(p.valor)])});
+  return m;
 }
 const modeloDiretoria = () => ({...modeloFora(R.foras), titulo: 'Relatório Diretoria - PJ e fora do cadastro',
   subtitulo: `Compra permitida, mas sem folha para descontar: desconto ou cobrança por fora, acompanhar até a baixa - posição de ${dataBR(hojeISO())}`,
   arquivo: `diretoria_pj_fora_cadastro_${hojeISO()}`, assinaturas: ['Auditoria', 'Diretoria']});
+// quem mais pesa no total da folha (prévia dentro do card; o clique abre a lista inteira)
+function topFolha(c, n = 5) {
+  const m = new Map(); c.ps.filter(FILTRO_CF.folha[1]).forEach(p => m.set(p.cpf, (m.get(p.cpf) || 0) + p.valor));
+  return [...m].sort((a, b) => b[1] - a[1]).slice(0, n).map(([cpf, v]) => ({cpf, nome: R.pessoas.get(cpf).nome, v: rd2(v)}));
+}
 function telaConferente() {
   const el = $('conferente'); if (!el) return;
   const C = conferente(), [a, ...resto] = C.comps, nEx = numerosEx();
   const topo = '<div class="small" style="color:#86efac;font-weight:800;letter-spacing:.04em">CONFERENTE DE CREDIÁRIO · PRÓXIMA FOLHA</div>';
+  const dr = (c, f) => `drill('cf:${c.comp}:${f}')`, pct = (v, t) => t > 0 ? Math.max(0, Math.min(100, v / t * 100)) : 0;
+  const parte = (c, f, rot, v, n, cor) => `<div class="clic" onclick="${dr(c, f)}" style="cursor:pointer;flex:1;min-width:200px;padding:10px 12px;border:1px solid var(--line);border-left:4px solid ${cor};border-radius:12px">
+    <div class="small mut">${rot}</div><div style="font-size:20px;font-weight:800">${brl(v)}</div><div class="small mut">${qtd(n)} pessoa(s) · ver nomes ›</div></div>`;
   el.style.borderColor = 'rgba(34,197,94,.45)';
-  el.innerHTML = (a ? `${topo}<div style="font-size:22px;font-weight:800;margin:6px 0 2px">Parcelas a descontar na folha de ${compBR(a.comp)} <span class="mut" style="font-size:14px;font-weight:600">· paga no 5º dia útil, ${dataBR(a.pag)}</span></div>
+  el.innerHTML = (a ? `${topo}<div style="font-size:22px;font-weight:800;margin:6px 0 2px">Folha de ${compBR(a.comp)} <span class="mut" style="font-size:14px;font-weight:600">· paga no 5º dia útil, ${dataBR(a.pag)}</span></div>
+    <div class="card clic" onclick="${dr(a, 'folha')}" style="cursor:pointer;margin-top:10px;border-color:rgba(124,58,237,.55);background:linear-gradient(135deg,rgba(124,58,237,.16),rgba(15,23,42,.4))">
+      <div class="row" style="justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px">
+        <div><div class="small" style="font-weight:800;color:#c4b5fd;letter-spacing:.04em">A FOLHA TEM QUE DESCONTAR</div>
+          <div style="font-size:40px;font-weight:900;line-height:1.1">${brl(a.folha)}</div>
+          <div class="small mut">${qtd(a.pessoas)} colaboradores · ${qtd(a.n)} prestações${a.proj > 0.009 ? ` · inclui ${brl(a.proj)} projetados` : ''} · clique para ver todos os nomes</div></div>
+        <div class="small" style="min-width:260px">${topFolha(a).map(t => `<div class="row" style="justify-content:space-between;gap:12px"><span>${esc(t.nome)}</span><b>${brl(t.v)}</b></div>`).join('')}${a.pessoas > 5 ? `<div class="mut">+ ${qtd(a.pessoas - 5)} colaboradores ›</div>` : ''}</div>
+      </div>
+      <div style="display:flex;height:10px;border-radius:6px;overflow:hidden;margin-top:12px;background:rgba(148,163,184,.15)" title="Herdado ${brl(a.herdado)} + Compras novas ${brl(a.novo)}">
+        <i style="width:${pct(a.herdado, a.folha)}%;background:#94a3b8"></i><i style="width:${pct(a.novo, a.folha)}%;background:#22c55e"></i></div>
+    </div>
+    <div class="small mut" style="margin:10px 0 6px">Como se compõe — clique para ver os nomes:</div>
+    <div class="row" style="gap:10px;flex-wrap:wrap">
+      ${parte(a, 'herdado', 'Herdado · 2ª prestação em diante de compras anteriores', a.herdado, a.nHerdado, '#94a3b8')}
+      <div style="align-self:center;font-size:22px;font-weight:800">+</div>
+      ${parte(a, 'novo', 'Compras novas · 1ª prestação das compras do ciclo', a.novo, a.nNovo, '#22c55e')}
+      <div style="align-self:center;font-size:22px;font-weight:800">=</div>
+      ${parte(a, 'folha', 'Folha', a.folha, a.pessoas, '#7c3aed')}
+    </div>
     <div class="grid kp4">${
-      kpi('Total previsto', brl(a.total), `${qtd(a.pessoas)} colaboradores · ${qtd(a.n)} prestações${a.proj > 0.009 ? ` · ${brl(a.proj)} projetados` : ''}`, 't-roxo', `drill('cf:${a.comp}')`) +
-      kpi('Herdado', brl(a.herdado), '2ª prestação em diante de compras anteriores', 't-cinza', `drill('cf:${a.comp}')`) +
-      kpi('Compras novas', brl(a.novo), '1ª prestação das compras do ciclo', 't-verde', `drill('cf:${a.comp}')`) +
-      kpi('Diretoria · PJ / fora do cadastro', brl(a.fora), a.nFora ? `${qtd(a.nFora)} pessoa(s) sem folha — desconto por fora` : 'ninguém fora do cadastro', a.fora > 0.009 ? 't-laranja' : 't-verde', `drill('cfd:${a.comp}')`)}</div>
-    ${resto.length ? `<h3 style="margin-top:16px">Próximas folhas</h3><div class="grid kp4">${resto.slice(0, 8).map(c => kpi(`Folha de ${compBR(c.comp)}`, brl(c.total),
-      `paga em ${dataBR(c.pag)} · ${qtd(c.pessoas)} colaboradores${c.novo > 0.009 ? ` · novas ${brl(c.novo)}` : ''}${c.proj > 0.009 ? ` · ${c.proj >= c.total - 0.009 ? 'projetado' : brl(c.proj) + ' projetados'}` : ''}`, 't-cinza', `drill('cf:${c.comp}')`)).join('')}</div>` : ''}`
+      kpi('Diretoria · PJ / fora do cadastro', brl(a.fora), a.nFora ? `${qtd(a.nFora)} pessoa(s) sem folha — desconto por fora · ver nomes` : 'ninguém fora do cadastro', a.fora > 0.009 ? 't-laranja' : 't-verde', dr(a, 'fora')) +
+      kpi('Total do crediário no mês', brl(a.total), 'folha + Diretoria · ver nomes', 't-cinza', dr(a, 'todos')) +
+      kpi('Ex-funcionários (rescisão)', brl(nEx.aberto), nEx.nAberto ? `${qtd(nEx.nAberto)} pessoa(s) sem folha — sai na rescisão ou é cobrado` : 'nenhum débito em aberto', nEx.aberto > 0.009 ? 't-laranja' : 't-verde', "irPara('ex')") +
+      kpi('Projetado', brl(a.proj), 'prestações que o crediário ainda não trouxe (valor da última)', 't-cinza', dr(a, 'folha'))}</div>
+    ${resto.length ? `<h3 style="margin-top:16px">Próximas folhas — o que cada uma tem que descontar</h3><div class="grid kp4">${resto.slice(0, 8).map(c => kpi(`Folha de ${compBR(c.comp)}`, brl(c.folha),
+      `paga em ${dataBR(c.pag)} · ${qtd(c.pessoas)} colaboradores${c.novo > 0.009 ? ` · novas ${brl(c.novo)}` : ''}${c.proj > 0.009 ? ` · ${c.proj >= c.folha - 0.009 ? 'projetado' : brl(c.proj) + ' projetados'}` : ''}${c.fora > 0.009 ? ` · + Diretoria ${brl(c.fora)}` : ''} · ver nomes`, 't-cinza', dr(c, 'folha'))).join('')}</div>` : ''}`
     : `${topo}<div class="vazio">Nenhuma prestação a descontar nas próximas folhas.</div>`) +
-    `${nEx.aberto > 0.009 ? `<div class="aviso">Ex-funcionários: ${brl(nEx.aberto)} em aberto de ${qtd(nEx.nAberto)} pessoa(s) — sem folha, sai na rescisão ou é cobrado. <a href="javascript:void(0)" onclick="irPara('ex')">Ver ex-funcionários</a></div>` : ''}
-    <h3 style="margin-top:16px">Fluxograma de pagamento por colaborador</h3>
+    `<h3 style="margin-top:16px">Fluxograma de pagamento por colaborador</h3>
     <div class="grid kp4">${[['1 · Compra', 'Crediário', 'contrato e nº de prestações'], ['2 · Classifica', 'CPF', 'ativo · ex-funcionário · PJ / fora'], ['3 · Cobrança', 'Destino', 'folha · rescisão · Diretoria'], ['4 · Conferência', 'Baixa', 'descontada · pendente · divergente']]
       .map(([l, v, n]) => kpi(l, v, n)).join('')}</div>
     <div class="regra"><b>Ativo:</b> desconto na folha (verba 1260). <b>Ex-funcionário:</b> saldo na rescisão ou cobrança. <b>PJ ou fora do cadastro:</b> a compra é permitida, não é erro — vai para a Diretoria descontar ou cobrar por fora e acompanhar até a baixa.</div>
@@ -1519,7 +1561,7 @@ function modeloFora(ls = listaFora()) {
 }
 function excelFora() {
   const ls = listaFora(), wb = XLSX.utils.book_new(), m = modeloFora(ls);
-  m.secoes.forEach(sx => { const ws = XLSX.utils.aoa_to_sheet([sx.cab, ...sx.linhas.map(l => l.map((c, i) => (sx.direita || []).includes(i) && typeof c === 'string' && /\d/.test(c) ? numero(c) : c))]); ws['!cols'] = sx.cab.map((h, i) => ({wch: i === 0 ? 34 : 14})); XLSX.utils.book_append_sheet(wb, ws, sx.titulo.replace(/[^\wÀ-ú ]/g, '').slice(0, 30)); });
+  m.secoes.forEach(sx => { const ws = XLSX.utils.aoa_to_sheet([sx.cab, ...sx.linhas.map(l => l.map((c, i) => celXLSX(c, i, sx.direita)))]); ws['!cols'] = sx.cab.map((h, i) => ({wch: i === 0 ? 34 : 14})); XLSX.utils.book_append_sheet(wb, ws, sx.titulo.replace(/[^\wÀ-ú ]/g, '').slice(0, 30)); });
   XLSX.writeFile(wb, `fora_do_cadastro_crediario_${hojeISO()}.xlsx`);
 }
 
@@ -1549,7 +1591,7 @@ function drill(k) {
   const crd = R.credAtual ? `vencimentos de ${dataBR(R.credIni)} a ${dataBR(R.credFim)}` : '';
   // pt:<tipo> = pendências daquele tipo
   const tipoPt = k.startsWith('pt:') ? k.slice(3) : '';
-  if (k.startsWith('cf:') || k.startsWith('cfd:')) { const m = listaConferente(k.split(':')[1], k.startsWith('cfd:')); D_cf = () => m; k = '_cf'; }
+  if (k.startsWith('cf:')) { const [, c, f] = k.split(':'), m = listaConferente(c, f); D_cf = () => m; k = '_cf'; }
   const D_ = {
     _pt: () => pend(tipoPt, N.pend.filter(p => p.tipo === tipoPt)),
     _cf: () => D_cf(),
@@ -1577,10 +1619,15 @@ function drill(k) {
     <div class="small mut">${esc(m.subtitulo)} · ${qtd(s.linhas.length)} linha(s)${m.cpfs.some(Boolean) ? ' · clique na linha para ver o extrato com cada compra e prestação' : ''}</div>
     ${s.linhas.length ? `<div class="tw"><table><thead><tr>${s.cab.map((h, i) => `<th class="${(s.direita || []).includes(i) ? 'r' : ''}">${esc(h)}</th>`).join('')}</tr></thead><tbody>${s.linhas.slice(0, 500).map((l, i) => `<tr ${m.cpfs[i] ? `class="clicavel" data-pes="${m.cpfs[i]}" data-c="${COMP}"` : ''}>${l.map((c, j) => `<td class="${(s.direita || []).includes(j) ? 'r' : ''}">${esc(celTxt(c))}</td>`).join('')}</tr>`).join('')}</tbody>${s.rodape ? `<tfoot><tr>${s.rodape.map((c, j) => `<td class="${(s.direita || []).includes(j) ? 'r' : ''}">${esc(celTxt(c))}</td>`).join('')}</tr></tfoot>` : ''}</table></div>${s.linhas.length > 500 ? '<div class="small mut">Mostrando 500. O PDF e a planilha trazem todas.</div>' : ''}` : '<div class="vazio">Nada a listar. ✔</div>'}`, 'larga');
 }
+// célula da planilha: valor em reais V() = {t, n} vira número (antes saía vazio); texto com número nas colunas da direita também
+const celXLSX = (c, i, direita) => c && typeof c === 'object' && 'n' in c ? c.n : (direita || []).includes(i) && typeof c === 'string' && /\d/.test(c) ? numero(c) : c;
 function excelDrill() {
-  if (!DRILL) return; const s = DRILL.secoes[0], wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([s.cab, ...s.linhas.map(l => l.map((c, i) => (s.direita || []).includes(i) && typeof c === 'string' && /\d/.test(c) ? numero(c) : c))]);
-  ws['!cols'] = s.cab.map((h, i) => ({wch: i === 0 ? 34 : Math.max(10, h.length + 2)})); ws['!autofilter'] = {ref: ws['!ref']}; XLSX.utils.book_append_sheet(wb, ws, 'Lista');
+  if (!DRILL) return; const wb = XLSX.utils.book_new();
+  // uma aba por tabela (a 1ª é a lista do card; o Conferente traz também as prestações que formam o total)
+  DRILL.secoes.forEach((s, k) => {
+    const ws = XLSX.utils.aoa_to_sheet([s.cab, ...s.linhas.map(l => l.map((c, i) => celXLSX(c, i, s.direita)))]);
+    ws['!cols'] = s.cab.map((h, i) => ({wch: i === 0 ? 34 : Math.max(10, h.length + 2)})); ws['!autofilter'] = {ref: ws['!ref']};
+    XLSX.utils.book_append_sheet(wb, ws, k ? s.titulo.replace(/[^\wÀ-ú ]/g, '').slice(0, 30) : 'Lista'); });
   XLSX.writeFile(wb, DRILL.arquivo + '.xlsx');
 }
 
