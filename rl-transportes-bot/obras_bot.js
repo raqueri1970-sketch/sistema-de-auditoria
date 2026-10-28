@@ -32,6 +32,10 @@ Nao conte duas vezes o mesmo pagamento (ex.: cupom + comprovante do cartao da me
 Cupom fiscal / NF / NFC-e com varios produtos = UM item so, com o VALOR TOTAL da nota (o "valor a pagar");
 liste os produtos na descricao (ex.: "Cadeado 93,00; Parafusos 11,50; ..."). Nunca um item por produto.
 Print de corrida Uber/99/taxi com valor = comprovante de despesa (tipo_doc "recibo", categoria transporte_combustivel).
+EXTRATO / RELATORIO / CONTA CORRENTE gerado pelo sistema (Portal Esposende: "Saldo inicial", "Recarga (PIX) n", "em aberto",
+colunas de saldo) NAO e comprovante: tipo_documento "outros" e todos os itens tipo_doc "outros".
+DEPOSITO para o PRESTADOR (PIX/TED cujo recebedor e o proprio prestador ou a empresa dele, ex.: MARTINS SOUZA CONSTRUTORA = Jhony,
+JOSEMAR = Josemar) NAO e despesa: e o dinheiro que a empresa repassa a ele. Leia normalmente (fornecedor = recebedor, pagador = quem pagou).
 
 tipo_doc de cada item: cupom_fiscal | nf | nfs | comprovante_pix | comprovante_ted | comprovante_boleto | comprovante_cartao | recibo | orcamento | outros
 - "orcamento": cotacao/proposta/previsao (NAO e gasto realizado)
@@ -181,6 +185,13 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
   // Print de corrida de app (Uber/99) com valor é despesa de transporte, não "outros".
   const ehCorridaApp = (it, legenda) => /\b(uber|99|99pop|taxi|t[aá]xi)\b|corrida|viagem de/i.test(`${it.fornecedor || ''} ${it.descricao || ''} ${legenda || ''}`);
 
+  // 28/10/2026 (pedido do Ricardo): extrato/relatório do próprio sistema reenviado no grupo e a linha "Recarga (PIX) nº" dele
+  // NUNCA são despesa (o Jhony mandou o extrato dele e a Recarga nº 20 de R$ 7.993 entrou como gasto). O banco também barra
+  // (obras_pagador_before) e barra o PIX cujo recebedor é o próprio prestador (MARTINS SOUZA = Jhony).
+  const RELATORIO_DO_SISTEMA = /^\s*(extrato|resumo-presidente|visao-geral-obras)[_-][^/]*\.pdf\s*$/i;
+  const LINHA_DE_RECARGA = /^\s*(recarga|reembolso)\s*(\(pix\))?\s*n\s*[º°o.]/i;
+  const naoEhDespesa = (it, legenda) => RELATORIO_DO_SISTEMA.test(String(legenda || '')) || LINHA_DE_RECARGA.test(String(it.descricao || ''));
+
   // A legenda que o prestador escreve na foto ("Diária servente 12/10 - Maceió centro") entra na descrição da despesa
   // (15/10/2026, pedido do Ricardo). Nome de arquivo como legenda não conta; descrição genérica da IA ("Transferência PIX") é trocada.
   const legendaUtil = l => { const s = String(l || '').trim(); return s && !/\.(pdf|jpe?g|png|heic)\s*$/i.test(s) ? s : null; };
@@ -200,7 +211,7 @@ module.exports = function criarModuloObras({ client, log, sb, baixarMidiaPelaPag
       let tipo = it.tipo_doc || (ia ? 'outros' : null);
       if (tipo === 'outros' && num(it.valor) > 0 && ehCorridaApp(it, base.legenda)) { tipo = 'recibo'; it = { ...it, categoria: 'transporte_combustivel' }; }
       const valor = num(it.valor);
-      const ehDespesa = TIPOS_DESPESA.includes(tipo) && valor > 0;
+      const ehDespesa = TIPOS_DESPESA.includes(tipo) && valor > 0 && !naoEhDespesa(it, base.legenda);
       return { ...base, wa_msg_id: `${idMsg}#${i}`,
         categoria: CATEGORIAS.includes(it.categoria) ? it.categoria : 'diversos',
         valor: valor != null && valor >= 0 ? valor : 0,

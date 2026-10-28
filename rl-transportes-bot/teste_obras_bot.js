@@ -236,6 +236,21 @@ const item = (o) => ({ tipo_documento: 'comprovante', itens: [{ tipo_doc: 'cupom
   assert.strictEqual(linhas().find(l => l.valor === 66.6).descricao, 'Areia');
   console.log('ok 12e legenda do WhatsApp entra na descricao da despesa');
 
+  // 12f) 28/10/2026: o Jhony reenviou o extrato do sistema (extrato_Jhony_2026-10-26.pdf) e a linha "Recarga (PIX) nº 20"
+  // de R$ 7.993 virou despesa. Extrato do sistema e linha de recarga nunca são despesa.
+  const mExt = msgFalsa({ tipo_documento: 'outros', itens: [
+    { tipo_doc: 'comprovante_pix', categoria: 'diversos', valor: 7993, data: hoje, fornecedor: null, descricao: 'Recarga (PIX) nº 20' },
+    { tipo_doc: 'cupom_fiscal', categoria: 'alimentacao', valor: 31.4, data: hoje, fornecedor: 'SAO BRAZ COFFEE SHOP', descricao: 'Diversos em aberto' }] },
+    { nome: 'Jhony', numero: '226886227640325' });
+  mExt.body = 'extrato_Jhony_2026-10-26.pdf';
+  await obras.onMessage(mExt, {}); await esperar();
+  assert.strictEqual(linhas().find(l => l.valor === 7993).status, 'nao_despesa', 'recarga do extrato nao e despesa');
+  assert.strictEqual(linhas().find(l => l.valor === 31.4).status, 'nao_despesa', 'linha do extrato do sistema nao e despesa');
+  const mRec = msgFalsa(item({ tipo_doc: 'comprovante_pix', valor: 6317.15, data: hoje, fornecedor: null, descricao: 'Recarga (PIX) nº 23' }));
+  await obras.onMessage(mRec, {}); await esperar();
+  assert.strictEqual(linhas().find(l => l.valor === 6317.15).status, 'nao_despesa');
+  console.log('ok 12f extrato do sistema e linha "Recarga (PIX) nº" nunca entram como despesa');
+
   // 12d) Auditor IA da foto: toda despesa lançada recebe a leitura antifraude (auditoria_ia)
   await esperar(); await obras._auditarFotos(50); await esperar();
   const semAud = linhas().filter(l => l.status === 'lancado' && l.arquivo_path && !l.auditoria_ia);
