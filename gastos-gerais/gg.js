@@ -73,6 +73,8 @@ function lojaDaObra(obra){
   if (!n) return 'Obra sem loja';
   if (MAPA[n]) return MAPA[n];
   var ds = destinos(), alvo = null;
+  // Históricos do Enildo e do Everton são da obra de Palmares
+  if (/enildo|everton/i.test(norm(n))) return (MAPA[n] = ds.filter(function(d){ return /\bpalmares\b/.test(norm(d)); }).sort(function(a, b){ return a.length - b.length; })[0] || 'Palmares');
   if (/^cd\b/i.test(norm(n))) alvo = ds.filter(function(d){ return /^\d+\s*-\s*cd\b/.test(norm(d)); })[0] || null;
   if (!alvo && !/^hist/i.test(norm(n))) {
     var base = n.replace(/^Loja\s+/i, '').replace(/\(.*?\)/g, ' ');
