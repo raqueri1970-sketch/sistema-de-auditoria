@@ -74,16 +74,14 @@ function lojaDaObra(obra){
   if (MAPA[n]) return MAPA[n];
   var ds = destinos(), alvo = null;
   // Históricos do Enildo e do Everton são da obra de Palmares
-  if (/enildo|everton/i.test(norm(n))) return (MAPA[n] = ds.filter(function(d){ return /\bpalmares\b/.test(norm(d)); }).sort(function(a, b){ return a.length - b.length; })[0] || 'Palmares');
+  if (/enildo|everton/i.test(norm(n))) return (MAPA[n] = ds.filter(function(d){ return norm(d).replace(/^\s*\d+\s*-\s*/, '').replace(/[^a-z0-9]+/g, ' ').trim() === 'palmares'; })[0] || 'Palmares');
   if (/^cd\b/i.test(norm(n))) alvo = ds.filter(function(d){ return /^\d+\s*-\s*cd\b/.test(norm(d)); })[0] || null;
   if (!alvo && !/^hist/i.test(norm(n))) {
     var base = n.replace(/^Loja\s+/i, '').replace(/\(.*?\)/g, ' ');
-    var tk = norm(base).split(/[^a-z0-9]+/).filter(function(t){ return t.length > 2 && !STOP[t]; });
-    if (tk.length) {
-      var cand = ds.filter(function(d){ var nd = norm(d); return tk.every(function(t){ return nd.indexOf(t) >= 0; }); })
-        .sort(function(a, b){ return a.length - b.length; });
-      alvo = cand[0] || null;
-    }
+    // nome igual ao do destino (sem o número da loja): 'Maceió Centro' = '51 - MACEIÓ CENTRO'; 'Petrolina' ≠ 'MIX MATEUS PETROLINA'
+    var limpa = function(x){ return norm(x).replace(/^\s*\d+\s*-\s*/, '').replace(/[^a-z0-9]+/g, ' ').trim(); };
+    var alvoN = limpa(base);
+    alvo = alvoN ? (ds.filter(function(d){ return limpa(d) === alvoN; })[0] || null) : null;
   }
   return (MAPA[n] = alvo || n.replace(/^Loja\s+/i, ''));
 }
