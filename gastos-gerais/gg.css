@@ -8,7 +8,7 @@
 .gg-bar select option{background:#0b1829;}
 .gg-bar .sp{flex:1;min-width:6px;}
 .gg-bar .gbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:8px;font-size:12.5px;font-weight:800;cursor:pointer;border:none;font-family:inherit;color:#fff;background:rgba(255,255,255,.1);}
-.gg-bar .gbtn.g{background:#059669;} .gg-bar .gbtn.b{background:#2c4fa3;} .gg-bar .gbtn.o{background:#c2410c;}
+.gg-bar .gbtn.g{background:#059669;} .gg-bar .gbtn.r{background:#dc2626;} .gg-bar .gbtn.b{background:#2c4fa3;} .gg-bar .gbtn.o{background:#c2410c;}
 .gg-bar .chk{display:flex;align-items:center;gap:5px;color:#cbd5e1;font-size:12px;font-weight:700;text-transform:none;letter-spacing:0;}
 .gg-doc{--ink:#0f172a;--ink2:#475569;--ink3:#94a3b8;--line:#e2e8f0;--cmp:#2c4fa3;--obr:#ea580c;--eco:#047857;
   background:#fff;color:var(--ink);max-width:1260px;margin:18px auto 50px;border-radius:12px;box-shadow:0 30px 80px rgba(0,0,0,.5);overflow:hidden;font-family:'Nunito Sans',sans-serif;font-variant-numeric:tabular-nums;}
@@ -91,3 +91,16 @@
   .gg-2{display:grid !important;grid-template-columns:1fr 1fr !important;}
   .gg-kpis{display:grid !important;grid-template-columns:repeat(6,1fr) !important;}
 }
+
+.gg-busy{position:fixed;inset:0;z-index:2200;background:rgba(3,8,18,.75);display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#fff;font-weight:800;font-size:15px;}
+.gg-busy.on{display:flex;} .gg-busy small{font-weight:600;opacity:.7;font-size:12px;}
+.gg-busy .sp3{width:36px;height:36px;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:ggsp 1s linear infinite;}
+@keyframes ggsp{to{transform:rotate(360deg)}}
+.gg-doc.pdf-mode{max-width:none;margin:0;border-radius:0;box-shadow:none;}
+.gg-doc.pdf-mode .gg-scroll{overflow:visible;}
+.gg-doc.pdf-mode .gg-noprint{display:none !important;}
+.gg-doc.pdf-mode .gg-kpis{grid-template-columns:repeat(6,1fr) !important;}
+.gg-doc.pdf-mode .gg-2{grid-template-columns:1fr 1fr !important;}
+.gg-doc.pdf-mode .gg-head{flex-wrap:nowrap !important;}
+.gg-doc.pdf-mode .gg-head .per{margin-left:auto !important;text-align:right !important;}
+.gg-doc.pdf-mode .gg-body{padding:12px 20px 16px !important;}

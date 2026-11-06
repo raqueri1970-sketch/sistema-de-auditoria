@@ -260,7 +260,7 @@ window.ggRender = function(){
 
   var nota = '<div class="gg-note">Compras = valor negociado dos pedidos (já com desconto). Obras = despesas lançadas no módulo Obras & Reformas (sem recusadas, duplicadas ou canceladas)'
     + (OB_EM ? ', lidas em ' + OB_EM.toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '') + '.</div>';
-  doc.innerHTML = head + '<div class="gg-body">' + avisos + kpis + mes + lojas + tipos + mx + mt + lista + nota + '</div><div class="gg-foot">Compras / Auditoria</div>';
+  doc.innerHTML = head + '<div class="gg-body">' + avisos + kpis + mes + mt + lojas + tipos + mx + lista + nota + '</div><div class="gg-foot">Compras / Auditoria</div>';
 };
 
 window.ggFiltraLoja = function(k){ var s = document.getElementById('ggLoja'); s.value = (s.value === k) ? '' : k; ggRender(); document.getElementById('ggOv').scrollTop = 0; };
@@ -280,6 +280,58 @@ window.ggImprimir = function(){
   setTimeout(function(){ window.focus(); window.print(); }, 80);
 };
 window.addEventListener('beforeprint', function(){ var ov = document.getElementById('ggOv'); if (ov && ov.classList.contains('open')) { document.body.classList.add('gg-open'); document.body.classList.remove('dir-open'); } });
+
+// ── Baixar PDF (arquivo .pdf de verdade, A4 paisagem; funciona no celular) ──
+function ggScript(src){
+  return new Promise(function(res, rej){
+    if (document.querySelector('script[src="' + src + '"]')) { res(); return; }
+    var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = function(){ rej(new Error('Falha ao carregar ' + src)); };
+    document.head.appendChild(s);
+  });
+}
+window.ggBaixarPDF = function(){
+  var ov = document.getElementById('ggOv'); if (!ov.classList.contains('open')) ggAbrir();
+  var busy = document.getElementById('ggBusy'), doc = document.getElementById('ggDoc');
+  busy.classList.add('on');
+  var esperaObras = function(){ return new Promise(function(r){ var n = 0, t = setInterval(function(){ if (!CARREGANDO || ++n > 60) { clearInterval(t); r(); } }, 250); }); };
+  Promise.all([
+    ggScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'),
+    ggScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
+    esperaObras()
+  ]).then(function(){
+    if (!ULT) throw new Error('não há gastos no período escolhido');
+    doc.style.width = '1260px'; doc.classList.add('pdf-mode'); ggRender();
+    return new Promise(function(r){ setTimeout(r, 150); });
+  }).then(function(){
+    var parts = [doc.querySelector('.gg-head')].concat([].slice.call(doc.querySelectorAll('.gg-body > .gg-sec, .gg-body > .gg-warn'))).filter(function(el){ return el && el.offsetHeight > 0 && getComputedStyle(el).display !== 'none'; });
+    var scale = Math.min(2, Math.max(1.5, window.devicePixelRatio || 1));
+    return parts.reduce(function(p, el){
+      return p.then(function(arr){ return html2canvas(el, {scale:scale, backgroundColor:'#ffffff', useCORS:true, logging:false, windowWidth:1320}).then(function(cv){ arr.push(cv); return arr; }); });
+    }, Promise.resolve([]));
+  }).then(function(cvs){
+    var pdf = new window.jspdf.jsPDF({orientation:'landscape', unit:'mm', format:'a4', compress:true});
+    var PW = 297, PH = 210, M = 8, W = PW - 2 * M, y = M, page = 1;
+    var rodape = function(){ pdf.setFontSize(8); pdf.setTextColor(120); pdf.text('Esposende · Compras / Auditoria · Gastos Gerais — Compras + Obras & Reformas', M, PH - 5); pdf.text('Página ' + page, PW - M, PH - 5, {align:'right'}); };
+    cvs.forEach(function(c, i){
+      var h = c.height * W / c.width, w = W, max = PH - 2 * M - 6;
+      if (h > max) { w = W * max / h; h = max; }
+      if (y + h > PH - M - 6 && y > M) { rodape(); pdf.addPage(); page++; y = M; }
+      pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', M + (W - w) / 2, y, w, h);
+      y += h + (i === 0 ? 0 : 2.5);
+    });
+    rodape();
+    var de = V('ggDe'), ate = V('ggAte');
+    var nome = 'Gastos_Gerais_Compras_Obras_' + (de || ate ? (de || 'inicio') + '_a_' + (ate || 'hoje') : iso(new Date())) + '.pdf';
+    var url = URL.createObjectURL(pdf.output('blob'));
+    var a = document.createElement('a'); a.href = url; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+    if (/iP(hone|ad|od)/.test(navigator.userAgent)) { try { window.open(url, '_blank'); } catch(e) {} }
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+  }).catch(function(e){
+    alert('Não foi possível gerar o PDF: ' + e.message + '\nUse o botão Imprimir e escolha "Salvar como PDF".');
+  }).then(function(){
+    doc.style.width = ''; doc.classList.remove('pdf-mode'); ggRender(); busy.classList.remove('on');
+  });
+};
 
 window.ggExcel = function(){
   if (!ULT) { alert('Sem dados no período.'); return; }

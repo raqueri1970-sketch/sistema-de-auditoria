@@ -18,9 +18,11 @@
     <select id="ggOrig" onchange="ggRender()"><option value="">Compras + Obras</option><option value="C">Só compras</option><option value="O">Só obras</option></select>
     <span class="sp"></span>
     <button class="gbtn" onclick="ggCarregar(true)" title="Busca de novo as despesas de Obras & Reformas">⟳ Atualizar obras</button>
-    <button class="gbtn b" onclick="ggImprimir()">🖨️ Imprimir / PDF</button>
+    <button class="gbtn r" onclick="ggBaixarPDF()">📄 Baixar PDF</button>
+    <button class="gbtn b" onclick="ggImprimir()">🖨️ Imprimir</button>
     <button class="gbtn g" onclick="ggExcel()">⬇ Excel</button>
     <button class="gbtn" onclick="ggFechar()">✕ Fechar</button>
   </div>
   <div class="gg-doc" id="ggDoc"></div>
+  <div class="gg-busy" id="ggBusy"><div class="sp3"></div>Gerando o PDF…<small>pode levar alguns segundos</small></div>
 </div>
