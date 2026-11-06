@@ -1,0 +1,27 @@
+<div class="gg-ov" id="ggOv">
+  <div class="gg-bar">
+    <label for="ggPer">Período</label>
+    <select id="ggPer" onchange="ggSetPer(this.value)">
+      <option value="painel">Período do painel</option>
+      <option value="mes">Mês atual</option>
+      <option value="3m">Últimos 3 meses</option>
+      <option value="6m">Últimos 6 meses</option>
+      <option value="ano">Ano atual</option>
+      <option value="tudo">Tudo</option>
+      <option value="livre">Escolher datas</option>
+    </select>
+    <input type="date" id="ggDe" onchange="ggLivre()" aria-label="De">
+    <input type="date" id="ggAte" onchange="ggLivre()" aria-label="Até">
+    <label for="ggLoja">Loja</label>
+    <select id="ggLoja" onchange="ggRender()"><option value="">Todas</option></select>
+    <label for="ggOrig">Origem</label>
+    <select id="ggOrig" onchange="ggRender()"><option value="">Compras + Obras</option><option value="C">Só compras</option><option value="O">Só obras</option></select>
+    <label class="chk"><input type="checkbox" id="ggLista"> Lista completa na impressão</label>
+    <span class="sp"></span>
+    <button class="gbtn" onclick="ggCarregar(true)" title="Busca de novo as despesas de Obras & Reformas">⟳ Atualizar obras</button>
+    <button class="gbtn b" onclick="ggImprimir()">🖨️ Imprimir / PDF</button>
+    <button class="gbtn g" onclick="ggExcel()">⬇ Excel</button>
+    <button class="gbtn" onclick="ggFechar()">✕ Fechar</button>
+  </div>
+  <div class="gg-doc" id="ggDoc"></div>
+</div>
