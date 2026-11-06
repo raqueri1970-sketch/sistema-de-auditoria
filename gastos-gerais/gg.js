@@ -13,7 +13,7 @@ var MESL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agost
 
 var OB = null, OB_ERR = '', OB_EM = null, CARREGANDO = false, LIM = 200, ULT = null;
 
-function fR(v){ return 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fR(v){ return 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0}); }
 function fK(v){ var a = Math.abs(v||0); if (a >= 1e6) return 'R$ ' + (v/1e6).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' mi';
   if (a >= 1e3) return 'R$ ' + (v/1e3).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}) + ' mil'; return fR(v); }
 function fP(v){ return Number(v||0).toFixed(1).replace('.', ',') + '%'; }
