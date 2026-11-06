@@ -247,25 +247,22 @@ window.ggRender = function(){
     + M.map(function(m){ return '<tr><td class="l"><b>' + MESL[+m.k.slice(5,7)-1] + '/' + m.k.slice(0,4) + '</b></td><td class="c">' + fR(m.c) + '</td><td class="o">' + fR(m.o) + '</td><td class="t">' + fR(m.t) + '</td><td>' + m.n + '</td></tr>'; }).join('')
     + '<tr class="tot"><td class="l">TOTAL</td><td>' + fR(tC) + '</td><td>' + fR(tO) + '</td><td>' + fR(tT) + '</td><td>' + R.length + '</td></tr></tbody></table></div></div>';
 
-  // Lista completa
+  // Totais por tipo de despesa (sem fornecedores)
   var L = R.slice().sort(function(a, b){ return a.d < b.d ? 1 : a.d > b.d ? -1 : b.v - a.v; });
-  var printAll = document.getElementById('ggLista') && document.getElementById('ggLista').checked;
-  var lin = function(r){ return '<tr><td class="l">' + fD(r.d) + '</td><td class="l"><span class="gg-badge ' + (r.o === 'C' ? 'c">COMPRA' : 'o">OBRA') + '</span></td><td class="l" title="' + esc(r.loja) + '">' + esc(r.loja) + '</td><td class="l" title="' + esc(r.tipo) + '">' + esc(r.tipo) + '</td><td class="l" title="' + esc(r.f) + '">' + esc(r.f) + '</td><td class="l" title="' + esc(r.desc) + '" style="max-width:300px">' + esc(r.desc) + '</td><td class="t">' + fR(r.v) + '</td></tr>'; };
-  var lista = '<div class="gg-sec flow' + (printAll ? '' : ' gg-noprint') + '"><div class="gg-h">Todos os lançamentos <small>' + L.length + ' · mais recentes primeiro</small></div><div class="gg-scroll"><table class="gg-tbl"><thead><tr><th>Data</th><th>Origem</th><th>Loja</th><th>Tipo de despesa</th><th>Fornecedor / prestador</th><th>Descrição</th><th>Valor</th></tr></thead><tbody id="ggListaBody">'
-    + L.slice(0, LIM).map(lin).join('') + '</tbody></table></div>'
-    + (L.length > LIM ? '<div class="gg-more"><button onclick="ggTodos()">Mostrar todos os ' + L.length + ' lançamentos</button></div>' : '') + '</div>';
-  ULT.lin = lin; ULT.L = L;
+  ULT.L = L;
+  var linT = function(g, orig){ return '<tr><td class="l"><span class="gg-badge ' + (orig === 'O' ? 'o">OBRA' : 'c">COMPRA') + '</span></td><td class="l"><b>' + esc(g.k) + '</b></td><td>' + g.n + '</td><td class="' + (orig === 'O' ? 'o' : 'c') + '">' + fR(g.t) + '</td><td>' + fP((orig === 'O' ? tO : tC) ? g.t / (orig === 'O' ? tO : tC) * 100 : 0) + '</td><td>' + fP(tT ? g.t / tT * 100 : 0) + '</td></tr>'; };
+  var sub = function(nome, n, v){ return '<tr class="tot"><td class="l" colspan="2">' + nome + '</td><td>' + n + '</td><td>' + fR(v) + '</td><td>100%</td><td>' + fP(tT ? v / tT * 100 : 0) + '</td></tr>'; };
+  var lista = '<div class="gg-sec flow"><div class="gg-h">Totais por tipo de despesa <small>obras e compras · % da origem e % do total geral</small></div><div class="gg-scroll"><table class="gg-tbl"><thead><tr><th>Origem</th><th style="text-align:left">Tipo de despesa</th><th>Lançamentos</th><th>Valor</th><th>% da origem</th><th>% do total</th></tr></thead><tbody>'
+    + (TO.length ? TO.map(function(g){ return linT(g, 'O'); }).join('') + sub('Subtotal obras & reformas', O.length, tO) : '')
+    + (TC.length ? TC.map(function(g){ return linT(g, 'C'); }).join('') + sub('Subtotal compras', C.length, tC) : '')
+    + '<tr class="tot"><td class="l" colspan="2">TOTAL GERAL</td><td>' + R.length + '</td><td>' + fR(tT) + '</td><td></td><td>100%</td></tr>'
+    + '</tbody></table></div></div>';
 
   var nota = '<div class="gg-note">Compras = valor negociado dos pedidos (já com desconto). Obras = despesas lançadas no módulo Obras & Reformas (sem recusadas, duplicadas ou canceladas)'
     + (OB_EM ? ', lidas em ' + OB_EM.toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '') + '.</div>';
   doc.innerHTML = head + '<div class="gg-body">' + avisos + kpis + mes + lojas + tipos + mx + mt + lista + nota + '</div><div class="gg-foot">Compras / Auditoria</div>';
 };
 
-window.ggTodos = function(){
-  if (!ULT) return; LIM = 1e9;
-  document.getElementById('ggListaBody').innerHTML = ULT.L.map(ULT.lin).join('');
-  var b = document.querySelector('.gg-more'); if (b) b.remove();
-};
 window.ggFiltraLoja = function(k){ var s = document.getElementById('ggLoja'); s.value = (s.value === k) ? '' : k; ggRender(); document.getElementById('ggOv').scrollTop = 0; };
 
 window.ggAbrir = function(){
@@ -279,8 +276,6 @@ window.ggFechar = function(){
   document.getElementById('ggOv').classList.remove('open'); document.body.classList.remove('gg-open'); document.body.style.overflow = '';
 };
 window.ggImprimir = function(){
-  var lista = document.getElementById('ggLista').checked;
-  if (lista && LIM < 1e9) { LIM = 1e9; }
   ggRender();
   setTimeout(function(){ window.focus(); window.print(); }, 80);
 };
