@@ -24,8 +24,8 @@ Todos são **somente leitura** em produção: nada é alterado, publicado ou exe
 | Análise e cruzamento de dados | agente `dados` + `data:*` (sql-queries, validate-data, explore-data, statistical-analysis) |
 | Automação de computadores | `agent-desktop`, `agent-desktop-windows`, `agent-desktop-linux`, `agent-desktop-macos` |
 | Integrações com APIs | `mcp-builder`, `scrapling-official` |
-| Memória e contexto | `productivity:memory-management`, `mattpocock-skills:handoff` (claude-mem pendente de autorização) |
-| Vídeos e criativos | agente `criativos` + `canva:*`, `marketing:content-creation` |
+| Memória e contexto | `productivity:memory-management`, `mattpocock-skills:handoff`, `claude-mem:*` (memória entre sessões, local) |
+| Vídeos e criativos | agente `criativos` + MoneyPrinterTurbo, `canva:*`, `marketing:content-creation` |
 | Pesquisa de produtos/concorrentes | `anthropic-skills:minerador-produtos`, `scrapling-official`, `marketing:competitive-brief` |
 
 ## Duplicidades resolvidas
@@ -45,4 +45,18 @@ Todos são **somente leitura** em produção: nada é alterado, publicado ou exe
 uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
 uv tool install "scrapling[fetchers]"
 npm install -g agent-desktop
+```
+
+## Instaladas fora do repositório (autorizadas em 08/11/2026)
+| Ferramenta | Onde | Configuração |
+|---|---|---|
+| claude-mem 15.12.1 | plugin de usuário + worker local (porta 37700), dados em `~/.claude-mem` | Provedor = seu plano Anthropic (sem chave extra), sincronização na nuvem OFF, telemetria OFF |
+| MoneyPrinterTurbo | `~/apps/MoneyPrinterTurbo` | Sem chaves: roteiro próprio + vídeo local + Edge TTS. Neste container de nuvem foi preciso confiar no certificado do proxy dentro do `certifi` do app |
+| NVIDIA auto-ontology | `~/apps/auto-ontology` | Dependências instaladas e testes unitários ok. A stack (Docker + Postgres + web) só funciona com a chave `nvapi-` (build.nvidia.com) no `.env` |
+
+```bash
+npx claude-mem install --ide claude-code --provider claude --runtime worker
+npx claude-mem telemetry disable
+git clone https://github.com/harry0703/MoneyPrinterTurbo && cd MoneyPrinterTurbo && uv sync --frozen && cp config.example.toml config.toml
+git clone https://github.com/NVIDIA/auto-ontology && cd auto-ontology && uv sync --frozen
 ```
