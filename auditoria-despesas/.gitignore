@@ -1,0 +1,6 @@
+# Dados de auditoria têm nomes, CPFs e cartões: nunca versionar (o repositório é público).
+# Os relatórios ficam no Supabase (tabela aud_despesas_relatorios) e entram pelo botão "Importar relatório".
+*.json
+*.xlsx
+*.pdf
+dados*.py

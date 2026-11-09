@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Auditoria de Despesas e OS</title>
+<meta name="theme-color" content="#0b1020">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261025-15">
+<style>
+/* Auditoria de Despesas: cards por relatório e, dentro dele, um card para cada parte da auditoria */
+.nav{display:flex;gap:6px;flex-wrap:wrap;position:sticky;top:0;z-index:5;padding:10px 0;background:var(--bg)}
+.nav a{font:600 12.5px 'Inter',sans-serif;color:var(--txt2);text-decoration:none;border:1px solid var(--line2);border-radius:999px;padding:6px 12px;background:var(--card)}
+.nav a:hover{border-color:var(--pri);color:#fff}
+.rel{cursor:pointer;display:grid;gap:8px;transition:border-color .15s}.rel:hover,.rel.on{border-color:var(--pri)}
+.rel .rtit{font-weight:800;font-size:16px}.rel .lin{display:flex;justify-content:space-between;gap:8px;font-size:13px;color:var(--txt2)}
+.rel .lin b{font-variant-numeric:tabular-nums}
+.r-alto{background:rgba(239,68,68,.15);color:#fca5a5;border-color:rgba(239,68,68,.35)}
+.r-medio{background:rgba(245,179,1,.13);color:#fcd34d;border-color:rgba(245,179,1,.32)}
+.r-baixo{background:rgba(34,197,94,.12);color:#86efac;border-color:rgba(34,197,94,.3)}
+.st{background:rgba(59,130,246,.14);color:#93c5fd;border-color:rgba(59,130,246,.35)}
+.ach{display:grid;gap:8px;align-content:start;border-top:3px solid var(--line2)}
+.ach.alto{border-top-color:var(--bad)}.ach.medio{border-top-color:var(--warn)}.ach.baixo{border-top-color:var(--ok)}
+.ach .ref{font-size:12.5px;color:var(--mut)}.ach p{margin:0;font-size:14px;color:var(--txt2)}.ach .ac{color:var(--txt)}
+.hbar{display:grid;grid-template-columns:minmax(110px,1.2fr) 2fr auto;gap:10px;align-items:center;font-size:13px;margin:7px 0}
+.bt{background:var(--bg2);height:10px;border-radius:5px;overflow:hidden}.bt i{display:block;height:100%;background:var(--pri)}
+.bv{font-variant-numeric:tabular-nums;font-weight:600;text-align:right;white-space:nowrap}
+.gp i{background:var(--bad)}.gt i{background:var(--pri)}.gn i{background:#64748b}
+.tw{overflow-x:auto;max-height:560px;overflow-y:auto}
+.tw th{position:sticky;top:0;background:var(--card);z-index:1}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tl{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:13px}
+.tl li{display:grid;grid-template-columns:46px 140px 1fr;gap:8px;border-bottom:1px dashed var(--line);padding-bottom:6px}
+.tl time{color:#93c5fd;font-weight:700;font-variant-numeric:tabular-nums}
+.med .v{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+.plan{display:grid;grid-template-columns:76px 1fr;gap:10px;align-items:start}.plan .q{color:#93c5fd;font-weight:700;font-size:12.5px;text-transform:uppercase}
+.dsp{display:grid;gap:6px;align-content:start;font-size:13.5px}
+.dsp .hd{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.dsp .val{font-weight:800;font-size:17px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dsp dl{display:grid;grid-template-columns:92px 1fr;gap:3px 8px;margin:0}.dsp dt{color:var(--mut)}.dsp dd{margin:0;color:var(--txt2);min-width:0;overflow-wrap:anywhere}
+.dsp .achd{background:var(--bg2);border-radius:10px;padding:9px 10px;color:var(--txt2)}
+.filtros{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:12px}
+.filtros label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
+.filtros select,.filtros input{background:var(--card2);color:var(--txt);border:1px solid var(--line2);border-radius:10px;padding:8px 10px;font:14px 'Inter',sans-serif}
+.stbox label{display:inline;margin:0}.stbox select{width:auto;margin:0}
+.vazio{text-align:center;color:var(--mut);padding:28px}
+.parecer{border-left:4px solid var(--bad)}.parecer p{margin:0 0 8px;color:var(--txt2);max-width:85ch}
+@media (max-width:560px){.tl li{grid-template-columns:44px 1fr}.tl li>span:last-child{grid-column:2}.hbar{grid-template-columns:1fr auto}.hbar .bt{grid-column:1/-1;grid-row:2}}
+@media print{.nav,.row .btn,#vLista,.filtros{display:none!important}body{background:#fff;color:#000}.card{break-inside:avoid}}
+</style>
+</head>
+<body>
+
+<div id="vLogin" class="hidden" style="max-width:420px;margin:40px auto">
+  <h1>Auditoria de Despesas</h1><div class="sub">Entre com o seu usuário do Portal</div>
+  <div class="card" style="margin-top:16px">
+    <label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label for="lSenha">Senha</label><input id="lSenha" type="password" autocomplete="current-password">
+    <div id="lErr" class="err"></div>
+    <button class="btn b-pri" style="width:100%;padding:14px" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vSem" class="hidden card vazio" style="max-width:520px;margin:40px auto">Este módulo é restrito a administrador, controladoria e diretoria.</div>
+
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div><h1>🧾 Auditoria de Despesas</h1><div class="sub" id="quem"></div></div>
+    <div class="row">
+      <button class="btn" onclick="$('fImp').click()" title="Aceita o .json de um relatório de despesas auditado ou da carteira de OS">Importar arquivo</button>
+      <input id="fImp" type="file" accept=".json,application/json" class="hidden" onchange="importar(this.files[0])">
+      <button class="btn" onclick="carregar()">Atualizar</button>
+      <button class="btn" onclick="sair()">Sair</button>
+    </div>
+  </div>
+
+  <div class="tabs" id="abas" style="margin-top:16px"><button class="on" data-t="tDesp" onclick="aba('tDesp')">Relatórios de despesas</button><button data-t="tOS" onclick="aba('tOS')">Ordens de serviço</button></div>
+  <div id="tDesp">
+  <div id="vLista">
+    <h2>Relatórios auditados</h2>
+    <div class="grid" id="kGeral"></div>
+    <div class="pgrid" id="lista" style="margin-top:14px"><div class="card vazio">Carregando…</div></div>
+  </div>
+
+  <div id="det"></div>
+  </div>
+  <div id="tOS" class="hidden"><div class="card vazio" style="margin-top:16px">Carregando…</div></div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const SB_URL = 'https://rdztzurfesnobfkazgpm.supabase.co';
+const SB_KEY = 'sb_publishable_4LHSO4TrP7F4m4tpJyH44g_BGmfC92h';
+// Dentro do Portal (github.io) usa a mesma sessão do Portal, sem pedir login de novo.
+const NO_PORTAL = /github\.io$/.test(location.hostname);
+const sb = supabase.createClient(SB_URL, SB_KEY, {auth: {persistSession: true, autoRefreshToken: true, ...(NO_PORTAL ? {} : {storageKey: 'aud-despesas-auth'})}});
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const brl = v => Number(v || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+const nf = (v, d = 1) => Number(v || 0).toLocaleString('pt-BR', {minimumFractionDigits: d, maximumFractionDigits: d});
+const dBR = d => d ? String(d).substring(0, 10).split('-').reverse().join('/') : '';
+const RK = {Alto: 'r-alto', 'Médio': 'r-medio', Baixo: 'r-baixo', OK: 'r-baixo'};
+const RC = {Alto: 'alto', 'Médio': 'medio', Baixo: 'baixo', OK: 'baixo'};
+const chip = (t, c) => `<span class="chip ${c}">${esc(t)}</span>`;
+const STATUS = ['em análise', 'devolvido', 'liberado parcial', 'liberado', 'arquivado'];
+let LISTA = [], ATUAL = null;
+
+function toast(m, ms = 4000) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', ms); }
+function mostrar(v) { ['vLogin', 'vSem', 'vApp'].forEach(x => $(x).classList.toggle('hidden', x !== v)); }
+
+async function iniciar() {
+  const u = (await sb.auth.getUser()).data.user;
+  if (!u) return mostrar('vLogin');
+  $('quem').textContent = u.email + ' · leitura dos comprovantes, combustível × rotas, custo por loja e plano de redução';
+  mostrar('vApp'); carregar();
+}
+async function entrar() {
+  $('lErr').textContent = '';
+  const {error} = await sb.auth.signInWithPassword({email: $('lEmail').value.trim(), password: $('lSenha').value});
+  if (error) { $('lErr').textContent = 'Email ou senha incorretos.'; return; }
+  iniciar();
+}
+async function sair() { await sb.auth.signOut(); location.reload(); }
+
+async function carregar() { carregarOS();
+  const {data, error} = await sb.from('aud_despesas_relatorios')
+    .select('relatorio,titulo,solicitante,periodo_ini,periodo_fim,total,retido,qtd_despesas,qtd_alto,status,importado_em,atualizado_em')
+    .order('periodo_fim', {ascending: false});
+  if (error) { if (/permission|policy|42501/i.test(error.message + error.code)) return mostrar('vSem'); $('lista').innerHTML = `<div class="card vazio">Não foi possível carregar: ${esc(error.message)}</div>`; return; }
+  LISTA = data || [];
+  const tot = LISTA.reduce((s, r) => s + Number(r.total), 0), ret = LISTA.reduce((s, r) => s + Number(r.retido), 0);
+  $('kGeral').innerHTML = [
+    ['Relatórios auditados', LISTA.length, 'no módulo', ''],
+    ['Valor auditado', brl(tot), LISTA.reduce((s, r) => s + r.qtd_despesas, 0) + ' despesas', ''],
+    ['Retido até comprovar', brl(ret), tot ? nf(ret / tot * 100, 1) + '% do auditado' : '—', 'k-bad'],
+    ['Achados de risco alto', LISTA.reduce((s, r) => s + r.qtd_alto, 0), 'somando todos os relatórios', 'k-pagar']
+  ].map(([l, v, n, c]) => `<div class="card kpi ${c}"><div class="l">${l}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+  if (!LISTA.length) { $('lista').innerHTML = `<div class="card vazio">Nenhum relatório ainda. Use <b>Importar relatório</b> e escolha o arquivo .json gerado na auditoria.</div>`; $('det').innerHTML = ''; return; }
+  $('lista').innerHTML = LISTA.map(r => `<div class="card rel${ATUAL && ATUAL.relatorio === r.relatorio ? ' on' : ''}" tabindex="0" onclick="abrir('${esc(r.relatorio)}')" onkeydown="if(event.key==='Enter')abrir('${esc(r.relatorio)}')">
+      <div class="row" style="justify-content:space-between"><span class="mut small">#${esc(r.relatorio)} · ${dBR(r.periodo_ini)} a ${dBR(r.periodo_fim)}</span>${chip(r.status, 'st')}</div>
+      <div class="rtit">${esc(r.titulo)}</div><div class="mut small">${esc(r.solicitante || '')}</div>
+      <div class="lin"><span>Total</span><b>${brl(r.total)}</b></div>
+      <div class="lin"><span>Retido até comprovar</span><b style="color:#fca5a5">${brl(r.retido)}</b></div>
+      <div class="lin"><span>${r.qtd_despesas} despesas</span><span>${chip(r.qtd_alto + ' risco alto', 'r-alto')}</span></div></div>`).join('');
+  const alvo = (ATUAL && ATUAL.relatorio) || (location.hash.match(/^#r(\d+)$/) || [])[1] || LISTA[0].relatorio;
+  abrir(alvo, true);
+}
+
+async function abrir(rel, silencioso) {
+  const {data, error} = await sb.from('aud_despesas_relatorios').select('*').eq('relatorio', rel).maybeSingle();
+  if (error || !data) { if (!silencioso) toast('Relatório não encontrado.'); return; }
+  ATUAL = data; document.querySelectorAll('.rel').forEach(e => e.classList.toggle('on', e.getAttribute('onclick').includes(`'${rel}'`)));
+  try { history.replaceState(null, '', '#r' + rel); } catch (e) {}
+  render(data);
+  if (!silencioso) $('det').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+async function mudarStatus(v) {
+  const {error} = await sb.from('aud_despesas_relatorios').update({status: v, atualizado_em: new Date().toISOString()}).eq('relatorio', ATUAL.relatorio);
+  if (error) return toast('Não foi possível salvar: ' + error.message);
+  toast('Situação salva: ' + v); carregar();
+}
+
+async function importar(f) {
+  if (!f) return; $('fImp').value = '';
+  let p; try { p = JSON.parse(await f.text()); } catch (e) { return toast('Arquivo inválido: não é um JSON.'); }
+  if (p.tipo === 'carteira_os') return importarOS(p);
+  if (!p.relatorio || !p.kpis || !Array.isArray(p.despesas)) return toast('Este arquivo não é um relatório de auditoria de despesas nem uma carteira de OS.');
+  const linha = {relatorio: String(p.relatorio), titulo: p.titulo, solicitante: p.solicitante, periodo_ini: p.periodo_ini, periodo_fim: p.periodo_fim,
+    total: p.kpis.total, retido: p.kpis.retido, qtd_despesas: p.despesas.length, qtd_alto: (p.achados || []).filter(a => a.risco === 'Alto').length,
+    payload: p, atualizado_em: new Date().toISOString()};
+  const {error} = await sb.from('aud_despesas_relatorios').upsert(linha, {onConflict: 'relatorio'});
+  if (error) return toast('Não foi possível importar: ' + error.message, 7000);
+  toast('Relatório #' + p.relatorio + ' importado.'); ATUAL = {relatorio: String(p.relatorio)}; carregar();
+}
+
+function bars(itens, k, v) { const mx = Math.max(...itens.map(i => i[v])) || 1;
+  return itens.map(i => `<div class="hbar"><span>${esc(i[k])}</span><span class="bt"><i style="width:${Math.max(i[v] / mx * 100, .6)}%"></i></span><span class="bv">${brl(i[v])}</span></div>`).join(''); }
+function kpi(l, v, n, c = '') { return `<div class="card kpi ${c}"><div class="l">${l}</div><div class="v">${v}</div><div class="n">${n}</div></div>`; }
+
+function render(r) {
+  const p = r.payload, k = p.kpis, co = p.combustivel.coerencia, pr = p.precos;
+  const secoes = [['resumo', 'Resumo'], ['achados', 'Achados'], ['contas', 'Contas e segmentos'], ['comb', 'Combustível'], ['frentes', 'Datas e lugares'],
+    ['lojas', 'CD × lojas'], ['rotas', 'Rotas'], ['medias', 'Médias'], ['plano', 'Plano'], ['despesas', 'Despesas']];
+  const dias = Object.keys(p.frentes.dias).sort((a, b) => a.split('/').reverse().join('').localeCompare(b.split('/').reverse().join('')));
+  const regs = [...new Set(p.lojas.map(l => l.regiao))].sort();
+  const contasD = [...new Set(p.despesas.map(d => d.conta))].sort();
+  $('det').innerHTML = `
+  <h2 id="resumo">Relatório #${esc(r.relatorio)} · ${esc(p.titulo)}</h2>
+  <div class="row" style="justify-content:space-between;margin-bottom:10px">
+    <div class="small mut">${esc(p.solicitante)} · ${esc(p.centro_custo || '')} · ${esc(p.aprovacao || '')}</div>
+    <div class="row stbox"><label for="sSt" class="small mut">Situação</label><select id="sSt" onchange="mudarStatus(this.value)" class="btn">${STATUS.map(s => `<option${s === r.status ? ' selected' : ''}>${s}</option>`).join('')}</select>
+    <button class="btn" onclick="window.print()">Imprimir</button></div>
+  </div>
+  <nav class="nav">${secoes.map(([id, t]) => `<a href="#${id}" onclick="event.preventDefault();$('${id}').scrollIntoView({behavior:'smooth'})">${t}</a>`).join('')}</nav>
+  <div class="grid">
+    ${kpi('Total do relatório', brl(k.total), p.despesas.length + ' despesas')}
+    ${kpi('Reter até comprovar', brl(k.retido), p.despesas.filter(d => d.reter).length + ' despesas', 'k-bad')}
+    ${kpi('Liberável após correções', brl(k.liberavel), k.correcao ? 'inclui correção de ' + brl(k.correcao) : '', 'k-ok')}
+    ${k.comb_sem_comprovacao > 0 ? kpi('Combustível sem deslocamento comprovado', brl(k.comb_sem_comprovacao), '≈ ' + nf(k.litros_sem_comprovacao, 0) + ' L acima do teto +20%', 'k-pagar')
+      : kpi('Combustível × agenda das OS', 'sem excesso', (k.comb_fora_relatorio ? brl(k.comb_fora_relatorio) + ' exigidos pela agenda foram pagos fora deste relatório' : 'pago dentro do necessário'), 'k-ok')}
+    ${kpi('Cupons duplicados', k.duplicados, 'mesma NFC-e lançada 2 vezes', 'k-bad')}
+    ${kpi('Sem loja informada', k.sem_loja + ' de ' + p.despesas.length, 'despesas sem loja/OS', 'k-pagar')}
+    ${kpi('Veículos no relatório', k.veiculos, 'placas diferentes')}
+    ${kpi('Abastecimentos com hodômetro', k.hodometro + ' de ' + k.abastecimentos, 'consumo não validável', 'k-bad')}
+  </div>
+  <div class="card parecer" style="margin-top:14px"><h3>Parecer</h3>${p.parecer.map(t => `<p>${esc(t)}</p>`).join('')}</div>
+
+  <h2 id="achados">Achados · ${p.achados.length}</h2>
+  <div class="filtros"><div><label for="fAch">Risco</label><select id="fAch" onchange="filtraAch()"><option value="">Todos</option><option>Alto</option><option>Médio</option><option>Baixo</option></select></div></div>
+  <div class="pgrid" id="gAch">${p.achados.map(a => `<div class="card ach ${RC[a.risco]}" data-r="${a.risco}">
+     <div class="row">${chip(a.risco, RK[a.risco])}${a.valor ? `<span class="small mut">${brl(a.valor)}</span>` : ''}</div>
+     <h3>${esc(a.titulo)}</h3><div class="ref">${esc(a.ref)}</div><p>${esc(a.evidencia)}</p><p class="ac"><b>Ação:</b> ${esc(a.acao)}</p></div>`).join('')}</div>
+
+  <h2 id="contas">Para onde foi o dinheiro</h2>
+  <div class="g2"><div class="card"><h3>Por conta (como lançado)</h3>${bars(p.contas, 'conta', 'valor')}</div>
+  <div class="card"><h3>Por segmento (pelo conteúdo do cupom)</h3>${bars(p.segmentos, 'segmento', 'valor')}</div></div>
+
+  <h2 id="comb">Combustível · ${p.premissas.km_l} km/L, margem de ${nf(p.premissas.margem * 100, 0)}%</h2>
+  <div class="grid">
+    ${kpi('Gasolina (média)', 'R$ ' + nf(pr.Gasolina, 2), 'por litro')}${kpi('Diesel (média)', 'R$ ' + nf(pr.Diesel, 2), 'por litro')}
+    ${kpi('Etanol', 'R$ ' + nf(pr.Etanol, 2), 'por litro')}${kpi('Km comprovados', nf(co.km_doc, 0), 'os litros pagos rodariam ' + nf(co.km_cap, 0) + ' km')}
+  </div>
+  <div class="g2" style="margin-top:14px">
+    <div class="card"><h3>Pago × teto</h3>
+      <div class="hbar gp"><span>Pago (${nf(co.L_pago, 1)} L)</span><span class="bt"><i style="width:${Math.min(100, co.v_pago / Math.max(co.v_pago, co.R_teto) * 100)}%"></i></span><span class="bv">${brl(co.v_pago)}</span></div>
+      <div class="hbar gt"><span>Teto +20% (${nf(co.L_teto, 1)} L)</span><span class="bt"><i style="width:${Math.min(100, co.R_teto / Math.max(co.v_pago, co.R_teto) * 100)}%"></i></span><span class="bv">${brl(co.R_teto)}</span></div>
+      <div class="hbar gn"><span>Necessário sem margem</span><span class="bt"><i style="width:${Math.min(100, co.R_teto / 1.2 / Math.max(co.v_pago, co.R_teto) * 100)}%"></i></span><span class="bv">${brl(co.R_teto / 1.2)}</span></div>
+      <div class="small mut">${co.dif_R > 0 ? 'Sem hodômetro não dá para afirmar desvio; dá para afirmar que ' + brl(co.dif_R) + ' não têm deslocamento comprovado.' : 'Os deslocamentos comprovados (agenda das OS e horários dos cupons) pedem mais combustível do que este relatório pagou: não há excesso aqui, e parte do abastecimento da frota está em outro relatório ou cartão.'}</div></div>
+    <div class="card"><h3>Por veículo</h3>${p.combustivel.veiculos.map(v => `<div class="lin small" style="display:grid;grid-template-columns:90px 1fr;gap:8px;margin:6px 0"><b>${esc(v.placa)}</b><span class="mut">${esc(v.texto)}</span></div>`).join('')}</div>
+  </div>
+  <div class="card tw" style="margin-top:14px"><h3>Abastecimentos</h3><table><thead><tr><th>Data</th><th>Hora</th><th>Posto</th><th>Local</th><th>Tipo</th><th>Placa</th><th class="n">Litros</th><th class="n">R$/L</th><th class="n">Valor</th><th class="n">Km a ${p.premissas.km_l} km/L</th></tr></thead><tbody>
+    ${p.despesas.filter(d => d.litros).map(d => `<tr><td>${esc(d.data_doc.substring(0, 5))}</td><td>${esc(d.hora)}</td><td>${esc(d.fornecedor.split('(')[0])}</td><td>${esc(d.cidade.split('–')[0])}</td><td>${esc(d.combustivel)}</td><td>${esc(d.placa)}</td><td class="n">${nf(d.litros, 3)}</td><td class="n">${nf(d.preco_l, 2)}</td><td class="n">${brl(d.valor)}</td><td class="n">${nf(d.litros * p.premissas.km_l, 0)}</td></tr>`).join('')}</tbody></table></div>
+  <div class="card tw" style="margin-top:14px"><h3>Deslocamentos reconstruídos pelos cupons</h3><table><thead><tr><th>Data</th><th>Veículo</th><th>Trajeto</th><th>Evidência</th><th class="n">Km</th></tr></thead><tbody>
+    ${p.combustivel.deslocamentos.map(x => `<tr><td>${esc(x.data)}</td><td>${esc(x.veiculo)}</td><td>${esc(x.trajeto)}</td><td>${esc(x.evidencia)}</td><td class="n">${nf(x.km, 0)}</td></tr>`).join('')}</tbody></table></div>
+
+  <h2 id="frentes">Datas e lugares</h2>
+  <div class="card small mut" style="margin-bottom:14px">${esc(p.frentes.texto)}</div>
+  <div class="pgrid">${dias.map(d => `<div class="card"><h3>${esc(d)}</h3><ul class="tl">${p.frentes.dias[d].map(i => `<li><time>${esc(i.hora || '—')}</time><span class="mut">${esc(i.local)}</span><span>${esc(i.fornecedor)} · ${brl(i.valor)}${i.placa && !/^(—|não)/.test(i.placa) ? ' · ' + esc(i.placa) : ''}</span></li>`).join('')}</ul></div>`).join('')}</div>
+
+  <h2 id="lojas">Quanto custa ir do CD a cada loja</h2>
+  <div class="small mut" style="margin-bottom:10px">Ida e volta a partir do CD (${esc(p.premissas.cd)}), ${p.premissas.km_l} km/L, preços médios dos cupons. “Teto” já inclui ${nf(p.premissas.margem * 100, 0)}% de margem e serve como limite de aprovação por viagem. Distâncias: ${esc(p.premissas.fonte_rotas)}.</div>
+  <div class="grid">${p.regioes.map(g => kpi(esc(g.regiao), brl(g.teto_medio), g.lojas + ' lojas · ' + nf(g.km_medio, 0) + ' km ida+volta · máx. ' + brl(g.teto_max))).join('')}</div>
+  <div class="filtros" style="margin-top:14px"><div><label for="fReg">Região</label><select id="fReg" onchange="filtraLojas()"><option value="">Todas</option>${regs.map(x => `<option>${esc(x)}</option>`).join('')}</select></div>
+    <div><label for="fLoja">Buscar</label><input id="fLoja" placeholder="loja ou cidade" oninput="filtraLojas()"></div><span class="small mut" id="nLojas"></span></div>
+  <div class="card tw"><table><thead><tr><th>Loja</th><th>Cidade</th><th>Região</th><th class="n">Km ida</th><th class="n">Ida+volta</th><th class="n">Tempo ida</th><th class="n">Litros</th><th class="n">Gasolina</th><th class="n">Teto gasolina</th><th class="n">Teto diesel</th></tr></thead><tbody id="tLojas">
+    ${p.lojas.map(l => `<tr data-r="${esc(l.regiao)}"><td>${esc(l.loja)}</td><td>${esc(l.cidade)}</td><td>${esc(l.regiao)}</td><td class="n">${nf(l.km_ida)}</td><td class="n">${nf(l.km_rt)}</td><td class="n">${nf(l.h_ida * 60, 0)} min</td><td class="n">${nf(l.litros)}</td><td class="n">${brl(l.custo_g)}</td><td class="n"><b>${brl(l.teto_g)}</b></td><td class="n">${brl(l.teto_d)}</td></tr>`).join('')}</tbody></table></div>
+
+  <h2 id="rotas">Várias lojas na mesma viagem</h2>
+  <div class="pgrid">${p.rotas.map(t => `<div class="card"><h3>${esc(t.nome)}</h3><div class="small mut" style="margin:6px 0 10px">${esc(t.seq)}</div>
+    <div class="lin small" style="display:flex;justify-content:space-between"><span>Circuito</span><b>${nf(t.km, 0)} km · ${nf(t.horas, 1)} h de direção</b></div>
+    <div class="lin small" style="display:flex;justify-content:space-between"><span>Gasolina / teto +20%</span><b>${brl(t.custo)} / ${brl(t.teto)}</b></div>
+    <div class="lin small" style="display:flex;justify-content:space-between"><span>Uma viagem por loja</span><b>${brl(t.custo_ind)}</b></div>
+    <div class="lin small" style="display:flex;justify-content:space-between"><span>Economia agrupando</span><b style="color:#86efac">${brl(t.custo_ind - t.custo)}</b></div></div>`).join('')}</div>
+
+  <h2 id="medias">Médias apuradas</h2>
+  <div class="grid">${p.medias.map(m => `<div class="card med"><div class="small mut">${esc(m.grupo)}</div><div><b>${esc(m.indicador)}</b></div>
+    <div class="v">${m.valor == null ? 'sem dados' : (m.unidade.startsWith('R$') ? brl(m.valor) + (m.unidade.length > 2 ? m.unidade.slice(2) : '') : nf(m.valor, m.unidade === 'L' ? 1 : 2) + ' ' + esc(m.unidade))}</div><div class="small mut">${esc(m.base)}</div></div>`).join('')}</div>
+
+  <h2 id="plano">O que fazer para reduzir</h2>
+  <div class="card" style="display:grid;gap:10px">${p.plano.map(x => `<div class="plan"><span class="q">${esc(x.prazo)}</span><span>${esc(x.acao)}</span></div>`).join('')}</div>
+
+  <h2 id="despesas">As ${p.despesas.length} despesas, uma a uma</h2>
+  <div class="filtros">
+    <div><label for="fRk">Risco</label><select id="fRk" onchange="filtraDesp()"><option value="">Todos</option><option>Alto</option><option>Médio</option><option>Baixo</option></select></div>
+    <div><label for="fCt">Conta</label><select id="fCt" onchange="filtraDesp()"><option value="">Todas</option>${contasD.map(c => `<option>${esc(c)}</option>`).join('')}</select></div>
+    <div><label for="fRt">Retenção</label><select id="fRt" onchange="filtraDesp()"><option value="">Todas</option><option value="s">Só retidas</option></select></div>
+    <div><label for="fBq">Buscar</label><input id="fBq" placeholder="fornecedor, placa, item…" oninput="filtraDesp()"></div><span class="small mut" id="nDesp"></span></div>
+  <div class="pgrid" id="gDesp">${p.despesas.map(d => `<div class="card dsp ach ${RC[d.risco]}" data-r="${d.risco}" data-c="${esc(d.conta)}" data-t="${d.reter ? 's' : ''}">
+    <div class="hd"><div><div class="small mut">#${d.id} · ${esc(d.conta)}</div><b>${esc(d.fornecedor)}</b></div><div style="text-align:right"><div class="val">${brl(d.valor)}</div>${d.valor_cupom != null && d.valor_cupom !== d.valor ? `<div class="small" style="color:#fca5a5">cupom ${brl(d.valor_cupom)}</div>` : ''}</div></div>
+    <div class="row">${chip(d.risco, RK[d.risco])}${d.reter ? chip('Reter', 'r-alto') : ''}</div>
+    <dl><dt>Documento</dt><dd>${esc(d.data_doc)} ${esc(d.hora_doc)} · ${esc(d.documento)}</dd><dt>Lançada em</dt><dd>${esc(d.data_lanc)}</dd><dt>Local</dt><dd>${esc(d.cidade)}</dd>
+    <dt>Itens</dt><dd>${esc(d.itens)}</dd><dt>Pagamento</dt><dd>${esc(d.pagamento)}</dd>${d.placa && d.placa !== '—' ? `<dt>Placa</dt><dd>${esc(d.placa)}</dd>` : ''}<dt>Loja</dt><dd>${esc(d.loja)}</dd>${d.obs ? `<dt>Observação</dt><dd>${esc(d.obs)}</dd>` : ''}</dl>
+    <div class="achd">${esc(d.achado)}${d.reter ? `<br><b style="color:#fca5a5">Retido:</b> ${esc(d.reter)}` : ''}<br><b>Ação:</b> ${esc(d.acao)}</div></div>`).join('')}</div>`;
+  filtraLojas(); filtraDesp();
+}
+function filtraAch() { const v = $('fAch').value; document.querySelectorAll('#gAch > div').forEach(e => e.hidden = !!v && e.dataset.r !== v); }
+function filtraLojas() { const r = $('fReg').value, q = $('fLoja').value.trim().toLowerCase(); let n = 0;
+  document.querySelectorAll('#tLojas tr').forEach(t => { const ok = (!r || t.dataset.r === r) && (!q || t.textContent.toLowerCase().includes(q)); t.hidden = !ok; if (ok) n++; }); $('nLojas').textContent = n + ' lojas'; }
+function filtraDesp() { const r = $('fRk').value, c = $('fCt').value, t = $('fRt').value, q = $('fBq').value.trim().toLowerCase(); let n = 0, s = 0;
+  document.querySelectorAll('#gDesp > div').forEach(e => { const ok = (!r || e.dataset.r === r) && (!c || e.dataset.c === c) && (!t || e.dataset.t === t) && (!q || e.textContent.toLowerCase().includes(q));
+    e.hidden = !ok; if (ok) { n++; s += Number((e.querySelector('.val').textContent.replace(/[^\d,]/g, '').replace(',', '.')) || 0); } });
+  $('nDesp').textContent = n + ' despesas · ' + brl(s); }
+// ===================== ORDENS DE SERVIÇO =====================
+let OSD = null;
+function aba(t) { ['tDesp', 'tOS'].forEach(x => $(x).classList.toggle('hidden', x !== t)); document.querySelectorAll('#abas button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  try { history.replaceState(null, '', t === 'tOS' ? '#os' : (ATUAL ? '#r' + ATUAL.relatorio : '#')); } catch (e) {} }
+async function carregarOS() {
+  const {data, error} = await sb.from('aud_os_carteira').select('snapshot,fonte,abertas,fechadas_base,custo_previsto,payload,importado_em').order('snapshot', {ascending: false}).limit(1);
+  if (error) { $('tOS').innerHTML = `<div class="card vazio" style="margin-top:16px">Não foi possível carregar as OS: ${esc(error.message)}</div>`; return; }
+  if (!data || !data.length) { $('tOS').innerHTML = `<div class="card vazio" style="margin-top:16px">Nenhuma carteira de OS importada. Use <b>Importar arquivo</b> e escolha o .json da carteira de OS.</div>`; return; }
+  OSD = data[0]; renderOS(OSD.payload, OSD.snapshot);
+  if (location.hash === '#os') aba('tOS');
+}
+async function importarOS(p) {
+  const r = p.resumo;
+  const linha = {snapshot: p.snapshot, fonte: r.fonte, abertas: r.total, fechadas_base: (r.fechadas || {}).total || 0, custo_previsto: r.custo.total, payload: p};
+  const {error} = await sb.from('aud_os_carteira').upsert(linha, {onConflict: 'snapshot'});
+  if (error) return toast('Não foi possível importar a carteira de OS: ' + error.message, 7000);
+  toast('Carteira de OS de ' + dBR(p.snapshot) + ' importada.'); await carregarOS(); aba('tOS');
+}
+const SIT = {bate: 'r-baixo', 'bate em parte': 'r-medio', confirmar: 'r-medio', 'atenção': 'r-medio', divergente: 'r-alto', 'sem OS': 'r-alto'};
+const PRI = {ALTA: 'r-alto', 'MÉDIA': 'r-medio', BAIXA: 'r-baixo'};
+function tabela(cab, linhas, num = []) {
+  return `<div class="card tw"><table><thead><tr>${cab.map((c, i) => `<th${num.includes(i) ? ' class="n"' : ''}>${c}</th>`).join('')}</tr></thead><tbody>${linhas.map(l => `<tr>${l.map((c, i) => `<td${num.includes(i) ? ' class="n"' : ''}>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function barsN(obj, fmt = v => v, ordenar = true) { const it = ordenar ? Object.entries(obj).sort((a, b) => b[1] - a[1]) : Object.entries(obj); const mx = Math.max(...it.map(x => x[1])) || 1;
+  return it.map(([k, v]) => `<div class="hbar"><span>${esc(k)}</span><span class="bt"><i style="width:${Math.max(v / mx * 100, .6)}%"></i></span><span class="bv">${fmt(v)}</span></div>`).join(''); }
+function renderOS(p, snap) {
+  const r = p.resumo, c = r.custo, al = r.alertas, fe = r.fechadas, L = p.os;
+  const mais60 = L.filter(x => x.dias > 60).length;
+  const ordemFaixa = ['0–15 dias', '16–30 dias', '31–60 dias', '61–90 dias', 'mais de 90 dias'];
+  const faixa = Object.fromEntries(ordemFaixa.filter(k => r.faixa[k]).map(k => [k, r.faixa[k]]));
+  const servs = [...new Set(L.map(x => x.servico))].sort(), ofs = [...new Set(L.map(x => x.oficina))].sort(), als = Object.keys(al).sort();
+  const secoes = [['osResumo', 'Resumo'], ['osCusto', 'Custo previsto'], ['osCruz', 'Despesas × OS'], ['osPrest', 'Prestadores'], ['osExec', 'Equipe'], ['osBase', 'Base das fechadas'],
+    ['osPreco', 'Preços'], ['osRuim', 'Fechadas sem resolver'], ['osAgenda', 'Agenda'], ['osRetr', 'Retrabalho'], ['osLojas', 'Lojas'], ['osLista', 'OS abertas']];
+  $('tOS').innerHTML = `
+  <h2 id="osResumo">Carteira de OS · fotografia de ${dBR(snap)}</h2>
+  <div class="small mut" style="margin-bottom:10px">${esc(r.fonte)} · base de comparação: ${fe.total} OS fechadas (${esc(fe.periodo)})</div>
+  <nav class="nav">${secoes.map(([id, t]) => `<a href="#${id}" onclick="event.preventDefault();$('${id}').scrollIntoView({behavior:'smooth'})">${t}</a>`).join('')}</nav>
+  <div class="grid">
+    ${kpi('OS em aberto', r.total, (r.status.Pendente || 0) + ' pendentes · ' + (r.status.Aberta || 0) + ' abertas')}
+    ${kpi('Idade mediana', nf(r.idade_mediana, 0) + ' dias', mais60 + ' OS com mais de 60 dias', mais60 ? 'k-pagar' : '')}
+    ${kpi('Prioridade alta parada', al['Prioridade alta parada há mais de 15 dias'] || 0, 'há mais de 15 dias', 'k-bad')}
+    ${kpi('Custo previsto', brl(c.total), 'deslocamento + material + prestador', 'k-orc')}
+    ${kpi('Mão de obra prevista', nf(c.horas, 0) + ' h', 'mediana das OS fechadas por serviço')}
+    ${kpi('OS sem preço na base', c.sem_preco, 'precisam de orçamento', 'k-pagar')}
+    ${kpi('Sem responsável', r.sem_responsavel, 'de ' + r.total + ' OS', 'k-pagar')}
+    ${kpi('Atendidas e não baixadas', al['Atendida e não baixada'] || 0, 'seguem abertas no sistema', 'k-bad')}
+  </div>
+  <div class="g2" style="margin-top:14px">
+    <div class="card"><h3>Por oficina</h3>${barsN(r.oficina)}</div>
+    <div class="card"><h3>Por idade</h3>${barsN(faixa, v => v, false)}</div>
+    <div class="card"><h3>Por tipo de serviço</h3>${barsN(r.servico)}</div>
+    <div class="card"><h3>Onde estão paradas (pendência atual)</h3>${barsN(Object.fromEntries(r.pendencia))}</div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>Alertas de controle</h3>${barsN(al)}</div>
+
+  <h2 id="osCusto">Quanto vamos gastar com as OS abertas</h2>
+  <div class="grid">
+    ${kpi('Deslocamento', brl(c.desloc), 'teto +20% por visita, rateado pelas OS da loja')}${kpi('Material', brl(c.material), 'preços das OS fechadas e dos cupons')}
+    ${kpi('Prestadores', brl(c.prestador), 'mediana dos serviços externos com orçamento')}${kpi('Estacionamento', brl(c.estac), 'lojas em shopping')}
+  </div>
+  <div class="card small mut" style="margin-top:14px">Como foi calculado: cada visita à loja sai do CD (ou de Natal, para o RN), a 7 km/L e com o teto de +20% da tabela de rotas, e é dividida entre as OS internas daquela loja. Material usa o preço mediano das OS fechadas (lâmpadas, plafons, spots, tinta, cadeira) e o preço pago nos cupons do relatório de despesas (assento, fechadura, porcelanato, kit de pintura, fluido de limpeza do ar, BRT). OS externas usam a mediana dos orçamentos aprovados do mesmo tipo de serviço. A mão de obra está em horas porque não há custo por hora cadastrado. <b>${c.sem_preco} OS não têm preço na base</b> e precisam de orçamento. Viagens com pernoite: ${c.pernoite.map(esc).join(', ') || '—'} (sem valor de hotel e refeição: não há lançamento desses custos nas OS).</div>
+  <div class="tw card" style="margin-top:14px"><h3>Preços usados</h3><table><thead><tr><th>Item</th><th class="n">Preço</th><th>Fonte</th></tr></thead><tbody>${r.precos_base.map(x => `<tr><td>${esc(x.chave)}</td><td class="n">${brl(x.preco)}</td><td>${esc(x.fonte)}</td></tr>`).join('')}</tbody></table></div>
+
+  <h2 id="osCruz">Relatório de despesas × OS (as datas batem?)</h2>
+  <div class="pgrid">${r.cruzamento.map(x => `<div class="card ach ${SIT[x.situacao] === 'r-alto' ? 'alto' : SIT[x.situacao] === 'r-medio' ? 'medio' : 'baixo'}"><div class="row">${chip(x.situacao, SIT[x.situacao] || 'st')}<span class="small mut">${esc(x.os)}</span></div><h3>${esc(x.despesa)}</h3><p>${esc(x.texto)}</p></div>`).join('')}</div>
+
+  <h2 id="osPrest">Prestadores externos</h2>
+  <div class="pgrid">${r.prestadores.map(x => `<div class="card dsp"><b>${esc(x.nome)}</b>
+    <dl><dt>OS fechadas</dt><dd>${x.fechadas}</dd><dt>OS abertas</dt><dd>${x.abertas}</dd><dt>Com valor</dt><dd>${x.com_valor} (${brl(x.valor)})</dd>
+    <dt>Sem orçamento</dt><dd>${x.sem_orcamento} OS</dd><dt>Não resolvido</dt><dd>${x.nao_resolvido} OS fechadas com reclamação</dd><dt>Lojas</dt><dd>${x.lojas.length}</dd></dl>
+    ${x.valor === 0 && x.fechadas + x.abertas > 3 ? '<div class="achd" style="color:#fca5a5">Nenhum valor registrado nas OS: o pagamento acontece fora do sistema e não dá para conferir preço por serviço.</div>' : ''}</div>`).join('')}</div>
+
+  <h2 id="osExec">Quem executa (OS fechadas)</h2>
+  ${tabela(['Executor', 'Função', 'Cadastro', 'Horas', 'OS', 'Lojas'], r.executores.map(e => [esc(e.nome), esc(e.funcao || ''), e.cadastro === 'sim' ? chip('na equipe', 'r-baixo') : chip(e.cadastro === 'NÃO' ? 'fora do cadastro' : 'sem matrícula', 'r-alto'), nf(e.horas, 1), e.os, e.lojas]), [3, 4, 5])}
+
+  <h2 id="osBase">Base das OS fechadas por tipo de serviço</h2>
+  ${tabela(['Serviço', 'OS', 'Prazo mediano', 'Horas medianas', '% com material', 'Material mediano', '% externo', 'Prestador mediano'],
+    Object.entries(r.base_tipo).sort((a, b) => b[1].n - a[1].n).map(([k, v]) => [esc(k), v.n, nf(v.prazo_mediano, 1) + ' d', v.horas_medianas == null ? '—' : nf(v.horas_medianas, 1) + ' h', v.pct_material + '%', v.material_mediano == null ? '—' : brl(v.material_mediano), v.pct_externo + '%', v.prestador_mediano == null ? '—' : brl(v.prestador_mediano)]), [1, 2, 3, 4, 5, 6, 7])}
+  <div class="card small mut" style="margin-top:10px">Só ${fe.os_com_material} das ${fe.total} OS fechadas têm material lançado (${brl(fe.material_lancado)}), quase tudo lâmpada. Das ${fe.os_externas} OS externas, ${fe.externas_com_valor} têm valor (${brl(fe.prestador_lancado)}). Nenhuma OS tem hotel, refeição, combustível ou estacionamento: esses custos só existem no reembolso.</div>
+
+  <h2 id="osPreco">Preço do mesmo item varia</h2>
+  ${tabela(['Item', 'Compras', 'Menor', 'Maior', 'Mediana', 'Gasto', 'Se comprasse pelo menor'], r.precos_mt.map(x => [esc(x.item), x.n, brl(x.min), brl(x.max), brl(x.mediana), brl(x.gasto), x.economia_no_menor > 0 ? `<b style="color:#86efac">${brl(x.economia_no_menor)}</b>` : '—']), [1, 2, 3, 4, 5, 6])}
+
+  <h2 id="osRuim">OS fechadas sem resolver (${r.nao_resolvidas.length})</h2>
+  <div class="pgrid">${r.nao_resolvidas.map(x => `<div class="card ach alto"><div class="row">${chip(x.avaliacao || 'sem avaliação', 'r-medio')}<span class="small mut">OS ${esc(x.os)} · fechada ${esc(x.fechada)}</span></div><b>${esc(x.loja)}</b><div class="ref">${esc(x.servico)}${x.prestador ? ' · ' + esc(x.prestador) : ''}</div><p>“…${esc(x.texto)}”</p></div>`).join('')}</div>
+
+  <h2 id="osAgenda">Agenda da equipe: o que não fecha</h2>
+  ${tabela(['Executor', 'Saiu da OS', 'Loja', 'às', 'Entrou na OS', 'Loja', 'às', 'Intervalo', 'Viagem mínima'], r.imposs.map(x => [esc(x.pessoa), x.os_a, x.loja_a, x.fim_a, x.os_b, x.loja_b, x.ini_b, nf(x.intervalo_h, 2) + ' h', nf(x.viagem_h, 2) + ' h']), [7, 8])}
+  <div class="small mut" style="margin:8px 0 14px">Intervalo entre duas OS menor que 70% do tempo de viagem entre as lojas. Ou o horário foi lançado depois, em lote, ou a pessoa não estava lá.</div>
+  ${r.feriado.length ? tabela(['Executor', 'OS', 'Loja', 'Data', 'Feriado', 'Horas'], r.feriado.map(x => [esc(x.pessoa), x.os, x.loja, x.data, esc(x.feriado), nf(x.horas, 1)]), [5]) : ''}
+
+  <h2 id="osRetr">Retrabalho e OS duplicadas</h2>
+  ${tabela(['OS aberta', 'Aberta em', 'Loja', 'Serviço', 'Fechada parecida', 'Fechada em', 'Dias depois', 'Pedido'], r.retrabalho.map(x => [x.aberta, x.aberta_em, x.loja, esc(x.servico), x.fechada, x.fechada_em, x.dias, esc(x.texto)]), [6])}
+  <div class="small mut" style="margin-top:8px">Duplicadas entre as abertas: ${r.duplicadas.map(d => d[0] + ' = ' + d[1]).join(' · ') || '—'}</div>
+
+  <h2 id="osLojas">Lojas</h2>
+  <div class="pgrid">${r.lojas.slice(0, 60).map(l => `<div class="card rel" onclick="$('fOLoja').value='${esc(l.cod)}';filtraOS();$('osLista').scrollIntoView({behavior:'smooth'})">
+    <div class="row" style="justify-content:space-between"><b>${esc(l.loja)}</b>${l.alta ? chip(l.alta + ' alta', 'r-alto') : ''}</div><div class="small mut">${esc(l.cidade)} · base ${esc(l.base)}</div>
+    <div class="lin"><span>OS abertas</span><b>${l.os}</b></div><div class="lin"><span>Mais de 60 dias</span><b>${l.mais60}</b></div>
+    <div class="lin"><span>Idade média</span><b>${nf(l.idade_media, 0)} dias</b></div><div class="lin"><span>Custo previsto</span><b>${brl(l.custo)}</b></div></div>`).join('')}</div>
+
+  <h2 id="osLista">OS abertas, uma a uma</h2>
+  <div class="filtros">
+    <div><label for="fOOf">Oficina</label><select id="fOOf" onchange="filtraOS()"><option value="">Todas</option>${ofs.map(x => `<option>${esc(x)}</option>`).join('')}</select></div>
+    <div><label for="fOSv">Serviço</label><select id="fOSv" onchange="filtraOS()"><option value="">Todos</option>${servs.map(x => `<option>${esc(x)}</option>`).join('')}</select></div>
+    <div><label for="fOPr">Prioridade</label><select id="fOPr" onchange="filtraOS()"><option value="">Todas</option><option>ALTA</option><option>MÉDIA</option><option>BAIXA</option></select></div>
+    <div><label for="fOAl">Alerta</label><select id="fOAl" onchange="filtraOS()"><option value="">Todos</option>${als.map(x => `<option>${esc(x)}</option>`).join('')}</select></div>
+    <div><label for="fOLoja">Loja ou busca</label><input id="fOLoja" placeholder="935, Natal, porta…" oninput="filtraOS()"></div><span class="small mut" id="nOS"></span></div>
+  <div class="pgrid" id="gOS">${L.map(x => `<div class="card dsp ach ${x.prioridade === 'ALTA' ? 'alto' : x.alertas.length ? 'medio' : 'baixo'}" data-of="${esc(x.oficina)}" data-sv="${esc(x.servico)}" data-pr="${esc(x.prioridade)}" data-al="${esc(x.alertas.join('|'))}" data-lj="${esc(x.loja_cod)}" data-c="${x.custo_previsto}">
+    <div class="hd"><div><div class="small mut">OS ${esc(x.os)} · ${esc(x.oficina)} · ${esc(x.tipo_os)}</div><b>${esc(x.loja)}</b></div><div style="text-align:right"><div class="val">${brl(x.custo_previsto)}</div><div class="small mut">${x.dias} dias</div></div></div>
+    <div class="row">${chip(x.prioridade, PRI[x.prioridade] || 'st')}${chip(x.servico, 'st')}${x.externa ? chip('externa', 'r-medio') : ''}</div>
+    <div class="achd">${esc(x.reclamacao || '(sem descrição)')}</div>
+    <dl><dt>Aberta em</dt><dd>${esc(x.aberta_em)}</dd><dt>Pendência</dt><dd>${esc(x.pendencia)}</dd>${x.prestador ? `<dt>Prestador</dt><dd>${esc(x.prestador)}</dd>` : ''}
+    <dt>Custo</dt><dd>deslocamento ${brl(x.desloc)} · material ${brl(x.material)}${x.prestador_estimado ? ' · prestador ' + brl(x.prestador_estimado) : ''}${x.estac ? ' · estac. ' + brl(x.estac) : ''}${x.horas_previstas ? ' · ' + nf(x.horas_previstas, 1) + ' h de mão de obra' : ''}</dd>
+    ${x.material_itens && x.material_itens.length ? `<dt>Material</dt><dd>${x.material_itens.map(i => nf(i.qtd, 0) + ' × ' + esc(i.item) + ' a ' + brl(i.preco)).join('; ')}</dd>` : ''}
+    <dt>Confiança</dt><dd>${esc(x.confianca)}</dd></dl>
+    ${x.alertas.length ? `<div class="row">${x.alertas.map(a => chip(a, 'r-alto')).join('')}</div>` : ''}</div>`).join('')}</div>`;
+  filtraOS();
+}
+function filtraOS() {
+  const of = $('fOOf').value, sv = $('fOSv').value, pr = $('fOPr').value, al = $('fOAl').value, q = $('fOLoja').value.trim().toLowerCase(); let n = 0, s = 0;
+  document.querySelectorAll('#gOS > div').forEach(e => { const ok = (!of || e.dataset.of === of) && (!sv || e.dataset.sv === sv) && (!pr || e.dataset.pr === pr) && (!al || e.dataset.al.split('|').includes(al)) && (!q || e.dataset.lj === q || e.textContent.toLowerCase().includes(q));
+    e.hidden = !ok; if (ok) { n++; s += Number(e.dataset.c) || 0; } });
+  $('nOS').textContent = n + ' OS · ' + brl(s);
+}
+iniciar();
+</script>
+</body>
+</html>
