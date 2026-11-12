@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Segurança Patrimonial e CFTV</title>
+<meta name="theme-color" content="#0b3a82">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="leitor.js?v=20261112"></script>
+<link rel="stylesheet" href="estilo.css?v=20261112">
+</head>
+<body>
+
+<div id="vLogin" class="hidden login">
+  <div class="marca">📹 Segurança Patrimonial e CFTV</div>
+  <div class="sub">Entre com o seu usuário do Portal Esposende</div>
+  <div class="card">
+    <label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label for="lSenha">Senha</label><input id="lSenha" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')entrar()">
+    <div id="lErr" class="err"></div>
+    <button class="btn pri largo" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vSem" class="hidden card vazio" style="max-width:560px;margin:40px auto">
+  Este módulo é restrito a Presidência, Diretoria, Segurança e usuários autorizados.<br>Peça liberação ao administrador do Portal.
+  <div style="margin-top:12px"><button class="btn" onclick="sair()">Sair</button></div>
+</div>
+
+<div id="vApp" class="hidden">
+  <header class="topo">
+    <div>
+      <h1>📹 Segurança Patrimonial e CFTV</h1>
+      <div class="sub" id="quem"></div>
+    </div>
+    <div class="acoes">
+      <button class="btn" onclick="recarregar()">Atualizar</button>
+      <button class="btn" onclick="sair()">Sair</button>
+    </div>
+  </header>
+
+  <nav class="abas" id="abas">
+    <button data-a="painel" class="on">Painel</button>
+    <button data-a="lojas">Por loja</button>
+    <button data-a="importar" data-ed>Importação</button>
+    <button data-a="conferir">Conferência <span class="cont" id="cConf"></span></button>
+    <button data-a="inventario">Inventário</button>
+    <button data-a="cobertura">Cobertura</button>
+    <button data-a="manutencao">Manutenção e custos evitáveis</button>
+    <button data-a="auditoria">Auditoria <span class="cont" id="cAud"></span></button>
+    <button data-a="plano">Plano e orçamento</button>
+    <button data-a="relatorios">Relatórios</button>
+    <button data-a="acessos" data-admin>Acessos</button>
+  </nav>
+
+  <section class="filtros card" id="filtros">
+    <div><label for="fDe">De</label><input type="date" id="fDe" value="2026-01-01"></div>
+    <div><label for="fAte">Até</label><input type="date" id="fAte" value="2026-12-31"></div>
+    <div><label for="fLoja">Loja</label><select id="fLoja"><option value="">Todas</option></select></div>
+    <div><label for="fForn">Fornecedor</label><select id="fForn"><option value="">Todos</option></select></div>
+    <div><label for="fCat">Categoria</label><select id="fCat"><option value="">Todas</option></select></div>
+    <div class="fbtn"><button class="btn pri" onclick="aplicarFiltros()">Aplicar filtros</button><button class="btn" onclick="limparFiltros()">Limpar</button></div>
+  </section>
+
+  <main id="conteudo"></main>
+</div>
+
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="mTit">
+  <div class="mcaixa">
+    <div class="mtopo"><h2 id="mTit"></h2><div><button class="btn" id="mXls">Excel</button><button class="btn" onclick="fecharModal()">Fechar</button></div></div>
+    <div id="mCorpo"></div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+
+<script src="app.js?v=20261112"></script>
+</body>
+</html>

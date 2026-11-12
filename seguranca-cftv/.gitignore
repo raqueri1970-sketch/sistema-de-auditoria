@@ -1,0 +1,10 @@
+# Dados de auditoria (notas, planilhas, leituras) nunca vão para o repositório público: ficam no Supabase.
+*.json
+*.xlsx
+*.csv
+*.pdf
+*.zip
+*.xml
+*.png
+*.jpg
+*.jpeg
