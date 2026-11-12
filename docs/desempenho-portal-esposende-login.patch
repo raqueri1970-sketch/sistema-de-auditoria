@@ -1,0 +1,542 @@
+From f92b54349fd369fa4bd1cc5089900d4cfe82f24d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 00:24:04 +0000
+Subject: [PATCH] =?UTF-8?q?Portal:=20abertura=20at=C3=A9=209x=20mais=20r?=
+ =?UTF-8?q?=C3=A1pida=20e=20menos=20CPU=20com=20o=20Portal=20aberto?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Auditoria de desempenho (12/11/2026). Medido em Chromium com o arquivo do
+Portal de 12,8 MB e conexão de 20 Mbit/s:
+- Reabrir/recarregar o Portal: 7,5 s -> 0,8 s
+- Primeiro login: 7,6 s -> 6,0 s
+- CPU com o Portal parado na Visão Geral: 7,3% -> 1,8%
+
+Abertura (index.html):
+- Cópia local do arquivo do Portal (IndexedDB) com a versão do objeto no
+  Storage (eTag + data + tamanho). Só baixa de novo quando o arquivo muda.
+  Sem a consulta de versão, baixa como antes. Sair/acesso negado apagam.
+- As ~20 injeções de patches viraram uma só (cada uma copiava e convertia
+  os 13 MB inteiros: ~2 s de CPU).
+- Central de Compras buscada em paralelo com o arquivo ('no-cache' revalida).
+- Bug: ORC_UNIFIED_PATCH e __ORC_UNIFIED_HTML eram inseridos no primeiro
+  </body>, que ficava dentro do texto da Central: script quebrado, patch
+  que nunca rodava e texto solto ("\n";) na página. Deixam de ser
+  injetados; a Central continua abrindo pela ponte externa, como hoje.
+
+Vigias periódicos (patches):
+- Crediário e Auditoria de Despesas procuravam o card da Visão Geral dentro
+  de todos os módulos abertos (varrendo o texto de todos os elementos a
+  cada 1,2 s). Agora só no documento do Portal.
+- Protocolo de Curso: busca XPath só em documentos visíveis.
+- Almoxarifado (shell, painel, consumo por item): varreduras pesadas só com
+  o módulo na tela; não recalcula mais os cards antigos que o painel novo
+  esconde; aviso da regra de mínimo não se repete a cada segundo.
+- Observadores de DOM (Faltas e Atrasos, Consumo por Item, Almoxarifado)
+  agrupados em vez de rodar a cada mudança.
+- Todas as varreduras param com a aba do navegador em segundo plano.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q1bK7vdcWAYrmnsz6RcBx6
+---
+ almox-consumo-item-patch.js    |   9 +-
+ almox-consumo-loja-patch.js    |   2 +-
+ almox-painel-patch.js          |   4 +
+ atualizacoes-patch.js          |   2 +-
+ auditoria-despesas-patch.js    |   5 +-
+ compras-diretoria-patch.js     |   1 +
+ crediario-patch.js             |   5 +-
+ estado-modulos-patch.js        |   2 +-
+ faltas-atrasos-patch.js        |   7 +-
+ gastos-gerais-patch.js         |   2 +-
+ index.html                     | 162 ++++++++++++++++++++++++---------
+ obras-pagamentos-patch.js      |   2 +-
+ protocolo-graficos.js          |   5 +
+ relatorio-geral-obras-patch.js |   2 +-
+ rl-painel-patch.js             |   2 +-
+ 15 files changed, 159 insertions(+), 53 deletions(-)
+
+diff --git a/almox-consumo-item-patch.js b/almox-consumo-item-patch.js
+index 3c8cc50..bbe641d 100644
+--- a/almox-consumo-item-patch.js
++++ b/almox-consumo-item-patch.js
+@@ -458,6 +458,8 @@
+       if(r&&r.__custoUnitSeta!=null){var c=Object.assign({},r);c['Custo Unitário']=c.__custoUnitSeta;delete c.__custoUnitSeta;return c;}return r;});
+     return p;
+   }
++  // Desempenho: o módulo só está na tela com o iframe visível e a aba do navegador ativa.
++  function almNaTela(m){try{return !document.hidden&&m.ifr.getClientRects().length>0;}catch(e){return false;}}
+   function instalarCustoReal(){
+     var m=moduloAlm();if(!m)return;var w=m.w;
+     if(typeof w.calcularEAtualizarPainel!=='function'||typeof w.montarPayloadAtual!=='function')return;
+@@ -471,6 +473,9 @@
+       });
+     }
+     // Dados novos (upload ou nuvem) chegam com o custo do Seta: ajusta e redesenha.
++    // Percorre todas as linhas de consumo/estoque: só com o módulo na tela (as funções de desenho
++    // já chamam ajustarCustos antes de desenhar, então nada fica com o custo errado).
++    if(!almNaTela(m))return;
+     if(ajustarCustos(w)){try{w.aplicarFiltros();}catch(e){try{w.calcularEAtualizarPainel();}catch(e2){}}}
+   }
+   setInterval(instalarCustoReal,1500);
+@@ -539,7 +544,9 @@
+   window.__limparBytesCSV=limparBytesCSV;
+ 
+   setInterval(instalarBotao,1500);
+-  new MutationObserver(function(){instalarBotao();}).observe(document.documentElement,{childList:true,subtree:true});
++  // Desempenho: agrupa as mudanças do Portal (antes rodava a cada mudança, sem intervalo).
++  var botaoAgendado=null;
++  new MutationObserver(function(){if(!botaoAgendado)botaoAgendado=setTimeout(function(){botaoAgendado=null;instalarBotao();},400);}).observe(document.documentElement,{childList:true,subtree:true});
+   window.abrirConsumoPorItem=abrir;
+   window.__ESPOSENDE_LOGO_B64=LOGO_B64; // usado pelo Consumo Loja (almox-consumo-loja-patch.js)
+ })();
+diff --git a/almox-consumo-loja-patch.js b/almox-consumo-loja-patch.js
+index bae3189..76869fb 100644
+--- a/almox-consumo-loja-patch.js
++++ b/almox-consumo-loja-patch.js
+@@ -1323,7 +1323,7 @@
+     b.onclick=function(e){e.preventDefault();abrir();};
+     ref.parentElement.insertBefore(b,ref.nextSibling);
+   }
+-  function varrer(){docs(window,[],0).forEach(function(d){try{menu(d);}catch(e){}});try{botaoModulo();}catch(e){}}
++  function varrer(){if(document.hidden)return;docs(window,[],0).forEach(function(d){try{menu(d);}catch(e){}});try{botaoModulo();}catch(e){}}
+   varrer();setInterval(varrer,1500);
+   window.abrirConsumoLoja=abrir;
+   window.__consumoLoja={modelo:function(){return S.carregado?tudo():null;},interpretar:interpretar,mesDe:mesDe,codLoja:codLoja,num:num};
+diff --git a/almox-painel-patch.js b/almox-painel-patch.js
+index 743d723..95f468b 100644
+--- a/almox-painel-patch.js
++++ b/almox-painel-patch.js
+@@ -558,6 +558,10 @@
+       ['aplicarFiltros','calcularEAtualizarPainel','atualizarVisaoGeral'].forEach(function(nome){var f=w[nome];if(typeof f!=='function')return;
+         w[nome]=function(){corrigirRegionais(w);var r=f.apply(this,arguments);setTimeout(instalar,30);return r;};});
+     }
++    // Desempenho: daqui para baixo (achar os cards, somar as bases, redesenhar) só com o módulo na tela.
++    // Os ganchos acima continuam instalados; ao voltar para o Almoxarifado o painel se atualiza em até 1,5 s.
++    var ifrAlm=document.getElementById('ifr-alm');
++    if(document.hidden||!ifrAlm||!ifrAlm.getClientRects().length)return;
+     if(!doc.getElementById('apn-css')){var st=doc.createElement('style');st.id='apn-css';st.textContent=CSS+'.apn-oculto{display:none!important}';doc.head.appendChild(st);}
+     var cards=doc.querySelector('[data-apn-cards]')||menorCom(doc,['TOTAL GERAL','ITENS CRITICOS','FORTPEL']);
+     if(!cards)return;
+diff --git a/atualizacoes-patch.js b/atualizacoes-patch.js
+index d0278d8..54e0112 100644
+--- a/atualizacoes-patch.js
++++ b/atualizacoes-patch.js
+@@ -133,7 +133,7 @@
+   }
+ 
+   // Mantém os selos ao trocar de tela (algumas telas são redesenhadas).
+-  setInterval(function(){Object.keys(estado).forEach(function(pid){
++  setInterval(function(){if(document.hidden)return;Object.keys(estado).forEach(function(pid){
+     if(!document.getElementById('atz-'+pid))pintarModulo(pid);
+     var os=document.getElementById('os-'+pid);if(os&&!(os.closest('.oc')||os.parentNode).querySelector('.atz-card'))pintarCard(pid);
+   });},4000);
+diff --git a/auditoria-despesas-patch.js b/auditoria-despesas-patch.js
+index 5f85cf2..3068bcf 100644
+--- a/auditoria-despesas-patch.js
++++ b/auditoria-despesas-patch.js
+@@ -100,6 +100,9 @@
+     depois.parentNode.insertBefore(card,depois.nextSibling);
+   }
+ 
+-  function varrer(){docs(window,[],0).forEach(function(d){try{menu(d);cardPrincipal(d)}catch(e){console.warn('[Portal] Auditoria de Despesas:',e)}})}
++  // Desempenho (12/11/2026): o card fica na Visão Geral do Portal (este documento). Antes era procurado
++  // também dentro de cada módulo aberto, onde nunca existe — varria o texto de todos os elementos de
++  // todos os módulos a cada 1,2 s.
++  function varrer(){if(document.hidden)return;docs(window,[],0).forEach(function(d){try{menu(d);if(d===document)cardPrincipal(d)}catch(e){console.warn('[Portal] Auditoria de Despesas:',e)}})}
+   varrer();setInterval(varrer,1200);
+ })();
+diff --git a/compras-diretoria-patch.js b/compras-diretoria-patch.js
+index d2477eb..5efc344 100644
+--- a/compras-diretoria-patch.js
++++ b/compras-diretoria-patch.js
+@@ -48,6 +48,7 @@
+     window.__COMPRAS_DIRETORIA_INJETADO=(window.__COMPRAS_DIRETORIA_INJETADO||0)+1;
+   }
+   function varrer(){
++    if(document.hidden)return;
+     var fs=document.querySelectorAll('iframe');
+     for(var i=0;i<fs.length;i++){
+       var d=null; try{ d=fs[i].contentDocument; }catch(e){}
+diff --git a/crediario-patch.js b/crediario-patch.js
+index 7eee2bc..f12488f 100644
+--- a/crediario-patch.js
++++ b/crediario-patch.js
+@@ -126,6 +126,9 @@
+     original.parentNode.insertBefore(card,original.nextSibling);
+   }
+ 
+-  function varrer(){docs(window,[],0).forEach(function(d){try{menu(d);cardPrincipal(d);resumo(d)}catch(e){console.warn('[Portal] Crediário:',e)}})}
++  // Desempenho (12/11/2026): o card fica na Visão Geral do Portal (este documento). Antes era procurado
++  // também dentro de cada módulo aberto, onde nunca existe — varria o texto de todos os elementos de
++  // todos os módulos a cada 1,2 s. Os menus continuam em todos os documentos que tiverem a barra lateral.
++  function varrer(){if(document.hidden)return;docs(window,[],0).forEach(function(d){try{menu(d);if(d===document){cardPrincipal(d);resumo(d)}}catch(e){console.warn('[Portal] Crediário:',e)}})}
+   varrer();setInterval(varrer,1200);
+ })();
+\ No newline at end of file
+diff --git a/estado-modulos-patch.js b/estado-modulos-patch.js
+index 8f23eff..5055a6c 100644
+--- a/estado-modulos-patch.js
++++ b/estado-modulos-patch.js
+@@ -118,6 +118,6 @@
+       d.body.appendChild(s);
+     }catch(e){}
+   }
+-  function varrer(){document.querySelectorAll('iframe[id^="ifr-"]').forEach(aplicarNoIframe);}
++  function varrer(){if(document.hidden)return;document.querySelectorAll('iframe[id^="ifr-"]').forEach(aplicarNoIframe);}
+   setInterval(varrer,5000);
+ })();
+diff --git a/faltas-atrasos-patch.js b/faltas-atrasos-patch.js
+index 5e1601d..5e84c7b 100644
+--- a/faltas-atrasos-patch.js
++++ b/faltas-atrasos-patch.js
+@@ -20,6 +20,9 @@
+     sb.appendChild(g);g.querySelector('[data-fa-menu]').onclick=function(){abrir(d)};
+   }
+   function docs(w,a,p){if(p>5)return a;try{if(w.document)a.push(w.document)}catch(e){return a}var fs=[];try{fs=w.document.querySelectorAll('iframe')}catch(e){}for(var i=0;i<fs.length;i++){try{if(fs[i].contentWindow&&fs[i].contentDocument)docs(fs[i].contentWindow,a,p+1)}catch(e){}}return a}
+-  function varrer(){docs(window,[],0).forEach(function(d){try{menu(d)}catch(e){console.warn('[Portal] Faltas e Atrasos:',e)}})}
+-  varrer();var obs=new MutationObserver(function(){varrer()});try{obs.observe(document.documentElement,{childList:true,subtree:true})}catch(e){}setInterval(varrer,1800);
++  function varrer(){agendado=null;if(document.hidden)return;docs(window,[],0).forEach(function(d){try{menu(d)}catch(e){console.warn('[Portal] Faltas e Atrasos:',e)}})}
++  // Desempenho: mudanças no Portal agrupadas (no máx. 1 varredura a cada 400 ms) em vez de 1 por mudança.
++  var agendado=null;function agendar(){if(!agendado)agendado=setTimeout(varrer,400)}
++  varrer();var obs=new MutationObserver(agendar);try{obs.observe(document.documentElement,{childList:true,subtree:true})}catch(e){}setInterval(agendar,1800);
++  document.addEventListener('visibilitychange',function(){if(!document.hidden)agendar()});
+ })();
+diff --git a/gastos-gerais-patch.js b/gastos-gerais-patch.js
+index 3027518..6ff0ed5 100644
+--- a/gastos-gerais-patch.js
++++ b/gastos-gerais-patch.js
+@@ -33,5 +33,5 @@
+     }
+   }
+   window.__GASTOS_GERAIS_VERSAO='20261106-7';
+-  setInterval(function(){ try{ varrer(document,0); }catch(e){} },1200);
++  setInterval(function(){ if(document.hidden)return; try{ varrer(document,0); }catch(e){} },1200);
+ })();
+diff --git a/index.html b/index.html
+index 9d9a212..f9427f6 100644
+--- a/index.html
++++ b/index.html
+@@ -91,7 +91,7 @@ var ALMOX_MINIMO_PATCH=`<script id="patch-almox-minimo-seguranca-20260827">
+   function instalarNoModulo(ifr){
+     try{
+       var w=ifr&&ifr.contentWindow;
+-      if(!w||w.__almoxMinimoSegurancaVersao===VERSAO)return;
++      if(!w||w.__almoxMinimoSegurancaVersao===VERSAO||w.__almoxMinimoNaoLocalizado===w.atualizarPainelEstoque)return;
+       if(typeof w.atualizarPainelEstoque!=='function')return;
+ 
+       // O estoque mínimo exibido precisa representar toda a meta de segurança,
+@@ -103,6 +103,7 @@ var ALMOX_MINIMO_PATCH=`<script id="patch-almox-minimo-seguranca-20260827">
+       );
+       if(corrigida===fonte&&!/Math\\.ceil\\(media\\s*\\*\\s*METdaCOBERTURA\\)/.test(fonte)){
+         console.warn('[Almoxarifado] Regra de estoque mínimo não localizada; correção não aplicada.');
++        w.__almoxMinimoNaoLocalizado=w.atualizarPainelEstoque; // não repete o aviso/varredura a cada segundo
+         return;
+       }
+       if(corrigida!==fonte)w.eval('atualizarPainelEstoque = '+corrigida);
+@@ -265,19 +266,32 @@ var ALMOX_MINIMO_PATCH=`<script id="patch-almox-minimo-seguranca-20260827">
+       console.info('[Almoxarifado] Filtro de lojas/gerentes estava vazio; todos foram marcados.');
+     }catch(e){console.error('[Almoxarifado] Falha ao restaurar filtros:',e);}
+   }
++  // Desempenho (12/11/2026): as duas correções abaixo varrem o DOM inteiro do módulo
++  // (querySelectorAll('*') + textContent). Antes rodavam a cada 1 s e a cada mudança no
++  // Portal, mesmo com o Almoxarifado fechado. Agora só com o módulo na tela e a aba ativa.
++  function almoxNaTela(ifr){
++    return !document.hidden&&ifr.getClientRects().length>0;
++  }
+   function acompanhar(){
++    agendado=null;
+     var ifr=document.getElementById('ifr-alm');
+     if(!ifr)return;
+     instalarNoModulo(ifr);
+-    corrigirFiltrosVazios(ifr);
+-    corrigirResumoFinanceiro(ifr);
+     if(!ifr.__almoxPatchLoad){
+       ifr.__almoxPatchLoad=true;
+       ifr.addEventListener('load',function(){setTimeout(function(){instalarNoModulo(ifr)},150)});
+     }
++    if(!almoxNaTela(ifr))return;
++    corrigirFiltrosVazios(ifr);
++    // Com o painel novo (almox-painel-patch.js) os cards antigos ficam ocultos: corrigir o
++    // total deles era trabalho jogado fora.
++    var d=null;try{d=ifr.contentDocument;}catch(e){}
++    if(!(d&&d.querySelector('[data-apn-cards]')))corrigirResumoFinanceiro(ifr);
+   }
+-  new MutationObserver(acompanhar).observe(document.documentElement,{childList:true,subtree:true});
+-  setInterval(acompanhar,1000);
++  var agendado=null;
++  function agendar(){if(!agendado)agendado=setTimeout(acompanhar,300);}
++  new MutationObserver(agendar).observe(document.documentElement,{childList:true,subtree:true});
++  setInterval(agendar,1000);
+   acompanhar();
+ })();
+ <\/script>`;
+@@ -697,6 +711,7 @@ async function abrirSomenteOrcamento(session){
+   setStatus('','');
+ }
+ async function sairGestor(){
++  portalCacheApagar();
+   try{ await sb.auth.signOut(); }catch(e){}
+   location.reload();
+ }
+@@ -803,12 +818,69 @@ function instalarCentralTreinamentoNoPortal(ifr){
+ }
+ 
+ async function negarAcesso(){
++  portalCacheApagar();
+   // scope local: não derruba a mesma pessoa em outros apps (ex.: Acerto de Estoque no celular da loja).
+   try{ await sb.auth.signOut({scope:'local'}); }catch(e){}
+   var b=document.getElementById('btn'); if(b)b.disabled=false;
+   setStatus('Seu usuário não tem acesso ao Portal. Fale com o administrador.','err');
+ }
+ 
++/* ---------- Cache local do arquivo do Portal (desempenho, 12/11/2026) ----------
++   O arquivo do Portal (~13 MB, com todos os módulos) era baixado do zero a cada login e a cada
++   recarga: o link assinado muda toda vez, então o navegador nunca reaproveitava o download.
++   Agora este navegador guarda uma cópia (IndexedDB) junto com a versão do objeto no Storage
++   (eTag + data + tamanho). Na abertura seguinte só consulta a versão (poucos bytes): se for a
++   mesma, abre da cópia; se o arquivo mudou no Storage, baixa de novo e troca a cópia.
++   Se a consulta de versão falhar, baixa como antes (sem cache). Sair do Portal ou acesso negado
++   apagam a cópia. */
++var PORTAL_CACHE_DB='portal_arquivo_cache_v1';
++function portalCacheDB(){
++  return new Promise(function(res){
++    try{var r=indexedDB.open(PORTAL_CACHE_DB,1);
++      r.onupgradeneeded=function(){r.result.createObjectStore('arq')};
++      r.onsuccess=function(){res(r.result)};r.onerror=function(){res(null)};r.onblocked=function(){res(null)};
++    }catch(e){res(null)}
++  });
++}
++async function portalCacheLer(){
++  var db=await portalCacheDB();if(!db)return null;
++  return new Promise(function(res){
++    try{var q=db.transaction('arq','readonly').objectStore('arq').get(FILE_PATH);
++      q.onsuccess=function(){res(q.result||null)};q.onerror=function(){res(null)};
++    }catch(e){res(null)}
++  });
++}
++async function portalCacheGravar(versao,html){
++  var db=await portalCacheDB();if(!db)return;
++  try{db.transaction('arq','readwrite').objectStore('arq').put({versao:versao,html:html,em:Date.now()},FILE_PATH)}catch(e){}
++}
++function portalCacheApagar(){try{indexedDB.deleteDatabase(PORTAL_CACHE_DB)}catch(e){}}
++async function versaoDoPortalNoStorage(){
++  try{
++    var r=await sb.storage.from(BUCKET).list('',{search:FILE_PATH,limit:20});
++    if(r.error||!r.data)return null;
++    var o=r.data.find(function(x){return x&&x.name===FILE_PATH});
++    if(!o)return null;
++    var m=o.metadata||{};
++    var partes=[m.eTag||'',o.updated_at||m.lastModified||'',m.size||m.contentLength||''];
++    return partes.join('')?partes.join('|'):null;
++  }catch(e){return null}
++}
++async function baixarArquivoDoPortal(){
++  var versao=await versaoDoPortalNoStorage();
++  if(versao){
++    var c=await portalCacheLer();
++    if(c&&c.versao===versao&&c.html){console.info('[Portal] arquivo aberto da cópia local (versão '+versao+')');return {html:c.html};}
++  }
++  var res=await sb.storage.from(BUCKET).createSignedUrl(FILE_PATH,3600);
++  if(res.error)return {erro:'Erro ao abrir o portal: '+res.error.message};
++  var fileRes=await fetch(res.data.signedUrl);
++  if(!fileRes.ok)return {erro:'Erro ao baixar o portal (status '+fileRes.status+')'};
++  var html=await fileRes.text();
++  if(versao)portalCacheGravar(versao,html);
++  return {html:html};
++}
++
+ async function openPortal(){
+   setStatus('Abrindo o portal...','ok');
+   // Perfil gestor_departamento -> só a Central de Compras da área dele
+@@ -821,11 +893,17 @@ async function openPortal(){
+       if(_pf.data && _pf.data.perfil==='gestor_departamento'){ MENU_ADMIN.baseMae=false; MENU_ADMIN.usuarios=false; return abrirSomenteOrcamento(_s0); }
+     }
+   }catch(e){ console.warn('checagem de perfil gestor falhou',e); }
+-  var res=await sb.storage.from(BUCKET).createSignedUrl(FILE_PATH,3600);
+-  if(res.error){ setStatus('Erro ao abrir o portal: '+res.error.message,'err'); return; }
+-  var fileRes=await fetch(res.data.signedUrl);
+-  if(!fileRes.ok){ setStatus('Erro ao baixar o portal (status '+fileRes.status+')','err'); return; }
+-  var html=await fileRes.text();
++  // A Central de Compras é buscada em paralelo com o arquivo do Portal (antes era uma depois da outra).
++  // 'no-cache' revalida no servidor (304 quando não mudou) — continua sempre atualizada.
++  var _orcP=fetch('orcamento-compras.html?v=central-cerebro-16',{cache:'no-cache'})
++    .then(function(r){if(!r.ok)throw new Error('status '+r.status);return r.text();})
++    .then(function(t){return {html:t};},function(e){return {erro:e};});
++  var _arq=await baixarArquivoDoPortal();
++  if(_arq.erro){ setStatus(_arq.erro,'err'); return; }
++  var html=_arq.html;
++  // Desempenho: tudo o que é injetado no arquivo (~13 MB) é juntado e inserido de uma vez só.
++  // Antes eram ~20 inserções, cada uma copiando e convertendo o arquivo inteiro (≈2 s de CPU).
++  var _cabeca='',_fimBody='';
+   // Identidade do usuário logado para os módulos (ex.: Orçamento & Compras — só o
+   // Administrador altera a verba). Injeta a sessão Auth ANTES de qualquer script do
+   // shell rodar. Nenhum dado sai daqui; fica só no iframe do portal, mesma origem.
+@@ -838,69 +916,70 @@ async function openPortal(){
+         access_token:_s.access_token, refresh_token:_s.refresh_token||'',
+         email:(_s.user&&_s.user.email)||null, uid:(_s.user&&_s.user.id)||null
+       };
+-      var _inj='<scr'+'ipt>window.__PORTAL_SESSION='+JSON.stringify(_sessionPayload)+';</scr'+'ipt>';
+-      html=html.replace(/<\/head>/i,_inj+'</head>');
++      _cabeca+='<scr'+'ipt>window.__PORTAL_SESSION='+JSON.stringify(_sessionPayload)+';</scr'+'ipt>';
+     }
+   }catch(e){ console.warn('injeção da sessão falhou',e); }
+   // Pré-carrega a Central no mesmo documento do Portal. Isso evita que navegadores
+   // bloqueiem o iframe interno e garante que a sessão chegue antes do primeiro script.
+   try{
+-    var _orcRes=await fetch('orcamento-compras.html?v=central-cerebro-16',{cache:'no-store'});
+-    if(!_orcRes.ok)throw new Error('status '+_orcRes.status);
+-    var _orcHtml=await _orcRes.text();
++    var _orcR=await _orcP;
++    if(_orcR.erro)throw _orcR.erro;
++    var _orcHtml=_orcR.html;
+     if(_sessionPayload){
+       var _orcSession='<scr'+'ipt>window.__PORTAL_SESSION='+JSON.stringify(_sessionPayload)+';</scr'+'ipt>';
+       _orcHtml=_orcHtml.replace(/<\/head>/i,_orcSession+'</head>');
+     }
+     window.__ORC_PAGE_HTML=_orcHtml;
+-    var _orcJson=JSON.stringify(_orcHtml).replace(/<\/script/gi,'<\\/script');
+-    var _orcInj='<scr'+'ipt>window.__ORC_UNIFIED_HTML='+_orcJson+';</scr'+'ipt>';
+-    html=html.replace(/<\/head>/i,_orcInj+'</head>');
++    // (12/11/2026) A cópia da Central (__ORC_UNIFIED_HTML, ~110 KB) e o ORC_UNIFIED_PATCH não são mais
++    // injetados no Portal: eram inseridos no PRIMEIRO </body> do arquivo, que depois da pré-carga ficava
++    // dentro do próprio texto da Central — o script quebrava (erro de sintaxe), o patch nunca rodava e
++    // sobrava um texto solto ("\n";) no topo da página. A Central sempre abriu pela ponte desta página
++    // (abrirCentralUnicaExterna + window.__ORC_PAGE_HTML), que continua igual.
+   }catch(e){ console.warn('pré-carga da Central falhou',e); }
+-  // Ao clicar no módulo Orçamento & Compras, abre a interface unificada no próprio Portal.
+-  html=html.replace(/<\/body>/i,ORC_UNIFIED_PATCH+'</body>');
+   // Correção isolada da regra do Almoxarifado. Não altera HTML, cards ou gráficos.
+-  html=html.replace(/<\/body>/i,ALMOX_MINIMO_PATCH+'</body>');
++  _fimBody+=ALMOX_MINIMO_PATCH;
+   // Almoxarifado: botão "Consumo por Item" (busca item + loja/todas → consumo mês a mês e média mensal).
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('almox-consumo-item-patch.js?v=20261106-2',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('almox-consumo-item-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // Almoxarifado: menu "Consumo Loja" (consumo x venda/remanejo por loja, lojas fora do padrão, previsão e sugestão de compra).
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('almox-consumo-loja-patch.js?v=20261110-1',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('almox-consumo-loja-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // Almoxarifado: painel novo da Visão Geral (estoque em R$, consumo do último mês x média, cobertura, repor) + regionais CD/FECHADA.
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('almox-painel-patch.js?v=20261110-1',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('almox-painel-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // Capa oficial do card Treinamentos e Cursos.
+-  html=inserirAntesDoFimDoBody(html,TREINAMENTOS_CAPA_PATCH);
++  _fimBody+=TREINAMENTOS_CAPA_PATCH;
+   // Capa do card Obras & Reformas (foto nova; o card original era só ícone e texto).
+-  html=inserirAntesDoFimDoBody(html,OBRAS_CAPA_PATCH);
++  _fimBody+=OBRAS_CAPA_PATCH;
+   // Central de Upload Universal como porta única (Base Mãe + vários módulos por arquivo).
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('upload-universal-patch.js?v=20261006-2',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('upload-universal-patch.js?v=20261006-2',location.href).href+'"></scr'+'ipt>';
+   // Comissões · Campanha Meias: módulo novo (CPF único no cargo maior, rateio de gerentes) — sistema-de-auditoria PR #58.
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('meias-modulo-patch.js?v=20261104-1',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('meias-modulo-patch.js?v=20261104-1',location.href).href+'"></scr'+'ipt>';
+   // Auditoria de Compras: Relatório da Diretoria (economia mês a mês, fornecedores, PDF) + layout de celular — sistema-de-auditoria PR #59. Acrescenta ao módulo publicado, não troca.
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('compras-diretoria-patch.js?v=20261106-7',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('compras-diretoria-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // Gastos Gerais: compras + obras & reformas numa tela só (botão no módulo Auditoria de Compras; lê Obras ao vivo).
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('gastos-gerais-patch.js?v=20261106-7',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('gastos-gerais-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // Relatório Geral: cartão "Extrato de Obras" com as despesas de Obras & Reformas (banco), soma no Total Geral e lista ao clicar.
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('relatorio-geral-obras-patch.js?v=20261106-1',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('relatorio-geral-obras-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // Carregamento de arquivos em todos os módulos (CSV, arrastar sem baixar, campanhas Meias/Grendene).
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('upload-correcoes.js?v=20261002-5',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('upload-correcoes.js?v=20261002-5',location.href).href+'"></scr'+'ipt>';
+   // Protocolo de Curso: painel por loja (completos por cargo, cobrança por regional/loja, liberar CPF).
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('protocolo-graficos.js?v=20261019-5',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('protocolo-graficos.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // Obras & Reformas: telas de pagamento (Presidente, Contas a pagar, Financeiro, Relatórios) dentro do módulo, com a sessão do Portal.
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('obras-pagamentos-patch.js?v=20261103-1',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('obras-pagamentos-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // RL Transportes: "Painel Completo" abre no Portal lendo o Supabase (antes apontava para o PC D90 pelo Tailscale).
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('rl-painel-patch.js?v=20261013-2',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('rl-painel-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // Auditoria Financeira: Contas a Pagar do Sallamo com cruzamentos de possíveis irregularidades (menu Financeiro).
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('financeiro-patch.js?v=20261021-1',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('financeiro-patch.js?v=20261021-1',location.href).href+'"></scr'+'ipt>';
+   // Estado de tela dos módulos: não restaura filtros pela posição (NF-e mostrava só 4 notas após carga nova de outro usuário) e recalcula os cartões do NF-e.
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('estado-modulos-patch.js?v=20261105-1',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('estado-modulos-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // Última atualização de cada módulo (topo e Visão Geral) + recarga automática quando outro usuário atualiza a nuvem.
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('atualizacoes-patch.js?v=20261105-1',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('atualizacoes-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // Desconto em Folha · Crediário e Ex-funcionários: cards na visão geral e grupo "Crediário" no menu (tela crediario/).
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('crediario-patch.js?v=20261029-pasta',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('crediario-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // RH / Folha: auditoria de faltas e atrasos, integrada ao menu do Portal.
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('faltas-atrasos-patch.js?v=20261111-8',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('faltas-atrasos-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
+   // Auditoria de Despesas e OS: card na visão geral (ao lado de Obras & Reformas) e item no menu Auditoria (tela auditoria-despesas/).
+-  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('auditoria-despesas-patch.js?v=20261109-1',location.href).href+'"></scr'+'ipt>');
++  _fimBody+='<scr'+'ipt src="'+new URL('auditoria-despesas-patch.js?v=20261112-desempenho',location.href).href+'"></scr'+'ipt>';
++  if(_cabeca)html=html.replace(/<\/head>/i,function(){return _cabeca+'</head>';});
++  html=inserirAntesDoFimDoBody(html,_fimBody);
+   var blob=new Blob([html],{type:'text/html;charset=utf-8'});
+   var blobUrl=URL.createObjectURL(blob);
+   var ifr=document.getElementById('portalFrame');
+@@ -993,6 +1072,7 @@ formNovaSenha.addEventListener('submit',async function(e){
+ });
+ 
+ sb.auth.onAuthStateChange(function(event){
++  if(event==='SIGNED_OUT') portalCacheApagar();
+   if(event==='PASSWORD_RECOVERY') mostrarTela('novaSenha');
+ });
+ 
+diff --git a/obras-pagamentos-patch.js b/obras-pagamentos-patch.js
+index 27a6498..2ecd5cf 100644
+--- a/obras-pagamentos-patch.js
++++ b/obras-pagamentos-patch.js
+@@ -575,6 +575,6 @@
+     }.toString()+')();';
+     d.body.appendChild(sc);
+   }
+-  function varrer(){docs(window,[],0).forEach(function(d){try{vigiarPdf(d);vigiarRelatorios(d);if(ehModuloObras(d)){paginarComprovantes(d);melhorarAbas(d);if(d.__melhorAbas)buscadorDashboard(d);revisaoObras(d)}if(!d.__obrasPagamentos&&ehModuloObras(d))instalar(d)}catch(e){console.warn('[Portal] Obras pagamentos:',e)}})}
++  function varrer(){if(document.hidden)return;docs(window,[],0).forEach(function(d){try{vigiarPdf(d);vigiarRelatorios(d);if(ehModuloObras(d)){paginarComprovantes(d);melhorarAbas(d);if(d.__melhorAbas)buscadorDashboard(d);revisaoObras(d)}if(!d.__obrasPagamentos&&ehModuloObras(d))instalar(d)}catch(e){console.warn('[Portal] Obras pagamentos:',e)}})}
+   setInterval(varrer,1500);if(document.readyState!=='loading')varrer();else document.addEventListener('DOMContentLoaded',varrer);
+ })();
+diff --git a/protocolo-graficos.js b/protocolo-graficos.js
+index 7dc32de..a453f8e 100644
+--- a/protocolo-graficos.js
++++ b/protocolo-graficos.js
+@@ -974,9 +974,14 @@
+     for(var i=0;i<w.frames.length;i++){try{docs(w.frames[i],lista,prof+1);}catch(e){}}
+     return lista;
+   }
++  // Desempenho (12/11/2026): a busca dos títulos (XPath em todos os elementos) rodava a cada 1,5 s em
++  // todos os módulos abertos, mesmo escondidos. Agora só em documentos visíveis na tela.
++  function naTela(d){try{var f=d.defaultView&&d.defaultView.frameElement;return !f||f.getClientRects().length>0;}catch(e){return true;}}
+   function varrer(){
++    if(document.hidden)return;
+     docs(window,[],0).forEach(function(d){
+       try{
++        if(!naTela(d))return;
+         var b=d.querySelector('.pg[data-protocolo-graficos]');
+         if(b&&!b.__alvo)return; // falhou: mantém originais
+         instalar(d);
+diff --git a/relatorio-geral-obras-patch.js b/relatorio-geral-obras-patch.js
+index 6bd9bf8..4e6f672 100644
+--- a/relatorio-geral-obras-patch.js
++++ b/relatorio-geral-obras-patch.js
+@@ -28,5 +28,5 @@
+     }
+   }
+   window.__RG_OBRAS_VERSAO='20261106-1';
+-  setInterval(function(){ try{ varrer(document,0); }catch(e){} },1200);
++  setInterval(function(){ if(document.hidden)return; try{ varrer(document,0); }catch(e){} },1200);
+ })();
+diff --git a/rl-painel-patch.js b/rl-painel-patch.js
+index 78769a4..b86274c 100644
+--- a/rl-painel-patch.js
++++ b/rl-painel-patch.js
+@@ -52,6 +52,6 @@
+     w.__rlPainelOpen=true;
+   }
+ 
+-  function varrer(){docs(window,[],0).forEach(function(w){try{instalar(w)}catch(e){}})}
++  function varrer(){if(document.hidden)return;docs(window,[],0).forEach(function(w){try{instalar(w)}catch(e){}})}
+   setInterval(varrer,1500);varrer();
+ })();
+-- 
+2.43.0
+
