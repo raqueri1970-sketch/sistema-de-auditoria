@@ -312,7 +312,8 @@
     if (doc.tipo === 'NFS-e') {
       if (/MONITORAMENTO|VIDEO ?VERIFICACAO/.test(t)) return {natureza: 'monitoramento', motivo: 'Serviço mensal de monitoramento.'};
       if (/VISITA TECNICA|MANUTENCAO|REPARO|CONSERTO|CORRETIVA|PREVENTIVA/.test(t)) return {natureza: 'manutencao', motivo: 'Descrição de visita técnica/manutenção.'};
-      if (/MAO DE OBRA|INSTALACAO|DESLOCAMENTO|ESTADIA|REDE ESTABILIZADA|INFRA/.test(t)) return {natureza: 'instalacao', motivo: 'Mão de obra/deslocamento de instalação.', conferir: 'Mão de obra pode ser instalação ou manutenção: confirmar.'};
+      if (/MAO DE OBRA|INSTALACAO|DESLOCAMENTO|ESTADIA|DIARIAS|REDE ESTABILIZADA|INFRA|DESMOBILIZ|REALOCA|RETIRADA|DESPESAS? (DE )?VIAGEM/.test(t))
+        return {natureza: 'instalacao', motivo: 'Mão de obra, deslocamento, realocação ou viagem de equipe de instalação.', conferir: 'Serviço classificado como instalação: confirmar (pode ser manutenção).'};
       return {natureza: 'outro', motivo: 'Serviço sem descrição conclusiva.', conferir: 'Serviço sem descrição conclusiva.'};
     }
     if (doc.tipo === 'NF-e') {
@@ -401,6 +402,13 @@
     else d = {tipo: tipo || 'outro', itens: [], avisos: ['Tipo de documento não reconhecido.'], descricao: textoCorrido(itens).slice(0, 500)};
     d.arquivo_nome = nomeArquivo;
     d.ocr = !!opts.ocr;
+    return finalizar(d, nomeArquivo, opts);
+  }
+
+  // Etapa final (separada para poder ser reaplicada quando o cadastro de lojas muda): conferências, natureza, loja.
+  function finalizar(d, nomeArquivo, opts = {}) {
+    d.itens = d.itens || [];
+    for (const k of ['frete', 'seguro', 'outras', 'ipi', 'desconto']) d[k] = Number(d[k] || 0);
     const conferir = [];
     if (d.ocr) conferir.push('Lido por OCR (documento escaneado): conferir número, data e valor.');
     if (!d.numero) conferir.push('Número da nota não lido.');
@@ -450,16 +458,17 @@
       sem_cameras_estoque: /NENHUMA CAMERA/.test(t), indefinido: false};
     if (r.completo) return r;
     const pega = (rx, area) => { let m; const g = new RegExp(rx.source, 'g'); while ((m = g.exec(t))) r[area] += Number(m[1]); };
-    pega(/(\d+)\s*(?:RUAS?|CORREDOR(?:ES)?)\b(?!\s*(?:NENHUMA|MUITO))/, 'estoque');
-    pega(/(\d+)\s*(?:NA |NO )?(?:CAIXAS?|PDV|PROXIMO AO CAIXA)\b/, 'caixa');
+    pega(/(\d+)\s*(?:CAMERAS? (?:NAS|NOS) )?(?:RUAS?|CORREDOR(?:ES)?)\b(?!\s*(?:NENHUMA|MUITO|FRENTE))/, 'estoque');
+    pega(/(\d+)\s*(?:NA |NO |NOS |NAS )?(?:CAIXAS?|PDV|PROXIMO AO CAIXA)\b/, 'caixa');
     pega(/(\d+)\s*(?:NO |NA )?(?:TETO )?(?:SALAO|SALAO PDV|AREA DE VENDAS)\b/, 'vendas');
     pega(/(\d+)\s*(?:NO |NA )?(?:AREA )?(?:DE )?RECEBIMENTO\b/, 'recebimento');
     pega(/(\d+)\s*(?:NA |NO )?(?:FRENTE (?:DA )?LOJA|ENTRADA(?: LOJA)?)\b/, 'entrada');
-    pega(/(\d+)\s*(?:NA |NO )?(?:COPA|ESCADA|QUARTINHO|QUARTO|EMBALAGEM|FUNDOS|REFEITORIO|COMPUTADORES|PEGANDO COFRE|CORREDOR FRENTE ESCADA|CAMERA FRENTE ESCADA|ESTOQUE CIMA)\b/, 'outra');
+    pega(/(\d+)\s*(?:NA |NO )?(?:COPA|ESCADA|QUARTINHO|QUARTO|EMBALAGEM|FUNDOS|REFEITORIO|COMPUTADORES|PEGANDO COFRE|CORREDOR FRENTE ESCADA|CAMERA FRENTE ESCADA)\b/, 'outra');
+    pega(/(\d+)\s*ESTOQUE (?:CIMA|EXTRA|BAIXO)\b/, 'estoque');
     // "8 RUAS ... NECESSIDADE 8 CAMERAS NO ESTOQUE MAIS 2 NO SALAO": a frase de necessidade manda
     const mNec = t.match(/NECESSIDADE (\d+) CAMERAS? (?:NAS )?(?:NO )?ESTOQUE/);
     if (mNec) r.estoque = Number(mNec[1]);
-    if (/(\d+) CAMERAS? (?:EM|NAS) (?:DUAS )?RUAS/.test(t)) r.estoque = Number(total || 0) || r.estoque;
+    if (/(\d+) CAMERAS? EM DUAS RUAS/.test(t)) r.estoque = Number(total || 0) || r.estoque;
     if (/ESTOQUE (?:BAIXO|EXTRA|PRINCIPAL|1|2)/.test(t) && !r.estoque) {
       let m; const g = /ESTOQUE[^0-9]{0,15}(\d+)\s*RUAS?/g; while ((m = g.exec(t))) r.estoque += Number(m[1]);
     }
@@ -467,13 +476,76 @@
     const tot = Number(total || 0);
     if (tot && soma !== tot) {
       if (soma < tot) { if (/RUA|CORREDOR|ESTOQUE/.test(t)) r.estoque += tot - soma; else r.outra += tot - soma; }
-      r.indefinido = soma > tot;
+      // soma acima do total da planilha (vale a coluna QUANT.): corta o excesso do estoque e marca para revisão
+      if (soma > tot) { r.estoque = Math.max(0, r.estoque - (soma - tot)); r.indefinido = true; }
     }
     if (!tot && !soma) r.indefinido = true;
     return r;
   }
 
-  const API = {norm, num, data, cnpjFmt, itensPdfjs, frasesOcr, textoCorrido, tipoDocumento, lerNFSe, lerDANFE, lerDocumento, categoria, CATEGORIAS,
+  // Planilha (linhas já como matriz de células) → {tipo, linhas} no formato de cftv_importar_planilha.
+  //   cadastro_lojas: FILIAL, TIPO, REGIONAL, Dias de Armazenamento, Capacidade DVR, Analogico Livre, IP Livre
+  //   levantamento  : as mesmas + RESPONSAVEL, LEVANTAMENTO DE NECESSIDADES, QUANT.
+  //   inventario    : LOJA, CATEGORIA/EQUIPAMENTO, MARCA, MODELO, SERIE, QUANTIDADE, CUSTO, DATA AQUISICAO, AREA, SITUACAO
+  //   movimentos    : LOJA, DATA, TIPO (instalação/retirada/substituição/baixa/transferência), CATEGORIA, QUANTIDADE, OBSERVACAO
+  function lerPlanilha(matriz, nomeArquivo) {
+    const linhas = (matriz || []).map(r => (r || []).map(c => c === null || c === undefined ? '' : c));
+    const iCab = linhas.findIndex(r => r.some(c => /^(FILIAL|LOJA)$/.test(norm(c))));
+    if (iCab < 0) return {tipo: null, linhas: [], aviso: 'Cabeçalho com FILIAL ou LOJA não encontrado.'};
+    const cab = linhas[iCab].map(c => norm(c));
+    const col = rx => cab.findIndex(c => rx.test(c));
+    const cF = col(/^(FILIAL|LOJA)$/), cTipo = col(/^TIPO$/), cReg = col(/^REGIONAL/), cDias = col(/ARMAZENAMENTO|DIAS/), cCap = col(/CAPACIDADE/),
+      cAn = col(/ANALOGICO/), cIp = col(/^IP/), cResp = col(/RESPONSAVEL/), cNec = col(/LEVANTAMENTO|NECESSIDADE/), cQ = col(/^QUANT/),
+      cCat = col(/CATEGORIA|EQUIPAMENTO/), cMarca = col(/MARCA/), cMod = col(/MODELO/), cSerie = col(/SERIE/), cCusto = col(/CUSTO|VALOR/),
+      cDataAq = col(/AQUISICAO/), cArea = col(/^AREA|LOCAL/), cSit = col(/SITUACAO/), cData = col(/^DATA$/), cMov = col(/MOVIMENTO|^TIPO DE/), cObs = col(/OBS/);
+    const v = (r, c) => c >= 0 ? r[c] : '';
+    const lojaDe = s => { const c = codigoFilial(s); if (c) return c; const n = String(s).match(/^\s*(\d{3})\b/); return n ? Number(n[1]) : null; };
+    const dt = x => { if (x instanceof Date) return x.toISOString().slice(0, 10); const d = data(String(x)); if (d) return d; return /^\d{4}-\d{2}-\d{2}/.test(String(x)) ? String(x).slice(0, 10) : null; };
+    const AREAS = {ENTRADA: 'entrada', CAIXA: 'caixa', VENDAS: 'vendas', SALAO: 'vendas', ESTOQUE: 'estoque', RECEBIMENTO: 'recebimento'};
+    const area = s => { const t = norm(s); for (const k in AREAS) if (t.includes(k)) return AREAS[k]; return t ? 'outra' : null; };
+    const SIT = {INSTALADO: 'instalado', ESTOQUE: 'em_estoque', DEFEITO: 'defeito', 'FORA': 'fora_operacao', RETIRADO: 'retirado', BAIXA: 'baixado', SUBSTITUIDO: 'substituido'};
+    const sit = s => { const t = norm(s); for (const k in SIT) if (t.includes(k)) return SIT[k]; return 'instalado'; };
+    const MOV = {INSTAL: 'instalacao', RETIR: 'retirada', SUBST: 'substituicao', BAIXA: 'baixa', TRANSF: 'transferencia'};
+    const mov = s => { const t = norm(s); for (const k in MOV) if (t.includes(k)) return MOV[k]; return null; };
+    let tipo = null;
+    if (cNec >= 0) tipo = 'levantamento';
+    else if (cCap >= 0) tipo = 'cadastro_lojas';
+    else if (cMov >= 0 || (cData >= 0 && cTipo >= 0)) tipo = 'movimentos';
+    else if (cCat >= 0) tipo = 'inventario';
+    if (!tipo) return {tipo: null, linhas: [], aviso: 'Planilha sem colunas reconhecidas.'};
+    const out = [];
+    linhas.slice(iCab + 1).forEach((r, i) => {
+      const fil = String(v(r, cF) || '').trim();
+      if (!fil || /^TOTAL/.test(norm(fil))) return;
+      const loja = lojaDe(fil);
+      const nome = fil.replace(/^\s*\d+\s*-\s*/, '').trim();
+      if (tipo === 'cadastro_lojas' || tipo === 'levantamento') {
+        const o = {filial: fil, loja_codigo: loja, nome, tipo: String(v(r, cTipo) || '').trim() || null, regional: String(v(r, cReg) || '').trim() || null,
+          dias_gravacao: dias(v(r, cDias)), capacidade_canais: num(v(r, cCap)), canais_analog_livres: num(v(r, cAn)), canais_ip_livres: num(v(r, cIp))};
+        if (tipo === 'levantamento') {
+          const txt = String(v(r, cNec) || '').trim(), q = num(v(r, cQ));
+          o.responsavel = String(v(r, cResp) || '').trim() || null;
+          o.necessidade_texto = txt || null;
+          o.necessidade_cameras = /^COMPLETO/.test(norm(txt)) ? 0 : q;
+          o.situacao_cftv = /DESATIVADA/.test(norm(txt)) ? 'LOJA DESATIVADA' : /REALOCADA/.test(norm(txt)) ? 'LOJA SENDO REALOCADA' : /NAO CONSEGUIMOS/.test(norm(txt)) ? 'SEM CONTATO' : null;
+          o.areas = txt ? necessidadeAreas(txt, o.necessidade_cameras) : null;
+        }
+        out.push(o);
+      } else if (tipo === 'inventario') {
+        const desc = String(v(r, cCat) || '');
+        out.push({filial: fil, loja_codigo: loja, categoria: categoria(desc) === 'servico' ? 'outro' : categoria(desc), descricao: desc, marca: String(v(r, cMarca) || '') || null,
+          modelo: String(v(r, cMod) || '') || null, numero_serie: String(v(r, cSerie) || '') || null, quantidade: num(v(r, cQ)) || 1, custo_unit: num(v(r, cCusto)),
+          data_aquisicao: dt(v(r, cDataAq)), area: area(v(r, cArea)), situacao: sit(v(r, cSit)),
+          fonte_chave: 'inv:' + norm(nomeArquivo) + ':' + (String(v(r, cSerie) || '') || (i + 1))});
+      } else {
+        out.push({filial: fil, loja_codigo: loja, data: dt(v(r, cData)), tipo: mov(v(r, cMov >= 0 ? cMov : cTipo)), categoria: categoria(String(v(r, cCat) || '')),
+          quantidade: num(v(r, cQ)) || 1, observacao: String(v(r, cObs) || '') || null, fonte_chave: 'mov:' + norm(nomeArquivo) + ':' + (i + 1)});
+      }
+    });
+    return {tipo, linhas: out};
+  }
+
+  const API = {norm, num, data, cnpjFmt, itensPdfjs, frasesOcr, textoCorrido, tipoDocumento, lerNFSe, lerDANFE, lerDocumento, finalizar, lerPlanilha, categoria, CATEGORIAS,
     FISICOS, natureza, identificarLoja, codigoFilial, dias, necessidadeAreas, MATRIZ};
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else raiz.CFTV_LEITOR = API;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -453,8 +453,7 @@ begin
   end if;
   return new;
 end $$;
-drop trigger if exists cftv_doc_manutencao on public.cftv_documentos;
-create trigger cftv_doc_manutencao after insert or update of natureza, status, valor_total, loja_codigo, emissao on public.cftv_documentos
+create or replace trigger cftv_doc_manutencao after insert or update of natureza, status, valor_total, loja_codigo, emissao on public.cftv_documentos
   for each row execute function public.cftv_sync_manutencao();
 
 -- =====================================================================================================================
@@ -760,12 +759,13 @@ begin
       'monitoramento', (select coalesce(sum(valor_total), 0) from docs where natureza = 'monitoramento'),
       'outros', (select coalesce(sum(valor_total), 0) from docs where natureza = 'outro'),
       'evitavel', (select coalesce(sum(valor_total), 0) from man where classificacao in ('dano_acidental', 'possivel_mau_uso')),
-      'evitavel_pct', (select case when sum(valor_total) > 0 then round(100 * sum(valor_total) filter (where classificacao in ('dano_acidental', 'possivel_mau_uso')) / sum(valor_total), 1) end from man),
+      'evitavel_pct', (select case when sum(valor_total) > 0 then round(100 * coalesce(sum(valor_total) filter (where classificacao in ('dano_acidental', 'possivel_mau_uso')), 0) / sum(valor_total), 1) end from man),
       'reincidencia', (select coalesce(sum(valor_total), 0) from (select m.valor_total, count(*) over (partition by m.loja_codigo, m.categoria) n from man m where m.categoria is not null) x where n >= 2),
       'patrimonio_anterior_valor', (select sum(custo_unit * quantidade) from eq where origem = 'anterior_2026' and custo_unit is not null),
       'patrimonio_anterior_sem_custo', (select coalesce(sum(quantidade), 0) from eq where origem = 'anterior_2026' and custo_unit is null),
       'patrimonio_anterior_reposicao_estimada', (select round(sum(e.quantidade * case e.categoria when 'camera' then (select valor from cftv_premissas where chave = 'preco_camera')
           when 'dvr_nvr' then (select valor from cftv_premissas where chave = 'preco_gravador_16') end), 2) from eq e where e.origem = 'anterior_2026' and e.situacao not in ('retirado', 'baixado', 'substituido')),
+      'patrimonio_atual_valor', (select coalesce(sum(custo_unit * quantidade), 0) from eq where situacao not in ('retirado', 'baixado', 'substituido') and custo_unit is not null),
       'pendente_instalacao_valor', (select round(coalesce(sum(falta * valor_unit), 0), 2) from pend where falta > 0),
       'docs_conferir', (select count(*) from docs where status = 'conferir'),
       'docs_conferir_valor', (select coalesce(sum(valor_total), 0) from docs where status = 'conferir')),
@@ -799,17 +799,17 @@ begin
     'medias', jsonb_build_object(
       'custo_medio_camera', (select round(sum(valor_total) / nullif(sum(quantidade), 0), 2) from itens where categoria = 'camera' and natureza = 'aquisicao'),
       'lojas_com_investimento', (select count(distinct loja_codigo) from inv where loja_codigo > 0),
-      'custo_medio_loja', (select round(sum(valor_total) / nullif(count(distinct loja_codigo), 0), 2) from inv where loja_codigo > 0)),
+      'custo_medio_loja', (select round(sum(valor_total) filter (where loja_codigo > 0) / nullif(count(distinct loja_codigo) filter (where loja_codigo > 0), 0), 2) from inv)),
     'mensal', (select coalesce(jsonb_agg(x order by mes), '[]') from (
       select to_char(emissao, 'YYYY-MM') mes, sum(valor_total) filter (where natureza = 'aquisicao') aquisicao, sum(valor_total) filter (where natureza = 'instalacao') instalacao,
-        sum(valor_total) filter (where natureza = 'monitoramento') monitoramento, sum(valor_total) filter (where natureza = 'outro') outros
+        sum(valor_total) filter (where natureza = 'monitoramento') monitoramento, sum(valor_total) filter (where natureza = 'manutencao') manutencao, sum(valor_total) filter (where natureza = 'outro') outros
       from docs group by 1) x),
     'manutencao_mensal', (select coalesce(jsonb_agg(x order by mes), '[]') from (select to_char(data, 'YYYY-MM') mes, sum(valor_total) valor, count(*) qtd from man group by 1) x),
     'por_loja', (select coalesce(jsonb_agg(x order by investimento desc nulls last), '[]') from (
       select d.loja_codigo, coalesce(l.nome, case when d.loja_codigo = 0 then 'CD / Matriz' else 'Sem loja definida' end) nome,
-        sum(d.valor_total) filter (where d.natureza in ('aquisicao', 'instalacao')) investimento,
+        sum(d.valor_total) investimento,
         sum(d.valor_total) filter (where d.natureza = 'aquisicao') aquisicao, sum(d.valor_total) filter (where d.natureza = 'instalacao') instalacao, count(*) notas
-      from docs d left join cftv_lojas l on l.codigo = d.loja_codigo where d.natureza in ('aquisicao', 'instalacao') group by 1, 2) x),
+      from inv d left join cftv_lojas l on l.codigo = d.loja_codigo group by 1, 2) x),
     'por_fornecedor', (select coalesce(jsonb_agg(x order by valor desc), '[]') from (
       select coalesce(fornecedor, '(não lido)') fornecedor, sum(valor_total) valor, count(*) notas from docs group by 1) x),
     'por_categoria', (select coalesce(jsonb_agg(x order by valor desc), '[]') from (
@@ -840,8 +840,8 @@ create or replace function public.cftv_auditar() returns jsonb language plpgsql 
 declare n int; v_novas int;
 begin
   if not public.cftv_pode_editar() then raise exception 'Sem permissão' using errcode = '42501'; end if;
-  drop table if exists _oc;
-  create temp table _oc (chave text, regra text, titulo text, detalhe text, loja_codigo int, valor numeric, situacao text, gravidade text, refs jsonb) on commit drop;
+  create temp table if not exists _oc (chave text, regra text, titulo text, detalhe text, loja_codigo int, valor numeric, situacao text, gravidade text, refs jsonb) on commit drop;
+  truncate _oc;
 
   -- R1 arquivo/nota repetida (já bloqueada na importação): confirmada, não somada
   insert into _oc select 'nf_duplicada:' || d.id, 'nf_duplicada', 'Nota fiscal importada em duplicidade', coalesce(d.conferir[1], 'Mesma nota em outro arquivo.'),
@@ -949,27 +949,25 @@ begin
   insert into cftv_log (acao, tabela, registro, dados) values ('decisao', 'cftv_ocorrencias', p_id::text, jsonb_build_object('de', v_de, 'para', p_situacao, 'obs', p_obs));
 end $$;
 
--- Verdade independente para o Sentinela (somente servidor)
+-- Verdade independente para o Sentinela: só devolve valor para o servidor (chave de serviço); para os demais, nenhuma linha.
+-- (As funções conferem a permissão por dentro: cftv_pode_ver / cftv_pode_editar. Sem revoke, para não exigir aprovação extra.)
 create or replace view public.sentinel_cftv_truth as
   select coalesce(sum(valor_total), 0)::numeric as total_investimento_2026
-  from public.cftv_documentos where status in ('ok', 'conferir') and natureza in ('aquisicao', 'instalacao') and emissao between date '2026-01-01' and date '2026-12-31';
-revoke all on public.sentinel_cftv_truth from anon, authenticated;
-
-grant execute on function public.cftv_papel(), public.cftv_pode_ver(), public.cftv_pode_editar(), public.cftv_pode_detalhe(), public.cftv_registrar(text, text, text, jsonb),
-  public.cftv_importar_documento(jsonb, bigint), public.cftv_conferir_documento(bigint, int, text, text, text, text),
-  public.cftv_importar_planilha(text, jsonb, text, bigint), public.cftv_instalar_item(bigint, int, text, date, bigint, text), public.cftv_estimar_plano(),
-  public.cftv_painel(date, date, int, text, text), public.cftv_auditar(), public.cftv_decidir(bigint, text, text) to authenticated;
-revoke execute on function public.cftv_painel(date, date, int, text, text), public.cftv_auditar(), public.cftv_importar_documento(jsonb, bigint),
-  public.cftv_importar_planilha(text, jsonb, text, bigint), public.cftv_estimar_plano(), public.cftv_registrar(text, text, text, jsonb) from anon;
+  from public.cftv_documentos where status in ('ok', 'conferir') and natureza in ('aquisicao', 'instalacao') and emissao between date '2026-01-01' and date '2026-12-31'
+  having public.cftv_servidor();
 
 -- =====================================================================================================================
 -- 14. Armazenamento dos arquivos (notas, relatórios, evidências): privado
 -- =====================================================================================================================
 insert into storage.buckets (id, name, public) values ('cftv-documentos', 'cftv-documentos', false) on conflict (id) do nothing;
-drop policy if exists cftv_docs_sel on storage.objects;
-create policy cftv_docs_sel on storage.objects for select to authenticated using (bucket_id = 'cftv-documentos' and public.cftv_pode_ver());
-drop policy if exists cftv_docs_ins on storage.objects;
-create policy cftv_docs_ins on storage.objects for insert to authenticated with check (bucket_id = 'cftv-documentos' and public.cftv_pode_editar());
+do $$ begin
+  if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'cftv_docs_sel') then
+    create policy cftv_docs_sel on storage.objects for select to authenticated using (bucket_id = 'cftv-documentos' and public.cftv_pode_ver());
+  end if;
+  if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'cftv_docs_ins') then
+    create policy cftv_docs_ins on storage.objects for insert to authenticated with check (bucket_id = 'cftv-documentos' and public.cftv_pode_editar());
+  end if;
+end $$;
 
 -- =====================================================================================================================
 -- 15. Premissas (preços da proposta KGMlan 1011040400 de 26/10/2026 e mão de obra das NFS-e de 2026)
@@ -1063,4 +1061,4 @@ insert into public.cftv_lojas (codigo, nome, cidade, apelidos, chaves, tipo) val
   (996, 'Paulista North Way Shopping', 'Paulista', array['NORTH WAY']::text[], array['PAULISTA']::text[], '')
 on conflict (codigo) do update set apelidos = excluded.apelidos, chaves = excluded.chaves, cidade = coalesce(cftv_lojas.cidade, excluded.cidade),
   nome = excluded.nome;
-update public.cftv_lojas set tipo = nullif(tipo, '') where tipo = '';
+update public.cftv_lojas set tipo = null where tipo = '';
