@@ -6,7 +6,7 @@ const K = Deno.env.get('SUPABASE_ANON_KEY')!;
 const C = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization,x-client-info,apikey,content-type',
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Content-Type': 'application/json'};
 const S = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-const CFTV = /\b(cftv|cameras?|dvrs?|nvrs?|gravador(es)?|alarmes?|sensor(es)?|concertina|seguranca patrimonial|seguranca eletronica|cobertura d[eo]s? (estoque|cameras?)|avarias?|investimentos? em seguranca|investimos em seguranca|manutenc(ao|oes) recorrentes?|ampliar a cobertura|cobertura da rede|custo medio de equipamentos|equipamentos de seguranca|recebeu mais investimentos?)\b/;
+const CFTV = /\b(cftv|cameras?|dvrs?|nvrs?|gravador(es)?|alarmes?|sensor(es)?|concertina|seguranca patrimonial|seguranca eletronica|cobertura d[eo]s? (estoque|cameras?)|avarias?|investimentos? em seguranca|investimos em seguranca|manutenc(ao|oes) recorrentes?|ampliar a cobertura|cobertura da rede|custo medio de equipamentos|equipamentos de seguranca|patrimonio (de|dos|em) (seguranca|equipamentos|cftv|cameras)|valor dos (nossos )?equipamentos|recebeu mais investimentos?)\b/;
 const FIN = /despesa|gast(o|os|ei|amos|ou)|contas? a pagar|fornecedor|financeir|duplicidade|pagamento duplic|pagamento incorret|juros|multa|acrescimo|desconto.*fornecedor|credito.*fornecedor|devolucao.*fornecedor|prejuizo|perdendo dinheiro/;
 
 Deno.serve(async (req) => {

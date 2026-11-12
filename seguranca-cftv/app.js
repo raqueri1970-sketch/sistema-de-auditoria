@@ -126,6 +126,9 @@ async function carregarPainel() {
   const {data, error} = await sb.rpc('cftv_painel', {p_de: f.de, p_ate: f.ate, p_loja: f.loja, p_fornecedor: f.forn, p_categoria: f.cat});
   if (error) throw error;
   S.painel = data;
+  const pt = await sb.rpc('cftv_patrimonio', {p_loja: f.loja});
+  S.pat = pt.error ? null : pt.data;
+  S.patLoja = new Map(((S.pat || {}).por_loja || []).map(x => [x.loja_codigo, x]));
 }
 async function aplicarFiltros() { await carregarPainel(); render(); }
 function limparFiltros() { $('fDe').value = '2026-01-01'; $('fAte').value = '2026-12-31'; ['fLoja', 'fForn', 'fCat'].forEach(i => $(i).value = ''); aplicarFiltros(); }
@@ -259,6 +262,30 @@ function listaLojas() {
       {clic: a => `fichaLoja(${a.codigo})`}), {nome: 'Lojas', linhas: l.map(a => ({Loja: nomeLoja(a.codigo), Regional: a.regional}))});
 }
 
+// ---------------- patrimônio a preço de reposição ----------------
+const BASE_PAT = {anterior_2026: 'Anterior a 2026', compras_2026: 'Compra 2026', estimativa: 'Estimativa'};
+const COL_PAT = [{t: 'Loja', f: x => esc(nomeLoja(x.loja))}, {t: 'Equipamento', f: x => esc(CAT[x.categoria] || x.categoria)}, {t: 'Item', f: x => esc(x.item) + (x.estimado ? ' ' + chip('estimado', 'warn') : '')},
+  {t: 'Origem', f: x => chip(BASE_PAT[x.base] || x.base, x.base === 'compras_2026' ? '' : 'neu')}, {t: 'Qtd', n: 1, f: x => nf(x.qtd)}, {t: 'Preço de hoje', n: 1, f: x => brl(x.preco)},
+  {t: 'Valor', n: 1, f: x => brl(x.valor)}, {t: 'Fonte do preço', f: x => `<span class="sub">${esc(x.fonte)}</span>`}];
+const xlsPat = x => ({Loja: nomeLoja(x.loja), Equipamento: CAT[x.categoria] || x.categoria, Item: x.item, Origem: BASE_PAT[x.base], Estimado: x.estimado ? 'sim' : 'não', Quantidade: Number(x.qtd), PrecoHoje: Number(x.preco), Valor: Number(x.valor), FontePreco: x.fonte});
+function verPatrimonio(loja) {
+  const P = S.pat; if (!P) return toast('Valorização indisponível.');
+  const l = (P.linhas || []).filter(x => loja === undefined || x.loja === loja);
+  const tot = soma(l, x => x.valor), est = soma(l.filter(x => x.estimado), x => x.valor);
+  const porCat = Object.values(l.reduce((a, x) => { a[x.categoria] = a[x.categoria] || {c: x.categoria, q: 0, v: 0}; a[x.categoria].q += Number(x.qtd); a[x.categoria].v += Number(x.valor); return a; }, {})).sort((a, b) => b.v - a.v);
+  const porBase = Object.keys(BASE_PAT).map(k => ({k, v: soma(l.filter(x => x.base === k), x => x.valor)})).filter(x => x.v);
+  const precos = (P.precos || []).filter((x, i, arr) => arr.findIndex(y => y.categoria === x.categoria && y.preco === x.preco) === i);
+  abrirModal('Patrimônio em equipamentos' + (loja !== undefined ? ' · ' + nomeLoja(loja) : ' · rede') + ' (preço de reposição de hoje)', `
+    <div class="grid">${kpi('Valor total', brl(tot), `${nf(soma(l, x => x.qtd))} itens`, '', '')}${porBase.map(b => kpi(BASE_PAT[b.k], brl(b.v), b.k === 'estimativa' ? 'quantidade estimada (ver regra)' : '', b.k === 'estimativa' ? 'warn' : 'neu', '')).join('')}</div>
+    <div class="info"><b>Como foi calculado:</b> ${esc(P.regra)} Câmera a ${brl((precos.find(x => x.categoria === 'camera') || {}).preco)}, gravador pelo número de canais (equivalentes de 16 canais do orçamento),
+      HD de 2TB por gravador. Alarmes, sensores, switch/rack, fontes e incêndio pelo último preço pago. ${brl(est)} (${nf(tot ? est / tot * 100 : 0, 1)}%) vêm de quantidades estimadas:
+      câmeras pela ocupação média de ${nf(P.ocupacao_media, 1)}% dos gravadores nas lojas sem canais informados e HD de gravadores antigos. Cabos e conectores não entram.</div>
+    <div class="g2"><div class="card"><h3>Por equipamento</h3>${tabela([{t: 'Equipamento', f: x => esc(CAT[x.c] || x.c)}, {t: 'Qtd', n: 1, f: x => nf(x.q)}, {t: 'Valor', n: 1, f: x => brl(x.v)}], porCat)}</div>
+    ${loja === undefined ? `<div class="card"><h3>Por loja</h3>${barras(P.por_loja || [], x => nomeLoja(x.loja_codigo), x => x.valor, brl, x => `verPatrimonio(${x.loja_codigo === null ? 'null' : x.loja_codigo})`, 70)}</div>` : ''}</div>
+    <h2>Preços usados</h2>${tabela([{t: 'Equipamento', f: x => esc(CAT[x.categoria])}, {t: 'Preço', n: 1, f: x => brl(x.preco)}, {t: 'Fonte', f: x => esc(x.fonte)}], precos)}
+    <h2>Itens</h2>${tabela(COL_PAT, l)}`, {nome: 'Patrimonio CFTV' + (loja !== undefined ? ' loja ' + nLoja(loja) : ''), linhas: l.map(xlsPat)});
+}
+
 // ---------------- detalhe de documento ----------------
 async function urlArquivo(path) {
   const {data, error} = await sb.storage.from('cftv-documentos').createSignedUrl(path, 600);
@@ -302,7 +329,7 @@ function rPainel() {
     ${fi.docs_conferir ? ` <b>${fi.docs_conferir} nota(s) (${brl(fi.docs_conferir_valor)}) ainda aguardam conferência manual</b> — já somadas, mas loja/natureza podem mudar.` : ''}</div>
   <h2>Indicadores financeiros</h2>
   <div class="grid">
-    ${kpi('Patrimônio anterior a 2026', nf(fi.patrimonio_anterior_sem_custo) + ' itens', `custo de aquisição não cadastrado · reposição estimada ${brl(fi.patrimonio_anterior_reposicao_estimada)} (preços do orçamento)`, 'neu', "listaEq('Patrimônio anterior a 2026', e => e.origem === 'anterior_2026')")}
+    ${kpi('Patrimônio em equipamentos (preço de hoje)', S.pat ? brl(S.pat.total) : '—', S.pat ? `anteriores a 2026 ${brl(soma(['anterior_2026', 'estimativa'], k => (S.pat.por_base || {})[k]))} · compras 2026 ${brl((S.pat.por_base || {}).compras_2026)}` : 'indisponível', '', 'verPatrimonio()')}
     ${kpi('Investimentos 2026', brl(fi.investimento_total), `equipamentos ${brl(fi.aquisicao_equipamentos)} · instalação ${brl(fi.servicos_instalacao)}`, '', "listaDocs('Investimentos 2026', d => ['aquisicao','instalacao'].includes(d.natureza))")}
     ${kpi('Despesas de manutenção', brl(fi.manutencao_total), `reincidência ${brl(fi.reincidencia)}`, 'warn', "listaMan('Despesas de manutenção', () => true)")}
     ${kpi('Custos potencialmente evitáveis', brl(fi.evitavel), fi.evitavel_pct === null ? 'sem manutenção no período' : `${nf(fi.evitavel_pct, 1)}% da manutenção · só com classificação e evidência`, 'bad', "listaMan('Custos potencialmente evitáveis', m => ['dano_acidental','possivel_mau_uso'].includes(m.classificacao))")}
@@ -316,7 +343,7 @@ function rPainel() {
     ${kpi('DVRs / NVRs', nf(op.gravadores), `${nf(op.capacidade_canais)} canais · ${nf(op.canais_livres)} livres`, '', "listaEq('Gravadores', e => e.categoria === 'dvr_nvr' && ['instalado','defeito','fora_operacao'].includes(e.situacao))")}
     ${kpi('Lojas com câmera no estoque', `${nf(op.lojas_estoque_coberto)} de ${nf(op.total_lojas)}`, `${nf(op.lojas_estoque_avaliado)} avaliadas · ${nf(op.lojas_cobertura_incompleta)} com cobertura incompleta`, op.lojas_estoque_coberto < op.total_lojas / 2 ? 'bad' : 'ok', "listaCob('Estoque coberto', c => c.area === 'estoque' && c.situacao === 'coberta')")}
     ${kpi('Equipamentos com defeito', nf(op.equipamentos_defeito), 'defeito ou fora de operação', op.equipamentos_defeito ? 'bad' : 'ok', "listaEq('Equipamentos com defeito', e => ['defeito','fora_operacao'].includes(e.situacao))")}
-    ${kpi('Instalações pendentes', nf(op.instalacoes_pendentes_itens, 0) + ' un.', `${brl(fi.pendente_instalacao_valor)} comprados sem instalação registrada`, 'warn', 'listaPendentes()')}
+    ${kpi('Instalações pendentes', nf(op.instalacoes_pendentes_itens, 0), op.instalacoes_pendentes_itens ? `${brl(fi.pendente_instalacao_valor)} sem instalação registrada` : 'regra da gestão: toda compra de 2026 está instalada', op.instalacoes_pendentes_itens ? 'warn' : 'ok', 'listaPendentes()')}
   </div>
   <div class="grid" style="margin-top:12px">
     ${kpi('Custo médio por câmera', brl(me.custo_medio_camera), 'itens de câmera nas notas de aquisição', 'neu', "listaItens('Câmeras compradas', i => i.categoria === 'camera')")}
@@ -357,7 +384,8 @@ function resumoLojas() {
       livres: l.canais_analog_livres === null && l.canais_ip_livres === null ? null : (l.canais_analog_livres || 0) + (l.canais_ip_livres || 0), dias: l.dias_gravacao,
       cameras: cam, camEst, compras: soma(ds.filter(d => d.natureza === 'aquisicao'), d => d.valor_total), instalacao: soma(ds.filter(d => d.natureza === 'instalacao'), d => d.valor_total),
       manutencao: soma(ms, m => m.valor_total), nman: ms.length, necessidade: l.necessidade_cameras, plano: pl ? Number(pl.valor_estimado) : 0, estoque: est ? est.situacao : null,
-      ocs: S.oc.filter(o => o.ativo && o.loja_codigo === c && ['pendente', 'suspeita'].includes(o.situacao)).length, situacao: l.situacao_cftv};
+      ocs: S.oc.filter(o => o.ativo && o.loja_codigo === c && ['pendente', 'suspeita'].includes(o.situacao)).length, situacao: l.situacao_cftv,
+      patrimonio: Number((S.patLoja.get(c) || {}).valor || 0)};
   });
 }
 let ORD_LOJA = {k: 'codigo', d: 1};
@@ -367,18 +395,19 @@ function rLojas() {
   $('conteudo').innerHTML = `<div class="info">Uma linha por loja do cadastro oficial (${S.ativas.size} ativas) mais CD e lojas que aparecem nas notas. Clique na loja para abrir a ficha completa.
     Valores de compras e manutenção seguem o filtro de período/fornecedor.</div>
     <div class="tw"><table><thead><tr>${cab('codigo', 'Loja')}${cab('regional', 'Regional')}${cab('canais', 'Canais', 1)}${cab('livres', 'Livres', 1)}${cab('cameras', 'Câmeras', 1)}
-    ${cab('compras', 'Equip. 2026', 1)}${cab('instalacao', 'Instalação 2026', 1)}${cab('manutencao', 'Manutenção', 1)}${cab('necessidade', 'Faltam câm.', 1)}${cab('plano', 'Plano (orçamento)', 1)}
+    ${cab('patrimonio', 'Patrimônio (preço hoje)', 1)}${cab('compras', 'Equip. 2026', 1)}${cab('instalacao', 'Instalação 2026', 1)}${cab('manutencao', 'Manutenção', 1)}${cab('necessidade', 'Faltam câm.', 1)}${cab('plano', 'Plano (orçamento)', 1)}
     ${cab('estoque', 'Estoque')}${cab('ocs', 'Auditoria', 1)}</tr></thead><tbody>${r.map(x => `<tr class="clic" onclick="fichaLoja(${x.codigo})">
       <td>${esc(x.nome)} ${x.ativa || x.codigo === 0 ? '' : chip('inativa', 'bad')} ${x.situacao ? chip(x.situacao, 'warn') : ''}</td><td>${esc(x.regional || '—')}</td>
       <td class="n">${nf(x.canais)}</td><td class="n">${nf(x.livres)}</td><td class="n">${nf(x.cameras)}${x.camEst ? '<span class="sub">*</span>' : ''}</td>
-      <td class="n">${x.compras ? brl(x.compras) : '—'}</td><td class="n">${x.instalacao ? brl(x.instalacao) : '—'}</td><td class="n">${x.manutencao ? brl(x.manutencao) + ` <span class="sub">(${x.nman})</span>` : '—'}</td>
+      <td class="n"><b>${x.patrimonio ? brl(x.patrimonio) : '—'}</b></td><td class="n">${x.compras ? brl(x.compras) : '—'}</td><td class="n">${x.instalacao ? brl(x.instalacao) : '—'}</td><td class="n">${x.manutencao ? brl(x.manutencao) + ` <span class="sub">(${x.nman})</span>` : '—'}</td>
       <td class="n">${nf(x.necessidade)}</td><td class="n">${x.plano ? brl(x.plano) : '—'}</td>
       <td>${x.estoque ? chip(...SIT_COB[x.estoque]) : chip('sem dados', 'neu')}</td><td class="n">${x.ocs ? chip(x.ocs, 'bad') : '—'}</td></tr>`).join('')}</tbody>
       <tfoot><tr><th>Total</th><th></th><th class="n">${nf(soma(r, x => x.canais))}</th><th class="n">${nf(soma(r, x => x.livres))}</th><th class="n">${nf(soma(r, x => x.cameras))}</th>
-      <th class="n">${brl(soma(r, x => x.compras))}</th><th class="n">${brl(soma(r, x => x.instalacao))}</th><th class="n">${brl(soma(r, x => x.manutencao))}</th>
+      <th class="n">${brl(soma(r, x => x.patrimonio))}</th><th class="n">${brl(soma(r, x => x.compras))}</th><th class="n">${brl(soma(r, x => x.instalacao))}</th><th class="n">${brl(soma(r, x => x.manutencao))}</th>
       <th class="n">${nf(soma(r, x => x.necessidade))}</th><th class="n">${brl(soma(r, x => x.plano))}</th><th></th><th class="n">${nf(soma(r, x => x.ocs))}</th></tr></tfoot></table></div>
+    ${S.pat && S.pat.sem_loja ? `<div class="aviso">Patrimônio de ${brl(S.pat.sem_loja)} está em notas ainda <b>sem loja definida</b> (Maceió, Petrolina, Boa Vista, Mangabeira, Manaíra…). Confirme a loja na aba Conferência e o valor vai para a loja.</div>` : ''}
     <div class="sub" style="margin-top:6px">* câmeras estimadas pelos canais ocupados do gravador (planilha CAMERAS POR LOJA): confirmar na loja.</div>
-    <div class="noprint" style="margin-top:10px"><button class="btn" onclick='exportarXls("Resumo por loja", resumoLojas().map(x => ({Loja: x.nome, Regional: x.regional, Canais: x.canais, Livres: x.livres, Cameras: x.cameras, CamerasEstimadas: x.camEst ? "sim" : "não", Equipamentos2026: x.compras, Instalacao2026: x.instalacao, Manutencao: x.manutencao, FaltamCameras: x.necessidade, PlanoOrcamento: x.plano, Estoque: x.estoque, OcorrenciasAbertas: x.ocs})))'>Exportar Excel</button></div>`;
+    <div class="noprint" style="margin-top:10px"><button class="btn" onclick='exportarXls("Resumo por loja", resumoLojas().map(x => ({Loja: x.nome, Regional: x.regional, Canais: x.canais, Livres: x.livres, Cameras: x.cameras, PatrimonioPrecoHoje: x.patrimonio, CamerasEstimadas: x.camEst ? "sim" : "não", Equipamentos2026: x.compras, Instalacao2026: x.instalacao, Manutencao: x.manutencao, FaltamCameras: x.necessidade, PlanoOrcamento: x.plano, Estoque: x.estoque, OcorrenciasAbertas: x.ocs})))'>Exportar Excel</button></div>`;
 }
 function ordLoja(k) { ORD_LOJA = {k, d: ORD_LOJA.k === k ? -ORD_LOJA.d : (['codigo', 'regional', 'estoque'].includes(k) ? 1 : -1)}; rLojas(); }
 
@@ -407,6 +436,7 @@ async function fichaLoja(c) {
     ${kpi('Câmeras', nf(soma(es.filter(e => e.categoria === 'camera' && ['instalado', 'defeito', 'fora_operacao'].includes(e.situacao)), e => e.quantidade)), es.some(e => e.estimado) ? 'inclui estimativa da planilha' : '', '', '')}
     ${kpi('Investido 2026', brl(soma(ds.filter(d => ['aquisicao', 'instalacao'].includes(d.natureza) && ['ok', 'conferir'].includes(d.status)), d => d.valor_total)), `${ds.length} nota(s)`, '', '')}
     ${kpi('Manutenção', brl(soma(ms, m => m.valor_total)), `${ms.length} ocorrência(s)`, 'warn', '')}
+    ${kpi('Patrimônio (preço de hoje)', brl((S.patLoja.get(c) || {}).valor), 'equipamentos a preço de reposição', '', `verPatrimonio(${c})`)}
     ${kpi('Plano (orçamento)', brl(soma(pl, p => p.valor_estimado)), pl[0] ? `${pl[0].cameras} câmeras · ${pl[0].gravadores} gravador(es)` : '', 'warn', '')}
   </div></div>
   <h2>Cobertura por área</h2>${tabela([{t: 'Área', f: x => esc(AREAS[x.area])}, {t: 'Situação', f: x => chip(...SIT_COB[x.situacao])}, {t: 'Faltam câmeras', n: 1, f: x => nf(x.necessidade_cameras)}, {t: 'Fonte', f: x => esc(x.fonte || '—')}], cb)}
@@ -579,6 +609,7 @@ async function processar() {
   prog(1, 1, 'Gravando o registro da importação e rodando a auditoria…');
   await sb.from('cftv_importacao_arquivos').insert(res.map(r => ({importacao_id: imp.id, nome: r.nome, hash: r.hash, tamanho: r.tamanho, tipo: r.tipo, resultado: r.resultado, documento_id: r.documento_id || null, mensagem: r.mensagem})));
   await sb.from('cftv_importacoes').update({resumo: cont}).eq('id', imp.id);
+  await sb.rpc('cftv_reconciliar');
   await sb.rpc('cftv_auditar');
   await recarregar(); irPara('importar');
   $('resImp').innerHTML = `<h2>Resultado da importação nº ${imp.id}</h2><div class="info">${Object.entries(cont).map(([k, v]) => `${v} ${k}`).join(' · ')}. Notas "conferir" já entram nos totais; confirme loja e natureza na aba Conferência.</div>` +
@@ -630,6 +661,7 @@ async function conferir(id, st) {
   const d = S.docPorId.get(id); Object.assign(d, {status: st, loja_codigo: loja === '' ? null : Number(loja), natureza: $('cn' + id).value, finalidade: $('cf' + id).value});
   toast(st === 'ok' ? 'Nota conferida.' : 'Nota descartada.');
   $('cConf').textContent = S.docs.filter(x => x.status === 'conferir').length || '';
+  await sb.rpc('cftv_reconciliar');  // compra vai para a loja confirmada (ou sai do inventário se descartada)
   rConferir(); carregarPainel();
 }
 
@@ -638,19 +670,21 @@ async function conferir(id, st) {
 // =====================================================================================================================
 function rInventario() {
   const ativo = e => !['retirado', 'baixado', 'substituido'].includes(e.situacao);
-  const ant = eqF(e => e.origem === 'anterior_2026'), aq = eqF(e => e.origem === 'aquisicao_2026'), atual = eqF(ativo);
+  const ant = eqF(e => e.origem === 'anterior_2026' && ativo(e)), aq = eqF(e => e.origem === 'aquisicao_2026' && ativo(e)), atual = eqF(ativo);
+  const pb = (S.pat || {}).por_base || {};
   const porCat = l => Object.keys(CAT).map(k => [k, soma(l.filter(e => e.categoria === k), e => e.quantidade)]).filter(x => x[1]);
   const pend = pendentes();
   $('conteudo').innerHTML = `
   <div class="g2">
-    <div class="card"><h3>Patrimônio anterior a 2026</h3>${porCat(ant).map(([k, q]) => `<div>${esc(CAT[k])}: <b>${nf(q)}</b></div>`).join('') || '<div class="sub">Nada cadastrado.</div>'}
+    <div class="card"><h3>Patrimônio anterior a 2026 · ${brl(Number(pb.anterior_2026 || 0) + Number(pb.estimativa || 0))}</h3>${porCat(ant).map(([k, q]) => `<div>${esc(CAT[k])}: <b>${nf(q)}</b></div>`).join('') || '<div class="sub">Nada cadastrado.</div>'}
       <div class="sub" style="margin-top:6px">Gravadores e câmeras vindos da planilha por loja (câmeras = canais ocupados, estimativa). Custo de aquisição não informado.</div>
       <button class="btn peq" style="margin-top:6px" onclick="listaEq('Patrimônio anterior a 2026', e => e.origem === 'anterior_2026')">Ver registros</button></div>
-    <div class="card"><h3>Aquisições de 2026 instaladas</h3>${porCat(aq).map(([k, q]) => `<div>${esc(CAT[k])}: <b>${nf(q)}</b></div>`).join('') || '<div class="sub">Nenhuma instalação registrada ainda.</div>'}
-      <div class="sub" style="margin-top:6px">Comprado ≠ instalado: ${nf(soma(pend, i => i.falta))} unidade(s) compradas (${brl(soma(pend, i => i.falta * i.valor_unit))}) aguardam registro de instalação.</div>
+    <div class="card"><h3>Aquisições de 2026 instaladas · ${brl(pb.compras_2026)}</h3>${porCat(aq).map(([k, q]) => `<div>${esc(CAT[k])}: <b>${nf(q)}</b></div>`).join('') || '<div class="sub">Nenhuma instalação registrada ainda.</div>'}
+      <div class="sub" style="margin-top:6px">Regra da gestão: toda compra de equipamento de 2026 está instalada na loja da nota${pendentes().length ? ` (${nf(soma(pendentes(), x => x.falta))} unidade(s) ainda sem registro)` : ''}. A planilha mostra a situação de hoje, então as compras são descontadas dela para não contar duas vezes.</div>
       <button class="btn peq" style="margin-top:6px" onclick="listaPendentes()">Pendentes de instalação</button></div>
-    <div class="card"><h3>Patrimônio atualizado (na loja hoje)</h3>${porCat(atual).map(([k, q]) => `<div>${esc(CAT[k])}: <b>${nf(q)}</b></div>`).join('') || '<div class="sub">—</div>'}
-      <div class="sub" style="margin-top:6px">Desconta retirados, baixados e substituídos.</div></div>
+    <div class="card"><h3>Patrimônio atualizado · ${brl((S.pat || {}).total)}</h3>${porCat(atual).map(([k, q]) => `<div>${esc(CAT[k])}: <b>${nf(q)}</b></div>`).join('') || '<div class="sub">—</div>'}
+      <div class="sub" style="margin-top:6px">Desconta retirados, baixados e substituídos. Valor a preço de reposição de hoje.</div>
+      <button class="btn peq" style="margin-top:6px" onclick="verPatrimonio()">Ver valorização</button></div>
   </div>
   ${podeEditar() ? `<h2>Cadastrar equipamento</h2><div class="card filtros noprint">
     <div><label>Loja</label><select id="nLoja">${[...S.ativas.keys()].sort((a, b) => a - b).map(c => `<option value="${c}">${esc(nomeLoja(c))}</option>`).join('')}</select></div>
@@ -894,9 +928,9 @@ async function situacaoPlano(id, s) { const {error} = await sb.from('cftv_plano'
 // =====================================================================================================================
 const RELATORIOS = {
   inventario: ['Inventário completo por loja', () => ({cols: COL_EQ, linhas: eqF().sort((a, b) => a.loja_codigo - b.loja_codigo), xls: eqF().map(xlsEq), fonte: 'cftv_equipamentos (planilhas por loja, cadastro manual e instalações de notas)'})],
-  patrimonio: ['Patrimônio total da rede', () => { const l = Object.keys(CAT).map(k => { const e = S.eq.filter(x => x.categoria === k && !['retirado', 'baixado', 'substituido'].includes(x.situacao)); return {k, ant: soma(e.filter(x => x.origem === 'anterior_2026'), x => x.quantidade), nov: soma(e.filter(x => x.origem === 'aquisicao_2026'), x => x.quantidade), val: soma(e.filter(x => x.custo_unit !== null), x => x.custo_unit * x.quantidade), sem: soma(e.filter(x => x.custo_unit === null), x => x.quantidade)}; }).filter(x => x.ant + x.nov);
-    return {cols: [{t: 'Categoria', f: x => esc(CAT[x.k])}, {t: 'Anterior a 2026', n: 1, f: x => nf(x.ant)}, {t: 'Aquisição 2026', n: 1, f: x => nf(x.nov)}, {t: 'Total na rede', n: 1, f: x => nf(x.ant + x.nov)}, {t: 'Valor com custo cadastrado', n: 1, f: x => brl(x.val)}, {t: 'Itens sem custo', n: 1, f: x => nf(x.sem)}], linhas: l,
-      xls: l.map(x => ({Categoria: CAT[x.k], Anterior2026: x.ant, Aquisicao2026: x.nov, Total: x.ant + x.nov, ValorComCusto: x.val, SemCusto: x.sem})), fonte: 'cftv_equipamentos', obs: 'Câmeras anteriores a 2026 são estimativa pelos canais ocupados dos gravadores.'}; }],
+  patrimonio: ['Patrimônio total da rede (preço de reposição de hoje)', () => { const l = (S.pat || {}).linhas || [];
+    return {cols: COL_PAT, linhas: l, xls: l.map(xlsPat), fonte: 'Inventário (planilha por loja + compras de 2026 consideradas instaladas) valorizado pelos preços de hoje (cftv_patrimonio)',
+      total: brl((S.pat || {}).total), obs: `Itens marcados "estimado" vêm da ocupação dos gravadores (planilha) ou de 1 HD por gravador. ${brl((S.pat || {}).sem_loja)} estão em notas sem loja definida.`}; }],
   investimentos: ['Investimentos de 2026', () => { const l = docsF(d => ['aquisicao', 'instalacao'].includes(d.natureza)); return {cols: COL_DOC, linhas: l, xls: l.map(xlsDoc), fonte: 'Notas fiscais importadas (cftv_documentos)', total: brl(soma(l, d => d.valor_total))}; }],
   manutencao_mensal: ['Despesas mensais de manutenção', () => { const l = S.painel.manutencao_mensal; return {cols: [{t: 'Mês', f: x => esc(x.mes)}, {t: 'Ocorrências', n: 1, f: x => x.qtd}, {t: 'Valor', n: 1, f: x => brl(x.valor)}], linhas: l, xls: l, fonte: 'cftv_manutencoes', total: brl(soma(l, x => x.valor))}; }],
   ranking: ['Ranking de custos por loja', () => { const l = resumoLojas().filter(x => x.compras + x.instalacao + x.manutencao > 0).sort((a, b) => (b.compras + b.instalacao + b.manutencao) - (a.compras + a.instalacao + a.manutencao));

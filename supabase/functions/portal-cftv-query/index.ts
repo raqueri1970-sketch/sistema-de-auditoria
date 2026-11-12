@@ -86,6 +86,18 @@ async function responder(tok: string, pergunta: string) {
         `cabeamento ${brl(pl.cabeamento)} e mão de obra ${brl(pl.mao_obra)}.` + (pl.lojas_sem_canais_informados ? ` ${pl.lojas_sem_canais_informados} loja(s) sem canais livres informados foram calculadas com gravador novo.` : ''),
       dados: pl};
   }
+  // Patrimônio a preço de reposição de hoje
+  if (/patrimonio|quanto vale|valor (dos|de nossos|do nosso|dos nossos) (equipamentos|patrimonio)|valor de reposicao/.test(q)) {
+    const pt = await rpc(tok, 'cftv_patrimonio', {p_loja: lj});
+    const b = pt.por_base || {}, cats = (pt.por_categoria || []).slice(0, 4).map((x: any) => `${CAT[x.categoria] || x.categoria} ${brl(x.valor)} (${num(x.quantidade)})`).join('; ');
+    return {...base, status_dados: 'OK', fonte: 'Inventário do módulo (planilha por loja + compras de 2026 consideradas instaladas) valorizado pelos preços de hoje (cftv_patrimonio).',
+      criterio: pt.regra + ' Câmera e gravador pelo preço de reposição vigente; demais equipamentos pelo último preço pago; cabos e conectores não entram.',
+      kpi_principal: {rotulo: `Patrimônio em equipamentos${lj ? ' · ' + nLoja(lj) : ''} (preço de hoje)`, valor: Number(pt.total), unidade: 'R$'},
+      resposta: `O patrimônio em equipamentos de segurança${lj ? ' da ' + nLoja(lj) : ' da rede'}, a preço de reposição de hoje, é ${brl(pt.total)}: ` +
+        `${brl(Number(b.anterior_2026 || 0) + Number(b.estimativa || 0))} em equipamentos anteriores a 2026 e ${brl(b.compras_2026)} em compras de 2026. Principais itens: ${cats}. ` +
+        `${brl(pt.total_estimado)} vêm de quantidades estimadas (câmeras pela ocupação dos gravadores e HD dos gravadores antigos).` + (!lj && pt.sem_loja ? ` ${brl(pt.sem_loja)} estão em notas ainda sem loja definida.` : ''),
+      dados: {total: pt.total, por_base: b, por_categoria: pt.por_categoria, por_loja: lj ? undefined : (pt.por_loja || []).slice(0, 10)}};
+  }
   // Economia com redução de avarias / evitáveis
   if (/economiz|evitav|avaria|mau uso|reduzindo|prevenc/.test(q)) {
     const p = await pnl(); const f = p.financeiro;
@@ -133,10 +145,10 @@ async function responder(tok: string, pergunta: string) {
     const comprados = (p.por_categoria || []).find((x: any) => x.categoria === c);
     const loj = lj ? (await tabela(tok, `cftv_lojas?select=nome,capacidade_canais,canais_analog_livres,canais_ip_livres,necessidade_cameras,necessidade_texto&codigo=eq.${lj}`))[0] : null;
     return {...base, status_dados: tot || comprados ? 'OK' : 'SEM_DADOS', fonte: 'Inventário do módulo (cftv_equipamentos) e notas de 2026.',
-      criterio: 'Instaladas = situação instalado, com defeito ou fora de operação. Câmeras anteriores a 2026 vêm da planilha por loja (canais ocupados do gravador) e são estimativa. Compradas ≠ instaladas.',
+      criterio: 'Instaladas = situação instalado, com defeito ou fora de operação. Inventário = planilha por loja (canais ocupados do gravador, estimativa) + compras de 2026 consideradas instaladas, sem contar duas vezes.',
       kpi_principal: {rotulo: `${CAT[c]} instaladas${lj ? ' · ' + nLoja(lj) : ''}`, valor: tot, unidade: 'un.'},
       resposta: `${lj ? `Na ${nLoja(lj)}${loj ? ' (' + loj.nome + ')' : ''}` : 'Na rede'} há ${num(tot)} ${CAT[c]} registradas como instaladas` + (totEst ? `, das quais ${num(totEst)} são estimativa pelos canais ocupados do gravador (confirmar na loja)` : '') +
-        (def ? `; ${num(def)} com defeito ou fora de operação` : '') + `. Em ${per.rotulo} foram compradas ${num(comprados?.quantidade || 0)} (${brl(comprados?.valor || 0)}), ainda sem instalação registrada no inventário.` +
+        (def ? `; ${num(def)} com defeito ou fora de operação` : '') + `. Em ${per.rotulo} foram compradas ${num(comprados?.quantidade || 0)} (${brl(comprados?.valor || 0)}), já incluídas nesse total (regra da gestão: toda compra está instalada).` +
         (loj && loj.capacidade_canais ? ` Gravador de ${loj.capacidade_canais} canais (${num(loj.canais_analog_livres)} analógicos e ${num(loj.canais_ip_livres)} IP livres).` : '') +
         (loj && loj.necessidade_cameras ? ` O levantamento pede mais ${loj.necessidade_cameras} câmeras (${loj.necessidade_texto}).` : ''),
       dados: {instaladas: tot, estimadas: totEst, defeito: def, compradas: comprados || null, loja: loj}};
@@ -178,7 +190,7 @@ async function responder(tok: string, pergunta: string) {
     return {...base, status_dados: 'OK', fonte: FONTE, criterio: 'Investimento = aquisição de equipamentos + serviços de instalação. Manutenção e monitoramento são informados à parte. Notas duplicadas ou descartadas não somam.',
       kpi_principal: {rotulo: `Investimento em segurança${lj ? ' · ' + nLoja(lj) : ''}${cat ? ' · ' + CAT[cat] : ''} ${per.rotulo}`, valor: Number(f.investimento_total), unidade: 'R$'},
       resposta: `Em ${per.rotulo}, o investimento em segurança${lj ? ' na ' + nLoja(lj) : ''}${cat ? ' com ' + CAT[cat] : ''} foi ${brl(f.investimento_total)}: ${brl(f.aquisicao_equipamentos)} em equipamentos e ${brl(f.servicos_instalacao)} em serviços de instalação. ` +
-        `À parte: manutenção ${brl(f.manutencao_total)} e monitoramento ${brl(f.monitoramento)}. Comprados e ainda sem instalação registrada: ${brl(f.pendente_instalacao_valor)}.` + pend(p),
+        `À parte: manutenção ${brl(f.manutencao_total)} e monitoramento ${brl(f.monitoramento)}.` + (Number(f.pendente_instalacao_valor) ? ` Comprados e ainda sem instalação registrada: ${brl(f.pendente_instalacao_valor)}.` : '') + pend(p),
       dados: {financeiro: f, mensal: p.mensal, por_categoria: p.por_categoria}};
   }
   return {...base, status_dados: 'NAO_ENTENDIDO', resposta: 'Não identifiquei a pergunta de segurança/CFTV. Exemplos: "Quanto investimos em segurança em 2026?", "Quantas câmeras existem na loja 50?", "Quais lojas ainda não possuem câmera no estoque?", "Quanto falta investir para ampliar a cobertura?".'};
