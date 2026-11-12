@@ -6,14 +6,21 @@ const K = Deno.env.get('SUPABASE_ANON_KEY')!;
 const C = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization,x-client-info,apikey,content-type',
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Content-Type': 'application/json'};
 const S = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const CFTV = /\b(cftv|cameras?|dvrs?|nvrs?|gravador(es)?|alarmes?|sensor(es)?|concertina|seguranca patrimonial|seguranca eletronica|cobertura d[eo]s? (estoque|cameras?)|avarias?|investimentos? em seguranca|investimos em seguranca|manutenc(ao|oes) recorrentes?|ampliar a cobertura|cobertura da rede|custo medio de equipamentos|equipamentos de seguranca|recebeu mais investimentos?)\b/;
 const FIN = /despesa|gast(o|os|ei|amos|ou)|contas? a pagar|fornecedor|financeir|duplicidade|pagamento duplic|pagamento incorret|juros|multa|acrescimo|desconto.*fornecedor|credito.*fornecedor|devolucao.*fornecedor|prejuizo|perdendo dinheiro/;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, {headers: C});
   try {
     const p = req.method === 'POST' ? await req.json().catch(() => ({})) : Object.fromEntries(new URL(req.url).searchParams.entries());
-    const financeiro = FIN.test(S(p.pergunta || p.pergunta_original || ''));
     const auth = req.headers.get('Authorization') || '';
+    // 12/11/2026: Segurança Patrimonial e CFTV vai para o especialista, com a credencial de quem chamou
+    if (CFTV.test(S(p.pergunta || p.pergunta_original || ''))) {
+      const r = await fetch(`${U}/functions/v1/portal-cftv-query`, {method: 'POST', headers: {apikey: K, Authorization: auth, 'Content-Type': 'application/json'}, body: JSON.stringify(p)});
+      const d = JSON.parse(await r.text() || '{}');
+      return new Response(JSON.stringify({...d, roteamento_financeiro: {integrado: true, rota: 'SEGURANCA_CFTV', especialista: 'portal-cftv-query'}}), {status: r.status, headers: C});
+    }
+    const financeiro = FIN.test(S(p.pergunta || p.pergunta_original || ''));
     const r = await fetch(`${U}/functions/v1/${financeiro ? 'portal-financeiro-query' : 'portal-cerebro-integrado'}`, {method: 'POST',
       headers: {apikey: K, Authorization: financeiro ? auth : `Bearer ${K}`, 'Content-Type': 'application/json'}, body: JSON.stringify(p)});
     const t = await r.text();

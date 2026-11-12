@@ -293,13 +293,14 @@
     if (/GRAVADOR|\bDVR\b|\bNVR\b|\bXVR\b|MHDX|\bNVD\b|\bVMD\b/.test(t)) return 'dvr_nvr';
     if (/CAMERA|\bBUL+ET+\b|\bDOME\b|\bVHL\b|\bVHD\b|\bVIPC?\b|\bIM\d|MINI DOME/.test(t)) return 'camera';
     if (/DISCO RIGIDO|\bHD\s*\d+\s*TB|PURZ|PURPLE|\bHDD\b|\bSSD\b|CARTAO DE MEMORIA|MICRO ?SD/.test(t)) return 'hd';
+    // cabos antes de alarme/incêndio: "CABO ALARME FIRE" é cabeamento vendido em metro, não sensor
+    if (/\bCABO\b|\bUTP\b|COAXIAL|ELETRODUTO|CANALETA|CAIXA DE PASSAGEM|VBOX|\bCAT ?5|\bCAT ?6|CONDULETE|ABRACADEIRA|FITA ISOLANTE|ELETROCALHA/.test(t)) return 'cabeamento';
     if (/CONCERTINA|CERCA ELETRICA|ELETRIFICADOR|HASTE|ARAME FARPADO|CONCERTINA/.test(t)) return 'perimetro';
     if (/EXTINTOR|INCENDIO|FUMACA|LUZ DE EMERGENCIA|ACIONADOR MANUAL|DETECTOR DE CALOR|HIDRANTE/.test(t)) return 'incendio';
     if (/SENSOR|\bIVP\b|ALARME|SIRENE|TECLADO PARA CENTRA|\bAMT\b|\bXAT\b|MAGNETICO|CONTROLE REMOTO|BOTAO DE PANICO|INTRUSAO/.test(t)) return 'alarme_sensor';
     if (/FONTE|NOBREAK|NO-BREAK|BATERIA|ESTABILIZAD|COLMEIA/.test(t)) return 'fonte_energia';
-    if (/SWITCH|\bRACK\b|BANDEJA|ROTEADOR|ORGANIZADOR|PATCH|\bPOE\b|KIT FIXACAO|PORCA GAIOLA|ACCESS POINT|\bONU\b/.test(t)) return 'rede_rack';
-    if (/\bCABO\b|\bUTP\b|COAXIAL|ELETRODUTO|CANALETA|CAIXA DE PASSAGEM|VBOX|\bCAT ?5|\bCAT ?6|CONDULETE|ABRACADEIRA|FITA ISOLANTE|ELETROCALHA/.test(t)) return 'cabeamento';
-    if (/CONECTOR|BALUN|ESPELHO|\bP4\b|\bBNC\b|SUPORTE|KEYSTONE|PARAFUSO|BUCHA|TOMADA|PLUG|ADAPTADOR|EXTENSAO|FILTRO DE LINHA/.test(t)) return 'conector_acessorio';
+    if (/SWITCH|\bRACK\b|BANDEJA|ROTEADOR|ORGANIZADOR|PATCH|\bPOE\b|ACCESS POINT|\bONU\b/.test(t)) return 'rede_rack';
+    if (/KIT FIXACAO|PORCA GAIOLA|CONECTOR|BALUN|ESPELHO|\bP4\b|\bBNC\b|SUPORTE|KEYSTONE|PARAFUSO|BUCHA|TOMADA|PLUG|ADAPTADOR|EXTENSAO|FILTRO DE LINHA/.test(t)) return 'conector_acessorio';
     if (/MAO DE OBRA|SERVICO|VISITA|INSTALACAO|DESLOCAMENTO|ESTADIA|MONITORAMENTO/.test(t)) return 'servico';
     return 'outro';
   }

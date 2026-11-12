@@ -740,7 +740,8 @@ async function salvarCob(loja, area, sit) {
 // =====================================================================================================================
 function rManutencao() {
   const ms = manF(), tot = soma(ms, m => m.valor_total), ev = soma(ms.filter(m => EVITAVEIS.includes(m.classificacao)), m => m.valor_total);
-  const grupos = {}; for (const m of ms) { const k = m.loja_codigo + '|' + (m.categoria || 'nao_informada'); (grupos[k] = grupos[k] || []).push(m); }
+  // reincidência = mesmo tipo de equipamento na mesma loja (sem equipamento informado não conta: mesmo critério do cftv_painel)
+  const grupos = {}; for (const m of ms) { if (!m.categoria) continue; const k = m.loja_codigo + '|' + m.categoria; (grupos[k] = grupos[k] || []).push(m); }
   const reinc = Object.values(grupos).filter(g => g.length >= 2), alertas = Object.values(grupos).filter(g => g.length >= 3);
   const porLoja = Object.values(ms.reduce((a, m) => { const k = m.loja_codigo; a[k] = a[k] || {loja: k, valor: 0, n: 0}; a[k].valor += Number(m.valor_total); a[k].n++; return a; }, {}))
     .map(x => ({...x, equip: soma(S.eq.filter(e => e.loja_codigo === x.loja && ['instalado', 'defeito', 'fora_operacao'].includes(e.situacao) && ['camera', 'dvr_nvr', 'hd', 'alarme_sensor'].includes(e.categoria)), e => e.quantidade)}))
