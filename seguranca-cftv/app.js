@@ -380,7 +380,7 @@ function rPainel() {
   // card enxuto: título, número e data-base; a explicação fica na dica (passar o mouse) e no "Detalhes ›"
   const card = o => `<div class="pn-card ${o.cls || ''}" tabindex="0" role="button" title="${dica(o.e)}" onclick="${o.acao}" onkeydown="if(event.key==='Enter'){${o.acao}}">
       <div class="pn-t">${o.t}</div><div class="pn-v">${o.v}${o.c || ''}</div><div class="pn-b">${o.b}</div></div>`;
-  const grupo = (t, s, cards) => `<section class="pn-g"><div class="pn-gt"><b>${t}</b><span>${s}</span></div><div class="pn-grid">${cards.join('')}</div></section>`;
+  const grupo = (t, s, cards) => `<section class="pn-g"><div class="pn-gt" title="${dica(s)}"><b>${t}</b></div><div class="pn-grid">${cards.join('')}</div></section>`;
   const alertas = [];
   if (fi.docs_conferir) alertas.push(`<b>${nf(fi.docs_conferir)} nota(s) · ${r0(fi.docs_conferir_valor)}</b> aguardam conferência — já estão somadas, mas loja ou natureza podem mudar. <a href="#" onclick="irPara('conferir');return false">Conferir agora ›</a>`);
   if (semLoja) alertas.push(`<b>${r0(semLoja)}</b> do patrimônio está em equipamentos <b>sem loja definida</b> — não aparecem no ranking por loja. <a href="#" onclick="verPatrimonio(null);return false">Ver itens ›</a>`);
@@ -409,7 +409,7 @@ function rPainel() {
     card({t: 'Notas para conferir', v: nf(fi.docs_conferir), cls: fi.docs_conferir ? 'warn' : 'ok', e: fi.docs_conferir ? `${r0(fi.docs_conferir_valor)} em notas com loja ou natureza a confirmar manualmente.` : 'Todas as notas importadas já foram conferidas.', b: baseNotas, acao: "irPara('conferir')"})
   ])}
   </div>
-  <section class="pn-g"><div class="pn-gt"><b>EVOLUÇÃO E RANKING</b><span>clique numa barra para ver as notas</span></div>
+  <section class="pn-g"><div class="pn-gt" title="Clique numa barra para ver as notas"><b>EVOLUÇÃO E RANKING</b></div>
   <div class="g2">
     <div class="card"><h3>Gasto mês a mês</h3>${colunas(p.mensal, [{k: 'aquisicao', n: 'Equipamentos', cor: 'var(--s1)'}, {k: 'instalacao', n: 'Instalação', cor: 'var(--s2)'}, {k: 'manutencao', n: 'Manutenção', cor: 'var(--s3)'}, {k: 'monitoramento', n: 'Monitoramento', cor: 'var(--s5)'}])}
       ${mU && mediaAnt ? `<div class="sub" style="margin-top:6px">${mU.mes.slice(5)}/${mU.mes.slice(0, 4)}: ${r0(tot(mU))} · média dos meses anteriores ${r0(mediaAnt)} ${var_(tot(mU), mediaAnt)}</div>` : ''}</div>
@@ -1088,13 +1088,13 @@ async function rPagamentos() {
   <div class="info"><b>Como é feito:</b> busca no Sallamo (Contas a Pagar, a mesma base da Auditoria Financeira) todos os títulos <b>pagos e a pagar</b> dos fornecedores que aparecem nas notas do CFTV
     e casa cada NF pelo <b>número da nota</b> no título; sem número, pelo mesmo valor total e data próxima. Renegociado, cancelado e estornado não contam. Nada é alterado no Sallamo nem no módulo.
     <button class="btn peq" style="margin-left:8px" onclick="PG=null;rPagamentos()">Consultar de novo</button></div>
-  <section class="pn-g"><div class="pn-gt"><b>ONDE AGIR</b><span>o que pode ser dinheiro pago a mais</span></div><div class="pn-grid">
+  <section class="pn-g"><div class="pn-gt" title="O que pode ser dinheiro pago a mais"><b>ONDE AGIR</b></div><div class="pn-grid">
     ${card('Pago a mais ou em duplicidade', `${nf(dup.length)} NF`, `${r0(soma(dup, l => Math.max(0, l.pago + l.aberto - l.v)))} acima do valor das notas (pago + a pagar).`, dup.length ? 'bad' : 'ok', "_pgLista('dup')")}
     ${card('Valor do título diferente da NF', `${nf(difV.length)} NF`, `${r0(soma(difV, l => Math.abs(l.dif)))} de diferença somada.`, difV.length ? 'warn' : 'ok', "_pgLista('Valor diferente da NF')")}
     ${card('NF sem título no financeiro', `${nf(semT.length)} NF`, `${r0(soma(semT, l => l.v))} em notas do CFTV que não aparecem no Contas a Pagar (ou estão com outro fornecedor/número).`, semT.length ? 'warn' : 'ok', "_pgLista('Sem título no financeiro')")}
     ${card('Títulos sem NF no CFTV', `${nf(sobras.length)}`, `pagos ${r0(sobraPago)} · a pagar ${r0(sobraAb)} para esses fornecedores sem nota no módulo — conferir se é CFTV.`, sobras.length ? 'warn' : 'ok', '_pgSobras()')}
   </div></section>
-  <section class="pn-g"><div class="pn-gt"><b>RESUMO</b><span>${nf(linhas.length)} notas do CFTV × ${nf(PG.T.length)} títulos dos mesmos fornecedores</span></div><div class="pn-grid">
+  <section class="pn-g"><div class="pn-gt" title="${dica(`${nf(linhas.length)} notas do CFTV × ${nf(PG.T.length)} títulos dos mesmos fornecedores`)}"><b>RESUMO</b></div><div class="pn-grid">
     ${card('Valor das NF do CFTV', r0(totNF), `${nf(linhas.length)} notas conferidas (compra, instalação, manutenção, monitoramento).`, '', "_pgLista('todas')")}
     ${card('Já pago', r0(totPago), `${nf(g('Paga — confere').length)} notas pagas e conferindo com o valor.`, 'ok', "_pgLista('Paga — confere')")}
     ${card('A pagar', r0(totAb), `${nf(g('A pagar').length)} notas com parcelas em aberto.`, 'neu', "_pgLista('A pagar')")}
