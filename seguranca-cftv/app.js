@@ -294,12 +294,12 @@ function rPatrimonio() {
   const pl = [...g.values()].sort((a, b) => b.v - a.v);
   const gc = Object.values(l.reduce((a, x) => { a[x.categoria] = a[x.categoria] || {c: x.categoria, q: 0, v: 0}; a[x.categoria].q += Number(x.qtd); a[x.categoria].v += Number(x.valor); return a; }, {})).sort((a, b) => b.v - a.v);
   const lojasOp = [...new Set([...S.ativas.keys(), ...P.linhas.map(x => x.loja)])].sort((a, b) => (a ?? 9999) - (b ?? 9999));
-  const card = (t, v, e, cls, acao) => `<div class="pn-card ${cls || ''}" title="${dica(e)}" ${acao ? `onclick="${acao}"` : ''}><div class="pn-t">${t}</div><div class="pn-v">${v}</div></div>`;
+  // regra de cálculo fica na dica do card "Patrimônio total"; todo card mostra a data-base no rodapé
+  const regra = `${P.regra || ''} Parque anterior: câmeras, gravadores (equivalentes de 16 canais) e HDs pelo preço de reposição vigente; demais itens pelo último preço pago. "Estimado" = câmeras pela ocupação média dos gravadores (${nf(P.ocupacao_media, 1)}%) onde a planilha não informou e 1 HD por gravador sem HD cadastrado.`;
+  const card = (t, v, e, cls, acao) => `<div class="pn-card ${cls || ''}" title="${dica(e)}" ${acao ? `onclick="${acao}"` : ''}><div class="pn-t">${t}</div><div class="pn-v">${v}</div><div class="pn-b">posição de ${dBR(P.data_base)}</div></div>`;
   $('conteudo').innerHTML = `
-  <div class="info"><b>Como é calculado:</b> ${esc(P.regra)} Parque anterior: câmeras, gravadores (equivalentes de 16 canais) e HDs pelo preço de reposição vigente; demais itens pelo último preço pago.
-    "Estimado" = câmeras pela ocupação média dos gravadores (${nf(P.ocupacao_media, 1)}%) onde a planilha não informou e 1 HD por gravador sem HD cadastrado. Data-base ${dBR(P.data_base)}.</div>
   <div class="pn-grid" style="margin-top:12px">
-    ${card('Patrimônio total', r0(tot), `${nf(soma(l, x => x.qtd))} itens`, '', "patSet('base','')")}
+    ${card('Patrimônio total', r0(tot), `${nf(soma(l, x => x.qtd))} itens. ${regra}`, '', "patSet('base','')")}
     ${card('Investido em 2026 (notas fiscais)', r0(pb('compras_2026')), 'custo real das NF-e/NFS-e emitidas: equipamento, cabo, acessórios e instalação', '', "patSet('base','compras_2026')")}
     ${card('Parque anterior a 2026', r0(pb('anterior_2026') + pb('estimativa')), 'quantidades confirmadas pela gestão, a preço de reposição de hoje', 'neu', "patSet('base','anterior_2026')")}
     ${est ? card('Parte estimada', r0(est), tot ? nf(est / tot * 100, 1) + '% do total — confirmar nas lojas' : '', 'warn', "patSet('base','estimativa')") : ''}
