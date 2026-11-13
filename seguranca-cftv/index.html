@@ -11,8 +11,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="leitor.js?v=20261113-9"></script>
-<link rel="stylesheet" href="estilo.css?v=20261113-9">
+<script src="leitor.js?v=20261113-10"></script>
+<link rel="stylesheet" href="estilo.css?v=20261113-10">
 </head>
 <body>
 
@@ -39,6 +39,7 @@
       <div class="sub" id="quem"></div>
     </div>
     <div class="acoes">
+      <button class="btn" onclick="relatorioPainel()" title="Painel em PDF (A4 paisagem; abre a impressão: escolha Salvar como PDF ou a impressora)">Painel em PDF</button>
       <button class="btn pri" onclick="relatorioExecutivo()" title="Relatório executivo em PDF (abre a impressão: escolha Salvar como PDF ou a impressora)">Relatório executivo</button>
       <button class="btn" onclick="recarregar()">Atualizar</button>
       <button class="btn" onclick="sair()">Sair</button>
@@ -81,7 +82,7 @@
 </div>
 <div id="toast" class="toast"></div>
 
-<script src="app.js?v=20261113-9"></script>
-<script src="relatorio-executivo.js?v=20261113-9"></script>
+<script src="app.js?v=20261113-10"></script>
+<script src="relatorio-executivo.js?v=20261113-10"></script>
 </body>
 </html>

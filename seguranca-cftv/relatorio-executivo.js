@@ -42,9 +42,9 @@
     return o + `<text x="${w - pr}" y="${h + 15}" text-anchor="end" fill="#6b7587">valores em R$ mil${ms.some(m => m.mes === corr) ? ' · * mês em andamento' : ''}</text></svg>`;
   }
 
-  const CSS = `@page{size:A4 portrait;margin:11mm 11mm 15mm}
+  const CSS = pais => `@page{size:A4 ${pais ? 'landscape' : 'portrait'};margin:11mm 11mm 15mm}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,Helvetica,sans-serif;color:#1b2433;font-size:10.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff}
-.pg{position:relative;min-height:268mm;padding-bottom:9mm}.pg+.pg{break-before:page}
+.pg{position:relative;min-height:${pais ? 181 : 268}mm;padding-bottom:9mm}.pg+.pg{break-before:page}
 .cab{display:flex;align-items:center;gap:14px;border-bottom:3px solid #14284a;padding-bottom:8px;margin-bottom:12px}.cab img{height:38px}.cab .tt{flex:1}
 .cab h1{margin:0;font-size:17px;color:#14284a}.cab .st{color:#5b6576;font-size:10.5px;margin-top:2px}
 .selo{background:#14284a;color:#fff;border-radius:6px;padding:5px 10px;font-size:9.5px;font-weight:700;letter-spacing:.04em;text-align:center;line-height:1.35}
@@ -56,7 +56,7 @@ h2{font-size:11.5px;letter-spacing:.07em;color:#14284a;margin:14px 0 7px;padding
 .k.ok .v{color:#167a43}.k.warn .v{color:#a87400}.k.bad .v{color:#b0261f}.k .s{font-size:9px;color:#4a5466}
 .k .b{font-size:8.5px;color:#6b7587;border-top:1px dashed #d6dce6;margin-top:4px;padding-top:3px}
 .cmp{font-size:9px;font-weight:700;border-radius:99px;padding:1px 7px;background:#eef0f4;color:#4a5466}.cmp.bad{background:#fbe3e1;color:#b0261f}.cmp.ok{background:#dff3e7;color:#167a43}
-.box{border:1px solid #d6dce6;border-radius:7px;padding:9px 11px;break-inside:avoid}
+.box{border:1px solid #d6dce6;border-radius:7px;padding:9px 11px;break-inside:avoid}.box h3{margin:0 0 6px;font-size:10.5px;color:#14284a}
 table{width:100%;border-collapse:collapse;font-size:9.6px}th{background:#14284a;color:#fff;text-align:left;padding:5px 6px}
 td{padding:4px 6px;border-bottom:1px solid #e3e7ee}tr:nth-child(even) td{background:#f4f6fa}.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:2px solid #14284a}
@@ -68,9 +68,18 @@ tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:
 .alerta{background:#fff4e0;border:1px solid #f0c36d;color:#7a3f04;border-radius:7px;padding:7px 10px;margin-bottom:10px;font-size:10px}
 .nota{font-size:8.5px;color:#6b7587;margin-top:4px}
 .rod{position:absolute;bottom:0;left:0;right:0;font-size:8px;color:#6b7587;display:flex;justify-content:space-between;border-top:1px solid #d6dce6;padding-top:3px}
-@media screen{body{background:#e9edf3}.pg{width:210mm;margin:10px auto;background:#fff;padding:11mm 11mm 20mm;box-shadow:0 2px 10px rgba(0,0,0,.15)}.rod{left:11mm;right:11mm;bottom:8mm}}`;
+@media screen{body{background:#e9edf3}.pg{width:${pais ? 297 : 210}mm;margin:10px auto;background:#fff;padding:11mm 11mm 20mm;box-shadow:0 2px 10px rgba(0,0,0,.15)}.rod{left:11mm;right:11mm;bottom:8mm}}`;
 
-  function html(logo) {
+  function barras(lista, cor, w = 520, rot = 220) {
+    if (!lista.length) return '<div class="nota">Sem dados no período.</div>';
+    const mx = Math.max(...lista.map(x => x.v)) || 1, lh = 21;
+    let o = `<svg viewBox="0 0 ${w} ${lista.length * lh + 4}" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Arial" font-size="10.5">`;
+    lista.forEach((x, i) => { const y = i * lh + 3; o += `<text x="0" y="${y + 12}" fill="#1b2433">${esc(x.n.length > 34 ? x.n.slice(0, 33) + '…' : x.n)}</text><rect x="${rot}" y="${y + 2}" width="${(w - rot - 78) * x.v / mx}" height="13" rx="2" fill="${cor}"/><text x="${w}" y="${y + 12}" text-anchor="end" font-weight="700" fill="#1b2433">${R0(x.v)}</text>`; });
+    return o + '</svg>';
+  }
+
+  function html(logo, tipo = 'executivo') {
+    const PAINEL = tipo === 'painel', TIT = PAINEL ? 'Painel · Segurança Patrimonial e CFTV' : 'Relatório Executivo · Segurança Patrimonial e CFTV';
     const d = dados(), {p, fi, op, me, pl, P, pb, ult, precoRef, abertas, fechadas, anterior} = d;
     const gerado = new Date().toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'});
     const pos = `posição de ${dBR(p.atualizado_em || hoje())}`, notas = `notas até ${dBR(ult)}`, filtros = descFiltros();
@@ -83,7 +92,7 @@ tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:
     const valorAb = soma(abertas, o => o.valor), nomeCurto = c => nomeLoja(c).replace(/^\d+ · /, '');
     const k = (t, v, b, cls = '', c = '', s = '') => `<div class="k ${cls}"><div class="t">${t}</div><div class="v">${v}${c}</div>${s ? `<div class="s">${s}</div>` : ''}<div class="b">${b}</div></div>`;
     const cmp = (t, c = '') => `<span class="cmp ${c}">${t}</span>`;
-    const cab = sub => `<div class="cab"><img src="${logo}" alt="Esposende"><div class="tt"><h1>Relatório Executivo · Segurança Patrimonial e CFTV</h1><div class="st">${esc(sub)}</div></div><div class="selo">AUDITORIA<br>&amp; CONTROLE</div></div>`;
+    const cab = sub => `<div class="cab"><img src="${logo}" alt="Esposende"><div class="tt"><h1>${TIT}</h1><div class="st">${esc(sub)}</div></div><div class="selo">AUDITORIA<br>&amp; CONTROLE</div></div>`;
     const rod = n => `<div class="rod"><span>Esposende · Central de Auditoria &amp; Controle</span><span>Segurança Patrimonial e CFTV · gerado em ${gerado} por ${esc(S.email)} · página ${n} de 2</span></div>`;
 
     // alertas de base (regra 7: nunca mostrar número errado em silêncio)
@@ -127,6 +136,28 @@ tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:
     const tCat = `<table><tr><th>Categoria</th><th class="n">Qtd</th><th class="n">Valor</th><th class="n">%</th></tr>${cats.map(c => `<tr><td>${esc(NOME_CAT(c.categoria))}</td><td class="n">${N0(c.quantidade)}</td><td class="n">${R0(c.valor)}</td><td class="n">${tc ? PC(c.valor / tc * 100, 1) : '—'}</td></tr>`).join('')}<tr class="tot"><td>Total</td><td></td><td class="n">${R0(tc)}</td><td class="n">100%</td></tr></table>`;
     const tOc = abertas.length ? `<table><tr><th>Gravidade</th><th>Ocorrência</th><th>Loja</th><th>Detalhe</th><th class="n">Valor</th></tr>${abertas.slice(0, MAX_OC).map(o => `<tr><td><span class="chip ${o.gravidade}">${esc(o.gravidade[0].toUpperCase() + o.gravidade.slice(1))}</span></td><td>${esc(o.titulo)}</td><td>${esc(nomeLoja(o.loja_codigo))}</td><td>${esc(o.detalhe || '')}</td><td class="n">${o.valor ? R0(o.valor) : '—'}</td></tr>`).join('')}<tr class="tot"><td colspan="4">Total · ${N0(abertas.length)} ocorrência(s) em aberto${abertas.length > MAX_OC ? ` (${MAX_OC} primeiras listadas)` : ''}</td><td class="n">${R0(valorAb)}</td></tr></table>` : '<div class="nota">Nenhuma ocorrência em aberto.</div>';
 
+    if (PAINEL) {
+      const cards3 = [
+        k('Projeto em aberto: câmeras do estoque', R0(pl.total), pos, 'warn', '', Number(pl.total) ? `${N0(pl.cameras)} câmeras em ${N0(pl.lojas)} lojas` : 'nenhum projeto em aberto'),
+        k('Ocorrências suspeitas', N0(p.auditoria.suspeita), pos, p.auditoria.suspeita ? 'bad' : 'ok', Number(p.auditoria.valor_suspeito) ? cmp(`${R0(p.auditoria.valor_suspeito)} envolvidos`, 'bad') : '', `${N0(p.auditoria.pendente)} pendentes · ${N0(p.auditoria.confirmada)} confirmada(s)`),
+        k('Notas para conferir', N0(fi.docs_conferir), notas, fi.docs_conferir ? 'warn' : 'ok', '', fi.docs_conferir ? `${R0(fi.docs_conferir_valor)} com loja ou natureza a confirmar` : 'todas as notas importadas conferidas')];
+      const patL = (P.por_loja || []).filter(x => x.loja_codigo && Number(x.valor) > 0).sort((a, b) => b.valor - a.valor).slice(0, 10).map(x => ({n: nomeLoja(x.loja_codigo), v: Number(x.valor)}));
+      const invL = invLoja.filter(x => x.loja_codigo && Number(x.investimento) > 0).slice(0, 10).map(x => ({n: nomeLoja(x.loja_codigo), v: Number(x.investimento)}));
+      const rk = (p.ranking_manutencao || []).slice(0, 8);
+      const tMan = rk.length ? `<table><tr><th>Loja</th><th class="n">Ocorr.</th><th class="n">Valor</th></tr>${rk.map(x => `<tr><td>${esc(nomeLoja(x.loja_codigo))}</td><td class="n">${N0(x.ocorrencias)}</td><td class="n">${R0(x.valor)}</td></tr>`).join('')}<tr class="tot"><td>Total da rede (${N0((p.ranking_manutencao || []).length)} lojas)</td><td class="n">${N0(soma(p.ranking_manutencao || [], x => x.ocorrencias))}</td><td class="n">${R0(fi.manutencao_total)}</td></tr></table>` : '<div class="nota">Sem manutenção no período.</div>';
+      const MAXP = 8, tOcP = abertas.length ? `<table><tr><th>Gravidade</th><th>Ocorrência</th><th>Loja</th><th class="n">Valor</th></tr>${abertas.slice(0, MAXP).map(o => `<tr><td><span class="chip ${o.gravidade}">${esc(o.gravidade[0].toUpperCase() + o.gravidade.slice(1))}</span></td><td>${esc(o.titulo)}</td><td>${esc(nomeLoja(o.loja_codigo))}</td><td class="n">${o.valor ? R0(o.valor) : '—'}</td></tr>`).join('')}<tr class="tot"><td colspan="3">Total · ${N0(abertas.length)} em aberto${abertas.length > MAXP ? ` (${MAXP} primeiras listadas)` : ''}</td><td class="n">${R0(valorAb)}</td></tr></table>` : '<div class="nota">Nenhuma ocorrência em aberto.</div>';
+      const q1 = `<div class="pg">${cab(`Rede Esposende · ${filtros} · ${pos}`)}
+        ${alertas.length ? `<div class="alerta">⚠ ${alertas.join('<br>⚠ ')}</div>` : ''}
+        <h2>O que a empresa tem hoje</h2><div class="grid g4">${cards1.join('')}</div>
+        <h2>Quanto foi gasto</h2><div class="grid g4">${cards2.join('')}</div>
+        <div class="grid" style="grid-template-columns:1fr 2fr"><div><h2>O que falta investir</h2>${cards3[0]}</div><div><h2>Onde agir</h2><div class="grid g2">${cards3[1]}${cards3[2]}</div></div></div>
+        <h2>Gasto mês a mês</h2><div class="box">${grafico(p.mensal, 1100, 150)}</div>${rod(1)}</div>`;
+      const q2 = `<div class="pg">${cab(`Evolução e ranking · ${pos}`)}
+        <div class="grid g2"><div class="box"><h3>Patrimônio por loja (top 10)</h3>${barras(patL, '#1f5fbf')}</div><div class="box"><h3>Investimento ${filtros.includes('2026') ? '2026 ' : ''}por loja (top 10)</h3>${barras(invL, '#7fa7e0')}</div></div>
+        <div class="grid g2" style="margin-top:8px"><div class="box"><h3>Lojas que mais gastam com manutenção</h3>${tMan}</div><div class="box"><h3>Ocorrências de auditoria em aberto</h3>${tOcP}</div></div>
+        <div class="nota">Fonte: módulo Segurança e CFTV · ${notas} · CD / Matriz fora dos rankings por loja.</div>${rod(2)}</div>`;
+      return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Painel CFTV ${dBR(hoje())}</title><style>${CSS(true)}</style></head><body>${q1}${q2}</body></html>`;
+    }
     const pg1 = `<div class="pg">${cab(`Rede Esposende · ${filtros} · ${pos}`)}
       ${alertas.length ? `<div class="alerta">⚠ ${alertas.join('<br>⚠ ')}</div>` : ''}
       <div class="res">A rede tem <b>${R0(P.total)}</b> em equipamentos de segurança, dos quais <b>${R0(pb.compras_2026)}</b> (${P.total ? PC(pb.compras_2026 / P.total * 100) : '—'}) foram investidos em 2026.
@@ -139,7 +170,7 @@ tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:
       <div class="grid g2"><div><h2>Projeto em aberto · câmeras do estoque</h2>${tPlano}<div class="nota">Orçamento por loja do Plano e orçamento · câmera a ${R0(precoRef)} (gestão).</div></div><div><h2>Patrimônio por categoria</h2>${tCat}</div></div>
       <h2>Ocorrências de auditoria em aberto</h2>${tOc}
       <div class="nota">Fonte: módulo Segurança e CFTV · notas fiscais, inventário, manutenções, cobertura e cadastro oficial de lojas · ${notas}.</div>${rod(2)}</div>`;
-    return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório Executivo CFTV ${dBR(hoje())}</title><style>${CSS}</style></head><body>${pg1}${pg2}</body></html>`;
+    return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório Executivo CFTV ${dBR(hoje())}</title><style>${CSS(false)}</style></head><body>${pg1}${pg2}</body></html>`;
   }
 
   // logo oficial em base64 (funciona na impressão e no "Salvar como PDF" sem depender de rede)
@@ -151,14 +182,16 @@ tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:
     return LOGO;
   }
 
-  window.relatorioExecutivo = async function () {
+  async function imprimir(tipo, nome) {
     if (!S.painel) { toast('Aguarde o painel carregar.'); return; }
     let fr = document.getElementById('relExecFrame');
-    if (!fr) { fr = document.createElement('iframe'); fr.id = 'relExecFrame'; fr.title = 'Relatório executivo'; fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden'; document.body.appendChild(fr); }
-    const doc = fr.contentWindow.document; doc.open(); doc.write(html(await logo())); doc.close();
+    if (!fr) { fr = document.createElement('iframe'); fr.id = 'relExecFrame'; fr.title = 'Relatório'; fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden'; document.body.appendChild(fr); }
+    const doc = fr.contentWindow.document; doc.open(); doc.write(html(await logo(), tipo)); doc.close();
     await new Promise(r => { const im = doc.querySelector('img'); if (!im || im.complete) r(); else { im.onload = im.onerror = r; setTimeout(r, 2000); } });
     fr.contentWindow.focus(); fr.contentWindow.print();
-    sb.rpc('cftv_registrar', {p_acao: 'exportacao', p_tabela: 'relatorio', p_registro: 'Relatório executivo'}).then(() => {});
-  };
+    sb.rpc('cftv_registrar', {p_acao: 'exportacao', p_tabela: 'relatorio', p_registro: nome}).then(() => {});
+  }
+  window.relatorioExecutivo = () => imprimir('executivo', 'Relatório executivo');
+  window.relatorioPainel = () => imprimir('painel', 'Painel em PDF');
   window.__relExecHtml = html; // usado só para conferência
 })();
