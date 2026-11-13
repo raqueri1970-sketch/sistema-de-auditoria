@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<link rel="stylesheet" href="../seguranca-cftv/estilo.css?v=20261112">
+<link rel="stylesheet" href="../seguranca-cftv/estilo.css?v=20261113">
 <style>
 .lojas td.n b{color:var(--azul)}
 .barra{display:inline-block;height:8px;background:var(--azul2);border-radius:4px;vertical-align:middle;margin-right:6px}
@@ -92,7 +92,10 @@ async function entrar() {
   if (error) { $('lErr').textContent = 'Email ou senha incorretos.'; return; }
   iniciar();
 }
-async function sair() { await sb.auth.signOut(); location.reload(); }
+// Dentro do Portal (mesma sessão): "Sair" não pode deslogar o Portal inteiro — esconde o botão.
+const EMBUTIDO = (() => { try { return window.top !== window; } catch (e) { return true; } })();
+if (EMBUTIDO && NO_PORTAL) document.addEventListener('DOMContentLoaded', () => document.querySelectorAll('[onclick="sair()"]').forEach(b => b.style.display = 'none'));
+async function sair() { if (EMBUTIDO && NO_PORTAL) return; await sb.auth.signOut(); location.reload(); }
 
 async function carregar() {
   $('kpis').innerHTML = '<div class="card vazio">Carregando…</div>';
