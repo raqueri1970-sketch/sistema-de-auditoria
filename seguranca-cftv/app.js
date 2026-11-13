@@ -19,6 +19,7 @@ const nf = (v, d = 0) => v === null || v === undefined ? '—' : Number(v).toLoc
 const dBR = d => d ? String(d).substring(0, 10).split('-').reverse().join('/') : '—';
 const hoje = () => new Date().toISOString().slice(0, 10);
 const soma = (a, f) => a.reduce((s, x) => s + Number(f(x) || 0), 0);
+const dica = h => esc(String(h ?? '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()); // explicação do card só na dica (mouse)
 const chip = (t, c = '') => `<span class="chip ${c}">${esc(t)}</span>`;
 const nLoja = c => c === 0 ? 'CD' : c >= 900 ? String(c - 900).padStart(2, '0') : String(c);
 function toast(m, ms = 4500) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', ms); }
@@ -293,7 +294,7 @@ function rPatrimonio() {
   const pl = [...g.values()].sort((a, b) => b.v - a.v);
   const gc = Object.values(l.reduce((a, x) => { a[x.categoria] = a[x.categoria] || {c: x.categoria, q: 0, v: 0}; a[x.categoria].q += Number(x.qtd); a[x.categoria].v += Number(x.valor); return a; }, {})).sort((a, b) => b.v - a.v);
   const lojasOp = [...new Set([...S.ativas.keys(), ...P.linhas.map(x => x.loja)])].sort((a, b) => (a ?? 9999) - (b ?? 9999));
-  const card = (t, v, e, cls, acao) => `<div class="pn-card ${cls || ''}" ${acao ? `onclick="${acao}"` : ''}><div class="pn-t">${t}</div><div class="pn-v">${v}</div><div class="pn-e">${e}</div></div>`;
+  const card = (t, v, e, cls, acao) => `<div class="pn-card ${cls || ''}" title="${dica(e)}" ${acao ? `onclick="${acao}"` : ''}><div class="pn-t">${t}</div><div class="pn-v">${v}</div></div>`;
   $('conteudo').innerHTML = `
   <div class="info"><b>Como é calculado:</b> ${esc(P.regra)} Parque anterior: câmeras, gravadores (equivalentes de 16 canais) e HDs pelo preço de reposição vigente; demais itens pelo último preço pago.
     "Estimado" = câmeras pela ocupação média dos gravadores (${nf(P.ocupacao_media, 1)}%) onde a planilha não informou e 1 HD por gravador sem HD cadastrado. Data-base ${dBR(P.data_base)}.</div>
@@ -376,8 +377,9 @@ function rPainel() {
   const semLoja = soma((P.por_loja || []).filter(x => x.loja_codigo === null), x => x.valor), cd = soma((P.por_loja || []).filter(x => x.loja_codigo === 0), x => x.valor);
   const cmp = (txt, cls) => txt ? `<span class="pn-cmp ${cls || ''}">${txt}</span>` : '';
   const var_ = (a, b, inv) => { const v = pct(a - b, b); if (v === null || !isFinite(v)) return ''; const pior = inv ? v < 0 : v > 0; return cmp(`${v > 0 ? '▲' : '▼'} ${nf(Math.abs(v), 0)}%`, Math.abs(v) < 5 ? 'neu' : pior ? 'bad' : 'ok'); };
-  const card = o => `<div class="pn-card ${o.cls || ''}" tabindex="0" role="button" onclick="${o.acao}" onkeydown="if(event.key==='Enter'){${o.acao}}">
-      <div class="pn-t">${o.t}</div><div class="pn-v">${o.v}${o.c || ''}</div><div class="pn-e">${o.e}</div><div class="pn-b">${o.b}</div></div>`;
+  // card enxuto: título, número e data-base; a explicação fica na dica (passar o mouse) e no "Detalhes ›"
+  const card = o => `<div class="pn-card ${o.cls || ''}" tabindex="0" role="button" title="${dica(o.e)}" onclick="${o.acao}" onkeydown="if(event.key==='Enter'){${o.acao}}">
+      <div class="pn-t">${o.t}</div><div class="pn-v">${o.v}${o.c || ''}</div><div class="pn-b">${o.b}</div></div>`;
   const grupo = (t, s, cards) => `<section class="pn-g"><div class="pn-gt"><b>${t}</b><span>${s}</span></div><div class="pn-grid">${cards.join('')}</div></section>`;
   const alertas = [];
   if (fi.docs_conferir) alertas.push(`<b>${nf(fi.docs_conferir)} nota(s) · ${r0(fi.docs_conferir_valor)}</b> aguardam conferência — já estão somadas, mas loja ou natureza podem mudar. <a href="#" onclick="irPara('conferir');return false">Conferir agora ›</a>`);
@@ -387,23 +389,23 @@ function rPainel() {
   $('conteudo').innerHTML = `
   ${alertas.length ? `<div class="pn-alerta">${alertas.map(a => `<div>⚠ ${a}</div>`).join('')}</div>` : ''}
   ${grupo('O QUE A EMPRESA TEM HOJE', 'tudo instalado: investido em 2026 pelo custo + parque anterior a preço de hoje', [
-    card({t: 'Patrimônio em segurança', v: r0(P.total), e: `${r0(pb.compras_2026)} investidos em 2026 (custo real das notas, com cabo e instalação) + ${r0((pb.anterior_2026 || 0) + (pb.estimativa || 0))} do parque anterior a 2026 a preço de hoje.`, b: `${baseHoje} · CD ${r0(cd)} incluído`, acao: 'verPatrimonio()'}),
-    card({t: 'Câmeras em operação', v: nf(op.cameras_instaladas), c: lojas ? cmp(`${nf(op.cameras_instaladas / lojas, 1)} por loja`, 'neu') : '', e: `${nf(op.cameras_compradas)} compradas em 2026 (consideradas instaladas)${op.cameras_estimadas ? ` · ${nf(op.cameras_estimadas)} estimadas pelos canais ocupados` : ''}.`, b: `${nf(op.gravadores)} gravadores · ${nf(op.canais_livres)} canais livres · ${baseHoje}`, acao: "listaEq('Câmeras em operação', e => e.categoria === 'camera' && ['instalado','defeito','fora_operacao'].includes(e.situacao))"}),
-    card({t: 'Lojas com câmera no estoque', v: `${nf(cob)} de ${nf(lojas)}`, c: cmp(`${nf(pct(cob, lojas) || 0, 0)}%`, cob < lojas / 2 ? 'bad' : cob < lojas ? 'neu' : 'ok'), cls: cob < lojas / 2 ? 'bad' : '', e: `O estoque é onde mais some mercadoria. ${nf(op.lojas_cobertura_incompleta)} lojas com cobertura incompleta em alguma área.`, b: `${nf(op.lojas_estoque_avaliado)} lojas avaliadas · ${baseHoje}`, acao: "listaCob('Lojas com o estoque coberto', c => c.area === 'estoque' && c.situacao === 'coberta')"}),
+    card({t: 'Patrimônio em segurança', v: r0(P.total), e: `${r0(pb.compras_2026)} investidos em 2026 (custo real das notas, com cabo e instalação) + ${r0((pb.anterior_2026 || 0) + (pb.estimativa || 0))} do parque anterior a 2026 a preço de hoje.`, b: baseHoje, acao: 'verPatrimonio()'}),
+    card({t: 'Câmeras em operação', v: nf(op.cameras_instaladas), c: lojas ? cmp(`${nf(op.cameras_instaladas / lojas, 1)} por loja`, 'neu') : '', e: `${nf(op.cameras_compradas)} compradas em 2026 (consideradas instaladas)${op.cameras_estimadas ? ` · ${nf(op.cameras_estimadas)} estimadas pelos canais ocupados` : ''}.`, b: baseHoje, acao: "listaEq('Câmeras em operação', e => e.categoria === 'camera' && ['instalado','defeito','fora_operacao'].includes(e.situacao))"}),
+    card({t: 'Lojas com câmera no estoque', v: `${nf(cob)} de ${nf(lojas)}`, c: cmp(`${nf(pct(cob, lojas) || 0, 0)}%`, cob < lojas / 2 ? 'bad' : cob < lojas ? 'neu' : 'ok'), cls: cob < lojas / 2 ? 'bad' : '', e: `O estoque é onde mais some mercadoria. ${nf(op.lojas_cobertura_incompleta)} lojas com cobertura incompleta em alguma área.`, b: baseHoje, acao: "listaCob('Lojas com o estoque coberto', c => c.area === 'estoque' && c.situacao === 'coberta')"}),
     card({t: 'Equipamentos parados', v: nf(op.equipamentos_defeito), cls: op.equipamentos_defeito ? 'bad' : 'ok', e: op.equipamentos_defeito ? 'Com defeito ou fora de operação: a loja está sem gravação nesses pontos.' : 'Nenhum equipamento registrado com defeito ou fora de operação.', b: baseHoje, acao: "listaEq('Equipamentos parados', e => ['defeito','fora_operacao'].includes(e.situacao))"})
   ])}
   ${grupo('QUANTO FOI GASTO', 'notas conferidas e executadas; nenhuma despesa entra duas vezes', [
     card({t: 'Investido em 2026 (notas fiscais)', v: r0(investido), e: `Equipamentos ${r0(fi.aquisicao_equipamentos)} + instalação ${r0(fi.servicos_instalacao)}. Custo médio de ${r0(me.custo_medio_loja)} por loja que recebeu.`, b: baseNotas, acao: "listaDocs('Investido em 2026', d => ['aquisicao','instalacao'].includes(d.natureza))"}),
-    card({t: 'Manutenção', v: r0(fi.manutencao_total), c: mU && manMed ? var_(Number(mU.manutencao) || 0, manMed) : '', cls: 'warn', e: `${fi.evitavel_pct === null ? 'Sem manutenção no período.' : `${r0(fi.evitavel)} (${nf(fi.evitavel_pct, 0)}%) potencialmente evitável`} · reincidência ${r0(fi.reincidencia)}.${manMed ? ` Média de ${r0(manMed)} por mês com manutenção.` : ''}`, b: `${mU ? `último mês ${mU.mes.slice(5)}/${mU.mes.slice(0, 4)} × média · ` : ''}${baseNotas}`, acao: "listaMan('Manutenção', () => true)"}),
+    card({t: 'Manutenção', v: r0(fi.manutencao_total), c: mU && manMed ? var_(Number(mU.manutencao) || 0, manMed) : '', cls: 'warn', e: `${fi.evitavel_pct === null ? 'Sem manutenção no período.' : `${r0(fi.evitavel)} (${nf(fi.evitavel_pct, 0)}%) potencialmente evitável`} · reincidência ${r0(fi.reincidencia)}.${manMed ? ` Média de ${r0(manMed)} por mês com manutenção.` : ''}`, b: baseNotas, acao: "listaMan('Manutenção', () => true)"}),
     card({t: 'Monitoramento', v: r0(fi.monitoramento), e: 'Serviço mensal da central. Não é investimento nem manutenção — fica separado para não distorcer.', b: baseNotas, acao: "listaDocs('Monitoramento', d => d.natureza === 'monitoramento')", cls: 'neu'}),
     card({t: 'Preço pago por câmera', v: r0(me.custo_medio_camera), c: precoCam && me.custo_medio_camera ? var_(Number(me.custo_medio_camera), precoCam) : '', e: precoCam ? `Média das notas de compra × preço de hoje definido pela gestão (${r0(precoCam)}). Vermelho = pagamos acima.` : 'Média das notas de compra de câmeras.', b: baseNotas, acao: "listaItens('Câmeras compradas', i => i.categoria === 'camera')"})
   ])}
   <div class="pn-duo">
   ${grupo('O QUE FALTA INVESTIR', `único projeto em aberto · orçamento KGMlan · câmera a ${r0(precoCam)}`, [
-    card({t: 'Projeto em aberto: câmeras do estoque', v: r0(pl.total), cls: 'warn', e: `Único valor de orçamento do módulo: ${nf(pl.cameras)} câmeras novas em ${nf(pl.lojas)} lojas, conforme levantamento do estoque por loja. Equipamento ${r0(pl.equipamento_orcamento)}; o resto é cabo e mão de obra.`, b: `levantamento por loja · ${baseHoje}`, acao: "irPara('plano')"}),
+    card({t: 'Projeto em aberto: câmeras do estoque', v: r0(pl.total), cls: 'warn', e: `Único valor de orçamento do módulo: ${nf(pl.cameras)} câmeras novas em ${nf(pl.lojas)} lojas, conforme levantamento do estoque por loja. Equipamento ${r0(pl.equipamento_orcamento)}; o resto é cabo e mão de obra.`, b: baseHoje, acao: "irPara('plano')"}),
   ])}
   ${grupo('ONDE AGIR', 'o que precisa de decisão da Segurança ou da Diretoria', [
-    card({t: 'Ocorrências suspeitas', v: nf(p.auditoria.suspeita), c: p.auditoria.valor_suspeito ? cmp(r0(p.auditoria.valor_suspeito) + ' envolvidos', 'bad') : '', cls: p.auditoria.suspeita ? 'bad' : 'ok', e: `${nf(p.auditoria.pendente)} pendentes de análise · ${nf(p.auditoria.confirmada)} confirmadas. Regras: nota duplicada, recorrência, preço fora do padrão, loja sem equipamento.`, b: `auditoria automática · ${baseHoje}`, acao: "irPara('auditoria')"}),
+    card({t: 'Ocorrências suspeitas', v: nf(p.auditoria.suspeita), c: p.auditoria.valor_suspeito ? cmp(r0(p.auditoria.valor_suspeito) + ' envolvidos', 'bad') : '', cls: p.auditoria.suspeita ? 'bad' : 'ok', e: `${nf(p.auditoria.pendente)} pendentes de análise · ${nf(p.auditoria.confirmada)} confirmadas. Regras: nota duplicada, recorrência, preço fora do padrão, loja sem equipamento.`, b: baseHoje, acao: "irPara('auditoria')"}),
     card({t: 'Notas para conferir', v: nf(fi.docs_conferir), cls: fi.docs_conferir ? 'warn' : 'ok', e: fi.docs_conferir ? `${r0(fi.docs_conferir_valor)} em notas com loja ou natureza a confirmar manualmente.` : 'Todas as notas importadas já foram conferidas.', b: baseNotas, acao: "irPara('conferir')"})
   ])}
   </div>
@@ -1069,7 +1071,7 @@ async function rPagamentos() {
   const dup = linhas.filter(l => l.cls === 'bad'), semT = g('Sem título no financeiro'), difV = g('Valor diferente da NF');
   const totNF = soma(linhas, l => l.v), totPago = soma(linhas, l => l.pago), totAb = soma(linhas, l => l.aberto);
   const sobraPago = soma(sobras.filter(t => t.situacao === 'pago'), t => t.pago), sobraAb = soma(sobras.filter(t => t.situacao === 'aberto'), t => t.saldo);
-  const card = (t, v, e, cls, acao) => `<div class="pn-card ${cls || ''}" onclick="${acao}"><div class="pn-t">${t}</div><div class="pn-v">${v}</div><div class="pn-e">${e}</div><div class="pn-b">Sallamo consultado às ${PG.quando.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})} · vencimentos ${PG.periodo}</div></div>`;
+  const card = (t, v, e, cls, acao) => `<div class="pn-card ${cls || ''}" title="${dica(e)}" onclick="${acao}"><div class="pn-t">${t}</div><div class="pn-v">${v}</div><div class="pn-b">Sallamo consultado às ${PG.quando.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})} · vencimentos ${PG.periodo}</div></div>`;
   window._pgLin = linhas; window._pgSob = sobras;
   const COLS = [{t: 'NF', f: l => `<a href="#" onclick="verDoc(${l.d.id});return false">${esc(l.d.tipo)} ${esc(l.d.numero)}</a><div class="sub">${dBR(l.d.emissao)}</div>`},
     {t: 'Loja', f: l => esc(nomeLoja(l.d.loja_codigo))}, {t: 'Valor NF', n: 1, f: l => brl(l.v)},
