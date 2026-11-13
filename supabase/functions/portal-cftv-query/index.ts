@@ -64,7 +64,7 @@ export function categoria(q: string): string | null {
   if (/incendio|extintor/.test(q)) return 'incendio';
   return null;
 }
-const CAT: Record<string, string> = {camera: 'câmeras', dvr_nvr: 'DVR/NVR', hd: 'HDs', alarme_sensor: 'alarmes e sensores', perimetro: 'proteção perimetral', incendio: 'incêndio',
+const CAT: Record<string, string> = {instalacao: 'instalação', camera: 'câmeras', dvr_nvr: 'DVR/NVR', hd: 'HDs', alarme_sensor: 'alarmes e sensores', perimetro: 'proteção perimetral', incendio: 'incêndio',
   fonte_energia: 'fontes', rede_rack: 'switch/rack', cabeamento: 'cabeamento', conector_acessorio: 'conectores e acessórios', outro: 'outros', nao_informada: 'não informado'};
 
 // ---------- respostas ----------
@@ -80,8 +80,8 @@ async function responder(tok: string, pergunta: string) {
     const p = await pnl(lj ? {p_loja: lj} : {}); const pl = p.plano;
     return {...base, status_dados: 'OK', fonte: 'Plano de investimentos (cftv_plano) valorizado pela proposta KGMlan nº 1011040400 de 26/10/2026 e pelas premissas do módulo.',
       criterio: 'Câmeras = levantamento de necessidades por loja; gravador novo quando a necessidade passa dos canais livres; cabeamento = metros por câmera (premissa a validar) × preço do orçamento; mão de obra = R$/ponto das NFS-e de 2026.',
-      kpi_principal: {rotulo: 'Investimento previsto para completar a cobertura', valor: Number(pl.total), unidade: 'R$'},
-      resposta: `Para completar a cobertura${lj ? ' da ' + nLoja(lj) : ' da rede'} faltam ${num(pl.cameras)} câmeras em ${num(pl.lojas)} loja(s): ${brl(pl.total)} pelo orçamento vigente. ` +
+      kpi_principal: {rotulo: 'Projeto em aberto: câmeras novas do estoque', valor: Number(pl.total), unidade: 'R$'},
+      resposta: `O único projeto em aberto é o de câmeras novas para o estoque${lj ? ' da ' + nLoja(lj) : ''}: ${num(pl.cameras)} câmeras em ${num(pl.lojas)} loja(s), ${brl(pl.total)} pelo orçamento vigente. ` +
         `Equipamento ${brl(pl.equipamento_orcamento)} (câmeras ${brl(pl.cameras_valor)}, ${num(pl.gravadores)} gravador(es) com HD e power balun ${brl(pl.gravadores_valor)}, conectores ${brl(pl.conectores_valor)}), ` +
         `cabeamento ${brl(pl.cabeamento)} e mão de obra ${brl(pl.mao_obra)}.` + (pl.lojas_sem_canais_informados ? ` ${pl.lojas_sem_canais_informados} loja(s) sem canais livres informados foram calculadas com gravador novo.` : ''),
       dados: pl};
@@ -90,11 +90,11 @@ async function responder(tok: string, pergunta: string) {
   if (/patrimonio|quanto vale|valor (dos|de nossos|do nosso|dos nossos) (equipamentos|patrimonio)|valor de reposicao/.test(q)) {
     const pt = await rpc(tok, 'cftv_patrimonio', {p_loja: lj});
     const b = pt.por_base || {}, cats = (pt.por_categoria || []).slice(0, 4).map((x: any) => `${CAT[x.categoria] || x.categoria} ${brl(x.valor)} (${num(x.quantidade)})`).join('; ');
-    return {...base, status_dados: 'OK', fonte: 'Inventário do módulo (planilha por loja + compras de 2026 consideradas instaladas) valorizado pelos preços de hoje (cftv_patrimonio).',
-      criterio: pt.regra + ' Câmera e gravador pelo preço de reposição vigente; demais equipamentos pelo último preço pago; cabos e conectores não entram.',
-      kpi_principal: {rotulo: `Patrimônio em equipamentos${lj ? ' · ' + nLoja(lj) : ''} (preço de hoje)`, valor: Number(pt.total), unidade: 'R$'},
-      resposta: `O patrimônio em equipamentos de segurança${lj ? ' da ' + nLoja(lj) : ' da rede'}, a preço de reposição de hoje, é ${brl(pt.total)}: ` +
-        `${brl(Number(b.anterior_2026 || 0) + Number(b.estimativa || 0))} em equipamentos anteriores a 2026 e ${brl(b.compras_2026)} em compras de 2026. Principais itens: ${cats}. ` +
+    return {...base, status_dados: 'OK', fonte: 'Compras de 2026 pelo custo real das notas (conferidas e executadas) + parque anterior a 2026 a preço de reposição de hoje (cftv_patrimonio).',
+      criterio: pt.regra + ' Parque anterior: câmera, gravador e HD pelo preço de reposição vigente; demais itens pelo último preço pago.',
+      kpi_principal: {rotulo: `Patrimônio em segurança${lj ? ' · ' + nLoja(lj) : ''}`, valor: Number(pt.total), unidade: 'R$'},
+      resposta: `O patrimônio em segurança${lj ? ' da ' + nLoja(lj) : ' da rede'} é ${brl(pt.total)}: ` +
+        `${brl(b.compras_2026)} investidos em 2026 (custo real das notas, com cabo e instalação) e ${brl(Number(b.anterior_2026 || 0) + Number(b.estimativa || 0))} do parque anterior a 2026 a preço de reposição de hoje. Principais itens: ${cats}. ` +
         `${brl(pt.total_estimado)} vêm de quantidades estimadas (câmeras pela ocupação dos gravadores e HD dos gravadores antigos).` + (!lj && pt.sem_loja ? ` ${brl(pt.sem_loja)} estão em notas ainda sem loja definida.` : ''),
       dados: {total: pt.total, por_base: b, por_categoria: pt.por_categoria, por_loja: lj ? undefined : (pt.por_loja || []).slice(0, 10)}};
   }
