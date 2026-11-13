@@ -1,4 +1,5 @@
 -- CFTV · 13/11/2026 (c) — loja pelo NOME DO ARQUIVO da nota, conferida pelo CNPJ do destinatário (cada filial tem um CNPJ).
+-- Aplicada pela gestão no SQL Editor do Supabase em 13/11/2026 (sessão sem conexão direta ao banco). Conferência: supabase/verificacoes/cftv_conferencia_lojas.sql
 -- Loja 25 (Conde da Boa Vista, fechada) e divisão de Petrolina (34 Mix Mateus × 64 River) informadas pela gestão.
 -- Só muda quando arquivo e CNPJ apontam para a mesma loja (ou o arquivo é inequívoco e a nota é da matriz).
 with m(id, loja, motivo) as (values
