@@ -164,9 +164,9 @@ document.getElementById('abas').addEventListener('click', e => {
   S.aba = b.dataset.a; document.querySelectorAll('#abas button').forEach(x => x.classList.toggle('on', x === b)); render();
 });
 function render() {
-  const fn = {painel: rPainel, patrimonio: rPatrimonio, lojas: rLojas, importar: rImportar, conferir: rConferir, inventario: rInventario, cobertura: rCobertura, manutencao: rManutencao,
+  const fn = {painel: rPainel, patrimonio: rPatrimonio, pagamentos: rPagamentos, lojas: rLojas, importar: rImportar, conferir: rConferir, inventario: rInventario, cobertura: rCobertura, manutencao: rManutencao,
     auditoria: rAuditoria, plano: rPlano, relatorios: rRelatorios, acessos: rAcessos}[S.aba];
-  $('filtros').classList.toggle('hidden', ['importar', 'acessos', 'patrimonio'].includes(S.aba));
+  $('filtros').classList.toggle('hidden', ['importar', 'acessos', 'patrimonio', 'pagamentos'].includes(S.aba));
   $('conteudo').innerHTML = ''; fn();
 }
 
@@ -1000,6 +1000,105 @@ const RELATORIOS = {
       linhas: l, xls: l.map(p => ({Loja: nomeLoja(p.loja_codigo), Cameras: p.cameras, Gravadores: p.gravadores, Equipamento: mc(p).equipamento_orcamento, Cabeamento: mc(p).cabeamento, MaoObra: mc(p).mao_obra, Total: Number(p.valor_estimado)})),
       fonte: 'cftv_plano · preços da proposta KGMlan 1011040400 (26/10/2026) e premissas', total: brl(soma(l, p => p.valor_estimado))}; }],
 };
+// =====================================================================================================================
+// PAGAMENTOS × NOTAS — cruza o Contas a Pagar do Sallamo (mesma fonte da Auditoria Financeira) com as notas do CFTV.
+// Roda no navegador com o login do usuário (precisa de acesso à Auditoria Financeira). Nada é gravado.
+// =====================================================================================================================
+let PG = null;
+const pgTxt = (x, ks) => { for (const k of ks) if (x[k] != null && String(x[k]).trim()) return String(x[k]).trim(); return ''; };
+const pgChave = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
+  .replace(/\b(LTDA|ME|EPP|EIRELI|SA|S A|CIA|MEI|E|DE|DA|DO|DOS|DAS)\b/g, ' ').replace(/\s+/g, '');
+const pgNum = s => { const m = String(s || '').match(/\d+/g); return m ? m.map(x => String(Number(x))) : []; };
+const K_PG_DOC = ['numeroDocumento', 'documento', 'numeroNota', 'numeroNF', 'notaFiscal', 'nf', 'NF', 'numeroNf', 'duplicata', 'numeroDuplicata'];
+const K_PG_DESC = ['descricao', 'descrição', 'historico', 'histórico', 'observacao', 'observacoes', 'obs', 'complemento'];
+async function carregarPagamentos() {
+  const {data: {session}} = await sb.auth.getSession();
+  if (!session) throw new Error('Entre no Portal novamente.');
+  const r = await fetch(`${SB_URL}/functions/v1/financeiro-sallamo?dataInicio=2025-10-01&dataFim=2027-12-31`, {headers: {Authorization: 'Bearer ' + session.access_token, apikey: SB_KEY}});
+  const corpo = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? 'Seu usuário não tem acesso à Auditoria Financeira (Contas a Pagar do Sallamo).' : (corpo.erro || 'Falha ' + r.status));
+  const forn = [...new Set(S.docs.map(d => pgChave(d.fornecedor)).filter(Boolean))];
+  const T = (corpo.dados || []).map((x, i) => {
+    const doc = pgTxt(x, K_PG_DOC), desc = pgTxt(x, K_PG_DESC);
+    const nums = new Set([...pgNum(doc), ...(String(desc).match(/\bN\.?\s?F[\s\-ºo°.:]*\d+/gi) || []).flatMap(pgNum)]);
+    for (const k of Object.keys(x)) if (/(^|_)(nf|nota)/i.test(k) && !K_PG_DOC.includes(k)) pgNum(x[k]).forEach(n => nums.add(n));
+    const st = String(x.status || '').trim(), vp = Number(x.valorPago) || 0, sd = Number(x.saldo) || 0;
+    return {i, codigo: x.codigo, status: st, fornecedor: String(x.fornecedor || ''), chave: pgChave(x.fornecedor), doc, desc, nums: [...nums],
+      parcela: Number(x.valorParcela) || 0, pago: vp, saldo: sd, venc: String(x.vencimento || '').slice(0, 10), pagto: String(x.dataPagamento || '').slice(0, 10),
+      comp: String(x.competencia || '').slice(0, 10), conta: String(x.contaContabil || ''), cc: String(x.centroCusto || ''),
+      situacao: /cancel|renegoc|substitu|estorn|agrupad|exclu/i.test(st) ? 'ignorar' : vp > 0 && x.dataPagamento ? 'pago' : sd > 0 ? 'aberto' : 'outro'};
+  }).filter(t => t.situacao !== 'ignorar' && t.chave && forn.some(f => f.slice(0, 12) === t.chave.slice(0, 12)));
+  PG = {T, quando: new Date(), periodo: '01/10/2025 a 31/12/2027'};
+}
+function cruzarPagamentos() {
+  const T = PG.T, usados = new Set(), linhas = [];
+  const docs = S.docs.filter(d => d.status === 'ok' && ['aquisicao', 'instalacao', 'manutencao', 'monitoramento'].includes(d.natureza));
+  for (const d of docs) {
+    const ch = pgChave(d.fornecedor).slice(0, 12), n = pgNum(d.numero)[0] || null;
+    let ts = n ? T.filter(t => t.chave.slice(0, 12) === ch && t.nums.includes(n)) : [];
+    let modo = 'número da NF';
+    if (!ts.length) { // sem número: mesmo fornecedor, mesmo valor total no mesmo código de título, até 90 dias da emissão
+      const porCod = {}; for (const t of T) if (t.chave.slice(0, 12) === ch && !usados.has(t.i)) (porCod[t.codigo] = porCod[t.codigo] || []).push(t);
+      const ms = x => new Date(x + 'T12:00:00').getTime(), e = ms(d.emissao);
+      const c = Object.values(porCod).find(g => Math.abs(soma(g, t => t.parcela) - Number(d.valor_total)) <= 1 && g.some(t => Math.abs(ms(t.venc || t.comp) - e) <= 90 * 864e5));
+      if (c) { ts = c; modo = 'valor e data (título sem número de NF)'; }
+    }
+    ts.forEach(t => usados.add(t.i));
+    const cods = [...new Set(ts.map(t => t.codigo))], pago = soma(ts.filter(t => t.situacao === 'pago'), t => t.pago), aberto = soma(ts.filter(t => t.situacao === 'aberto'), t => t.saldo);
+    const lanc = soma(ts, t => t.parcela), v = Number(d.valor_total);
+    let sit, cls;
+    if (!ts.length) { sit = 'Sem título no financeiro'; cls = 'warn'; }
+    else if (pago > v + 1) { sit = 'Pago a mais / em duplicidade'; cls = 'bad'; }
+    else if (cods.length > 1 && lanc > v + 1) { sit = 'Lançada em mais de um título'; cls = 'bad'; }
+    else if (Math.abs(lanc - v) > 1) { sit = 'Valor diferente da NF'; cls = 'warn'; }
+    else if (aberto > 0) { sit = 'A pagar'; cls = 'neu'; }
+    else { sit = 'Paga — confere'; cls = 'ok'; }
+    linhas.push({d, ts, cods, pago, aberto, lanc, v, dif: Math.round((pago + aberto - v) * 100) / 100, sit, cls, modo});
+  }
+  const sobras = T.filter(t => !usados.has(t.i));
+  return {linhas, sobras};
+}
+async function rPagamentos() {
+  if (!PG) {
+    $('conteudo').innerHTML = '<div class="card vazio">Buscando o Contas a Pagar no Sallamo e cruzando com as notas do CFTV…</div>';
+    try { await carregarPagamentos(); } catch (e) { $('conteudo').innerHTML = `<div class="aviso">${esc(e.message)}</div>`; return; }
+    if (S.aba !== 'pagamentos') return;
+  }
+  const r0 = v => 'R$ ' + Math.round(Number(v) || 0).toLocaleString('pt-BR');
+  const {linhas, sobras} = cruzarPagamentos(), g = k => linhas.filter(l => l.sit === k);
+  const dup = linhas.filter(l => l.cls === 'bad'), semT = g('Sem título no financeiro'), difV = g('Valor diferente da NF');
+  const totNF = soma(linhas, l => l.v), totPago = soma(linhas, l => l.pago), totAb = soma(linhas, l => l.aberto);
+  const sobraPago = soma(sobras.filter(t => t.situacao === 'pago'), t => t.pago), sobraAb = soma(sobras.filter(t => t.situacao === 'aberto'), t => t.saldo);
+  const card = (t, v, e, cls, acao) => `<div class="pn-card ${cls || ''}" onclick="${acao}"><div class="pn-t">${t}</div><div class="pn-v">${v}</div><div class="pn-e">${e}</div><div class="pn-b">Sallamo consultado às ${PG.quando.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})} · vencimentos ${PG.periodo}</div></div>`;
+  window._pgLin = linhas; window._pgSob = sobras;
+  const COLS = [{t: 'NF', f: l => `<a href="#" onclick="verDoc(${l.d.id});return false">${esc(l.d.tipo)} ${esc(l.d.numero)}</a><div class="sub">${dBR(l.d.emissao)}</div>`},
+    {t: 'Loja', f: l => esc(nomeLoja(l.d.loja_codigo))}, {t: 'Valor NF', n: 1, f: l => brl(l.v)},
+    {t: 'Títulos no Sallamo', f: l => l.ts.length ? l.ts.map(t => `${esc(t.codigo)} · ${brl(t.parcela)} · ${t.situacao === 'pago' ? 'pago ' + dBR(t.pagto) : 'vence ' + dBR(t.venc)}`).join('<br>') + `<div class="sub">casado por ${l.modo}</div>` : '—'},
+    {t: 'Pago', n: 1, f: l => brl(l.pago)}, {t: 'A pagar', n: 1, f: l => brl(l.aberto)}, {t: 'Diferença', n: 1, f: l => l.ts.length ? `<b class="${l.dif > 1 ? 'tag-sens' : ''}">${brl(l.dif)}</b>` : '—'},
+    {t: 'Situação', f: l => chip(l.sit, l.cls)}];
+  const lista = (tit, ls) => abrirModal(tit, tabela(COLS, ls, {total: ['Total', '', brl(soma(ls, l => l.v)), '', brl(soma(ls, l => l.pago)), brl(soma(ls, l => l.aberto)), brl(soma(ls, l => l.dif)), '']}),
+    {nome: 'CFTV pagamentos x NF', linhas: ls.map(l => ({NF: l.d.numero, Tipo: l.d.tipo, Emissao: l.d.emissao, Loja: nomeLoja(l.d.loja_codigo), ValorNF: l.v, Titulos: l.cods.join(' / '), Pago: l.pago, APagar: l.aberto, Diferenca: l.dif, Situacao: l.sit, Casamento: l.modo}))});
+  window._pgLista = (k) => lista(k === 'todas' ? 'Todas as notas × pagamentos' : k === 'dup' ? 'Pago a mais ou em duplicidade' : k, k === 'todas' ? linhas : k === 'dup' ? dup : g(k));
+  window._pgSobras = () => abrirModal('Títulos dos fornecedores do CFTV sem NF no módulo', tabela([{t: 'Título', f: t => esc(t.codigo)}, {t: 'Fornecedor', f: t => esc(t.fornecedor)},
+    {t: 'Documento', f: t => esc(t.doc || '—') + (t.desc ? `<div class="sub">${esc(t.desc.slice(0, 90))}</div>` : '')}, {t: 'Valor', n: 1, f: t => brl(t.parcela)}, {t: 'Situação', f: t => t.situacao === 'pago' ? 'pago ' + dBR(t.pagto) : 'vence ' + dBR(t.venc)},
+    {t: 'Conta / centro', f: t => esc(t.conta) + `<div class="sub">${esc(t.cc)}</div>`}], sobras), {nome: 'Titulos sem NF CFTV', linhas: sobras.map(t => ({Titulo: t.codigo, Fornecedor: t.fornecedor, Documento: t.doc, Descricao: t.desc, Valor: t.parcela, Pago: t.pago, Saldo: t.saldo, Vencimento: t.venc, Pagamento: t.pagto, Conta: t.conta, CentroCusto: t.cc}))});
+  $('conteudo').innerHTML = `
+  <div class="info"><b>Como é feito:</b> busca no Sallamo (Contas a Pagar, a mesma base da Auditoria Financeira) todos os títulos <b>pagos e a pagar</b> dos fornecedores que aparecem nas notas do CFTV
+    e casa cada NF pelo <b>número da nota</b> no título; sem número, pelo mesmo valor total e data próxima. Renegociado, cancelado e estornado não contam. Nada é alterado no Sallamo nem no módulo.
+    <button class="btn peq" style="margin-left:8px" onclick="PG=null;rPagamentos()">Consultar de novo</button></div>
+  <section class="pn-g"><div class="pn-gt"><b>ONDE AGIR</b><span>o que pode ser dinheiro pago a mais</span></div><div class="pn-grid">
+    ${card('Pago a mais ou em duplicidade', `${nf(dup.length)} NF`, `${r0(soma(dup, l => Math.max(0, l.pago + l.aberto - l.v)))} acima do valor das notas (pago + a pagar).`, dup.length ? 'bad' : 'ok', "_pgLista('dup')")}
+    ${card('Valor do título diferente da NF', `${nf(difV.length)} NF`, `${r0(soma(difV, l => Math.abs(l.dif)))} de diferença somada.`, difV.length ? 'warn' : 'ok', "_pgLista('Valor diferente da NF')")}
+    ${card('NF sem título no financeiro', `${nf(semT.length)} NF`, `${r0(soma(semT, l => l.v))} em notas do CFTV que não aparecem no Contas a Pagar (ou estão com outro fornecedor/número).`, semT.length ? 'warn' : 'ok', "_pgLista('Sem título no financeiro')")}
+    ${card('Títulos sem NF no CFTV', `${nf(sobras.length)}`, `pagos ${r0(sobraPago)} · a pagar ${r0(sobraAb)} para esses fornecedores sem nota no módulo — conferir se é CFTV.`, sobras.length ? 'warn' : 'ok', '_pgSobras()')}
+  </div></section>
+  <section class="pn-g"><div class="pn-gt"><b>RESUMO</b><span>${nf(linhas.length)} notas do CFTV × ${nf(PG.T.length)} títulos dos mesmos fornecedores</span></div><div class="pn-grid">
+    ${card('Valor das NF do CFTV', r0(totNF), `${nf(linhas.length)} notas conferidas (compra, instalação, manutenção, monitoramento).`, '', "_pgLista('todas')")}
+    ${card('Já pago', r0(totPago), `${nf(g('Paga — confere').length)} notas pagas e conferindo com o valor.`, 'ok', "_pgLista('Paga — confere')")}
+    ${card('A pagar', r0(totAb), `${nf(g('A pagar').length)} notas com parcelas em aberto.`, 'neu', "_pgLista('A pagar')")}
+  </div></section>
+  <h2>Divergências</h2>${tabela(COLS, linhas.filter(l => l.cls !== 'ok' && l.sit !== 'A pagar').sort((a, b) => (b.cls === 'bad') - (a.cls === 'bad') || Math.abs(b.dif) - Math.abs(a.dif)), {vazio: 'Nenhuma divergência: todas as notas casam com os títulos.'})}`;
+}
 function rRelatorios() {
   $('conteudo').innerHTML = `<div class="info">Cada relatório traz período, filtros, fonte dos dados e data de atualização. "PDF" abre a impressão — escolha "Salvar como PDF".</div>
   <div class="grid">${Object.entries(RELATORIOS).map(([k, [t]]) => `<div class="card"><h3>${t}</h3><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn pri peq" onclick="abrirRel('${k}')">Ver</button><button class="btn peq" onclick="abrirRel('${k}',true)">PDF / imprimir</button><button class="btn peq" onclick="xlsRel('${k}')">Excel</button></div></div>`).join('')}</div>`;
