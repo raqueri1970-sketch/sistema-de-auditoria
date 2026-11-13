@@ -98,6 +98,8 @@ async function recarregar() {
     S.inativas = new Set(ativas.filter(a => !a.ativo).map(a => a.codigo));
     Object.assign(S, {docs, itens, eq, cob, man, oc, plano, prem});
     S.docPorId = new Map(docs.map(d => [d.id, d]));
+    // alerta "sem loja" que ficou para trás: a nota já tem loja (definida depois, pelo arquivo/CNPJ ou na Conferência)
+    for (const o of S.oc) if (o.ativo && o.regra === 'sem_loja' && (o.refs && o.refs.documentos || []).every(id => (S.docPorId.get(id) || {}).loja_codigo != null)) o.ativo = false;
     S.instPorItem = new Map();
     for (const e of eq) if (e.documento_item_id) S.instPorItem.set(e.documento_item_id, (S.instPorItem.get(e.documento_item_id) || 0) + e.quantidade);
     montarFiltros();
