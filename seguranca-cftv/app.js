@@ -1103,6 +1103,7 @@ async function rPagamentos() {
 }
 function rRelatorios() {
   $('conteudo').innerHTML = `<div class="info">Cada relatório traz período, filtros, fonte dos dados e data de atualização. "PDF" abre a impressão — escolha "Salvar como PDF".</div>
+  <div class="card" style="margin-bottom:12px"><h3>Relatório executivo (Diretoria)</h3><div class="sub" style="margin-bottom:8px">2 páginas A4: números principais, o que eles mostram, gasto mês a mês, decisões, projeto em aberto, patrimônio por categoria e ocorrências em aberto. Usa os filtros da tela.</div><button class="btn pri peq" onclick="relatorioExecutivo()">PDF / imprimir</button></div>
   <div class="grid">${Object.entries(RELATORIOS).map(([k, [t]]) => `<div class="card"><h3>${t}</h3><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn pri peq" onclick="abrirRel('${k}')">Ver</button><button class="btn peq" onclick="abrirRel('${k}',true)">PDF / imprimir</button><button class="btn peq" onclick="xlsRel('${k}')">Excel</button></div></div>`).join('')}</div>`;
 }
 function abrirRel(k, imprimir) {

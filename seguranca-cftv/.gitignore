@@ -8,3 +8,5 @@
 *.png
 *.jpg
 *.jpeg
+# exceção: logo oficial usada no Relatório executivo (arte pública, não é dado de auditoria)
+!logo-esposende.jpg
