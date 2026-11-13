@@ -364,6 +364,7 @@ function rPainel() {
     card({t: 'Monitoramento', v: r0(fi.monitoramento), e: 'Serviço mensal da central. Não é investimento nem manutenção — fica separado para não distorcer.', b: baseNotas, acao: "listaDocs('Monitoramento', d => d.natureza === 'monitoramento')", cls: 'neu'}),
     card({t: 'Preço pago por câmera', v: r0(me.custo_medio_camera), c: precoCam && me.custo_medio_camera ? var_(Number(me.custo_medio_camera), precoCam) : '', e: precoCam ? `Média das notas de compra × preço de hoje definido pela gestão (${r0(precoCam)}). Vermelho = pagamos acima.` : 'Média das notas de compra de câmeras.', b: baseNotas, acao: "listaItens('Câmeras compradas', i => i.categoria === 'camera')"})
   ])}
+  <div class="pn-duo">
   ${grupo('O QUE FALTA INVESTIR', `orçamento de referência KGMlan · câmera a ${r0(precoCam)}`, [
     card({t: 'Novos investimentos previstos', v: r0(pl.total), cls: 'warn', e: `${nf(pl.cameras)} câmeras em ${nf(pl.lojas)} lojas para fechar as áreas descobertas. Equipamento ${r0(pl.equipamento_orcamento)}; o resto é cabo e mão de obra.`, b: `levantamento por loja · ${baseHoje}`, acao: "irPara('plano')"}),
     card({t: 'Total do programa (feito + previsto)', v: r0(previsto), c: previsto ? cmp(`${nf(pct(Number(pl.total) || 0, previsto), 0)}% ainda a fazer`, 'neu') : '', e: `Já investido ${r0(investido)} + previsto ${r0(pl.total)}. Serve para acompanhar o orçamento do ano.`, b: baseHoje, acao: "irPara('plano')"})
@@ -372,6 +373,7 @@ function rPainel() {
     card({t: 'Ocorrências suspeitas', v: nf(p.auditoria.suspeita), c: p.auditoria.valor_suspeito ? cmp(r0(p.auditoria.valor_suspeito) + ' envolvidos', 'bad') : '', cls: p.auditoria.suspeita ? 'bad' : 'ok', e: `${nf(p.auditoria.pendente)} pendentes de análise · ${nf(p.auditoria.confirmada)} confirmadas. Regras: nota duplicada, recorrência, preço fora do padrão, loja sem equipamento.`, b: `auditoria automática · ${baseHoje}`, acao: "irPara('auditoria')"}),
     card({t: 'Notas para conferir', v: nf(fi.docs_conferir), cls: fi.docs_conferir ? 'warn' : 'ok', e: fi.docs_conferir ? `${r0(fi.docs_conferir_valor)} em notas com loja ou natureza a confirmar manualmente.` : 'Todas as notas importadas já foram conferidas.', b: baseNotas, acao: "irPara('conferir')"})
   ])}
+  </div>
   <section class="pn-g"><div class="pn-gt"><b>EVOLUÇÃO E RANKING</b><span>clique numa barra para ver as notas</span></div>
   <div class="g2">
     <div class="card"><h3>Gasto mês a mês</h3>${colunas(p.mensal, [{k: 'aquisicao', n: 'Equipamentos', cor: 'var(--s1)'}, {k: 'instalacao', n: 'Instalação', cor: 'var(--s2)'}, {k: 'manutencao', n: 'Manutenção', cor: 'var(--s3)'}, {k: 'monitoramento', n: 'Monitoramento', cor: 'var(--s5)'}])}
