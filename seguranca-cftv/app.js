@@ -297,9 +297,9 @@ function rPatrimonio() {
     "Estimado" = câmeras pela ocupação média dos gravadores (${nf(P.ocupacao_media, 1)}%) onde a planilha não informou e 1 HD por gravador sem HD cadastrado. Data-base ${dBR(P.data_base)}.</div>
   <div class="pn-grid" style="margin-top:12px">
     ${card('Patrimônio total', r0(tot), `${nf(soma(l, x => x.qtd))} itens`, '', "patSet('base','')")}
-    ${card('Investido em 2026 (custo real)', r0(pb('compras_2026')), 'equipamento, cabo, acessórios e instalação · notas conferidas e executadas', '', "patSet('base','compras_2026')")}
-    ${card('Parque anterior a 2026', r0(pb('anterior_2026') + pb('estimativa')), 'planilha por loja a preço de reposição de hoje', 'neu', "patSet('base','anterior_2026')")}
-    ${card('Parte estimada', r0(est), tot ? nf(est / tot * 100, 1) + '% do total — confirmar nas lojas' : '', 'warn', "patSet('base','estimativa')")}
+    ${card('Investido em 2026 (notas fiscais)', r0(pb('compras_2026')), 'custo real das NF-e/NFS-e emitidas: equipamento, cabo, acessórios e instalação', '', "patSet('base','compras_2026')")}
+    ${card('Parque anterior a 2026', r0(pb('anterior_2026') + pb('estimativa')), 'quantidades confirmadas pela gestão, a preço de reposição de hoje', 'neu', "patSet('base','anterior_2026')")}
+    ${est ? card('Parte estimada', r0(est), tot ? nf(est / tot * 100, 1) + '% do total — confirmar nas lojas' : '', 'warn', "patSet('base','estimativa')") : ''}
     ${card('Câmeras', nf(qc('camera')), r0(vc('camera')), '', "patSet('cat','camera')")}
     ${card('Gravadores', nf(qc('dvr_nvr')), r0(vc('dvr_nvr')), '', "patSet('cat','dvr_nvr')")}
     ${PF.loja === '' && P.sem_loja ? card('Em notas sem loja definida', r0(P.sem_loja), 'informe a loja dessas notas para aparecerem no ranking', 'bad', "patSet('loja','null')") : ''}
@@ -391,15 +391,14 @@ function rPainel() {
     card({t: 'Equipamentos parados', v: nf(op.equipamentos_defeito), cls: op.equipamentos_defeito ? 'bad' : 'ok', e: op.equipamentos_defeito ? 'Com defeito ou fora de operação: a loja está sem gravação nesses pontos.' : 'Nenhum equipamento registrado com defeito ou fora de operação.', b: baseHoje, acao: "listaEq('Equipamentos parados', e => ['defeito','fora_operacao'].includes(e.situacao))"})
   ])}
   ${grupo('QUANTO FOI GASTO', 'notas conferidas e executadas; nenhuma despesa entra duas vezes', [
-    card({t: 'Investido em 2026', v: r0(investido), c: previsto ? cmp(`${nf(pct(investido, previsto), 0)}% do previsto`, 'neu') : '', e: `Equipamentos ${r0(fi.aquisicao_equipamentos)} + instalação ${r0(fi.servicos_instalacao)}. Custo médio de ${r0(me.custo_medio_loja)} por loja que recebeu.`, b: baseNotas, acao: "listaDocs('Investido em 2026', d => ['aquisicao','instalacao'].includes(d.natureza))"}),
+    card({t: 'Investido em 2026 (notas fiscais)', v: r0(investido), e: `Equipamentos ${r0(fi.aquisicao_equipamentos)} + instalação ${r0(fi.servicos_instalacao)}. Custo médio de ${r0(me.custo_medio_loja)} por loja que recebeu.`, b: baseNotas, acao: "listaDocs('Investido em 2026', d => ['aquisicao','instalacao'].includes(d.natureza))"}),
     card({t: 'Manutenção', v: r0(fi.manutencao_total), c: mU && manMed ? var_(Number(mU.manutencao) || 0, manMed) : '', cls: 'warn', e: `${fi.evitavel_pct === null ? 'Sem manutenção no período.' : `${r0(fi.evitavel)} (${nf(fi.evitavel_pct, 0)}%) potencialmente evitável`} · reincidência ${r0(fi.reincidencia)}.${manMed ? ` Média de ${r0(manMed)} por mês com manutenção.` : ''}`, b: `${mU ? `último mês ${mU.mes.slice(5)}/${mU.mes.slice(0, 4)} × média · ` : ''}${baseNotas}`, acao: "listaMan('Manutenção', () => true)"}),
     card({t: 'Monitoramento', v: r0(fi.monitoramento), e: 'Serviço mensal da central. Não é investimento nem manutenção — fica separado para não distorcer.', b: baseNotas, acao: "listaDocs('Monitoramento', d => d.natureza === 'monitoramento')", cls: 'neu'}),
     card({t: 'Preço pago por câmera', v: r0(me.custo_medio_camera), c: precoCam && me.custo_medio_camera ? var_(Number(me.custo_medio_camera), precoCam) : '', e: precoCam ? `Média das notas de compra × preço de hoje definido pela gestão (${r0(precoCam)}). Vermelho = pagamos acima.` : 'Média das notas de compra de câmeras.', b: baseNotas, acao: "listaItens('Câmeras compradas', i => i.categoria === 'camera')"})
   ])}
   <div class="pn-duo">
   ${grupo('O QUE FALTA INVESTIR', `único projeto em aberto · orçamento KGMlan · câmera a ${r0(precoCam)}`, [
-    card({t: 'Projeto em aberto: câmeras do estoque', v: r0(pl.total), cls: 'warn', e: `${nf(pl.cameras)} câmeras novas em ${nf(pl.lojas)} lojas, conforme levantamento do estoque por loja. Equipamento ${r0(pl.equipamento_orcamento)}; o resto é cabo e mão de obra.`, b: `levantamento por loja · ${baseHoje}`, acao: "irPara('plano')"}),
-    card({t: 'Total do programa (feito + previsto)', v: r0(previsto), c: previsto ? cmp(`${nf(pct(Number(pl.total) || 0, previsto), 0)}% ainda a fazer`, 'neu') : '', e: `Já investido ${r0(investido)} + previsto ${r0(pl.total)}. Serve para acompanhar o orçamento do ano.`, b: baseHoje, acao: "irPara('plano')"})
+    card({t: 'Projeto em aberto: câmeras do estoque', v: r0(pl.total), cls: 'warn', e: `Único valor de orçamento do módulo: ${nf(pl.cameras)} câmeras novas em ${nf(pl.lojas)} lojas, conforme levantamento do estoque por loja. Equipamento ${r0(pl.equipamento_orcamento)}; o resto é cabo e mão de obra.`, b: `levantamento por loja · ${baseHoje}`, acao: "irPara('plano')"}),
   ])}
   ${grupo('ONDE AGIR', 'o que precisa de decisão da Segurança ou da Diretoria', [
     card({t: 'Ocorrências suspeitas', v: nf(p.auditoria.suspeita), c: p.auditoria.valor_suspeito ? cmp(r0(p.auditoria.valor_suspeito) + ' envolvidos', 'bad') : '', cls: p.auditoria.suspeita ? 'bad' : 'ok', e: `${nf(p.auditoria.pendente)} pendentes de análise · ${nf(p.auditoria.confirmada)} confirmadas. Regras: nota duplicada, recorrência, preço fora do padrão, loja sem equipamento.`, b: `auditoria automática · ${baseHoje}`, acao: "irPara('auditoria')"}),
