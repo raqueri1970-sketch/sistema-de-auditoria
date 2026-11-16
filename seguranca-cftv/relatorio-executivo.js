@@ -182,15 +182,57 @@ tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:
     return LOGO;
   }
 
-  async function imprimir(tipo, nome) {
-    if (!S.painel) { toast('Aguarde o painel carregar.'); return; }
+  // imprime um documento HTML completo num iframe oculto (só o relatório sai na impressão / PDF, nunca a tela do módulo)
+  async function imprimirDoc(conteudo, nome) {
     let fr = document.getElementById('relExecFrame');
     if (!fr) { fr = document.createElement('iframe'); fr.id = 'relExecFrame'; fr.title = 'Relatório'; fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden'; document.body.appendChild(fr); }
-    const doc = fr.contentWindow.document; doc.open(); doc.write(html(await logo(), tipo)); doc.close();
+    const doc = fr.contentWindow.document; doc.open(); doc.write(conteudo); doc.close();
     await new Promise(r => { const im = doc.querySelector('img'); if (!im || im.complete) r(); else { im.onload = im.onerror = r; setTimeout(r, 2000); } });
     fr.contentWindow.focus(); fr.contentWindow.print();
     sb.rpc('cftv_registrar', {p_acao: 'exportacao', p_tabela: 'relatorio', p_registro: nome}).then(() => {});
   }
+  async function imprimir(tipo, nome) {
+    if (!S.painel) { toast('Aguarde o painel carregar.'); return; }
+    await imprimirDoc(html(await logo(), tipo), nome);
+  }
+
+  // ---------------- relatórios em lista (aba Relatórios): mesmo padrão visual, quantas páginas forem precisas ----------------
+  const CSS_LISTA = pais => `@page{size:A4 ${pais ? 'landscape' : 'portrait'};margin:11mm 10mm 16mm}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,Helvetica,sans-serif;color:#1b2433;font-size:9.6px;-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff}
+.cab{display:flex;align-items:center;gap:14px;border-bottom:3px solid #14284a;padding-bottom:8px;margin-bottom:10px}.cab img{height:38px}.cab .tt{flex:1}
+.cab h1{margin:0;font-size:16px;color:#14284a}.cab .st{color:#5b6576;font-size:10px;margin-top:2px}
+.selo{background:#14284a;color:#fff;border-radius:6px;padding:5px 10px;font-size:9.5px;font-weight:700;letter-spacing:.04em;text-align:center;line-height:1.35}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin-bottom:8px}
+.k{border:1px solid #d6dce6;border-left:4px solid #1f5fbf;border-radius:7px;padding:6px 9px;background:#fbfcfe}.k .t{font-size:8.5px;color:#4a5466;font-weight:600;text-transform:uppercase;letter-spacing:.05em}.k .v{font-size:13px;font-weight:800;color:#14284a;margin-top:2px}
+.info{font-size:9px;color:#3b4558;line-height:1.5;border:1px solid #d6dce6;border-radius:7px;padding:6px 9px;margin-bottom:6px}.info b{color:#14284a}
+.obs{background:#fff4e0;border:1px solid #f0c36d;color:#7a3f04;border-radius:7px;padding:6px 9px;margin-bottom:8px;font-size:9px}
+table{width:100%;border-collapse:collapse;font-size:9px}thead{display:table-header-group}tfoot{display:table-row-group}
+th{background:#14284a;color:#fff;text-align:left;padding:5px 6px;font-weight:700}tfoot th{background:#dfe6f2;color:#14284a;border-top:2px solid #14284a}
+td{padding:4px 6px;border-bottom:1px solid #e3e7ee;vertical-align:top}tr{break-inside:avoid}tbody tr:nth-child(even) td{background:#f4f6fa}
+.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}a{color:inherit;text-decoration:none}.sub{color:#6b7587;font-size:8.5px}
+.chip{display:inline-block;font-size:8px;font-weight:700;border-radius:4px;padding:1px 6px;background:#e4ecf9;color:#1f4f9a;white-space:nowrap}
+.chip.ok{background:#dff3e7;color:#167a43}.chip.warn{background:#fdf0d2;color:#8a5d00}.chip.bad{background:#fbe3e1;color:#b0261f}.chip.neu{background:#eef0f4;color:#4a5466}
+.vazio{border:1px dashed #d6dce6;border-radius:7px;padding:16px;text-align:center;color:#6b7587}
+.fim{font-size:8.5px;color:#6b7587;margin-top:8px}
+.rod{margin-top:10px;font-size:8px;color:#6b7587;display:flex;justify-content:space-between;gap:10px;border-top:1px solid #d6dce6;padding-top:3px;break-inside:avoid}
+@media screen{body{background:#e9edf3}.folha{width:${pais ? 297 : 210}mm;margin:10px auto;background:#fff;padding:11mm 10mm 16mm;box-shadow:0 2px 10px rgba(0,0,0,.15)}}`;
+
+  function htmlLista(logo, tit, r) {
+    const gerado = new Date().toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'});
+    const n = (r.linhas || []).length, pais = r.cols.length > 6;
+    const meta = [['Registros', N0(n)], r.total ? ['Total', r.total] : null, ['Dados atualizados em', dBR((S.painel || {}).atualizado_em || hoje())], ['Emitido em', gerado]].filter(Boolean)
+      .map(([t, v]) => `<div class="k"><div class="t">${t}</div><div class="v">${v}</div></div>`).join('');
+    return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(tit)} ${dBR(hoje())}</title><style>${CSS_LISTA(pais)}</style></head><body><div class="folha">
+      <div class="cab"><img src="${logo}" alt="Esposende"><div class="tt"><h1>${esc(tit)}</h1><div class="st">Segurança Patrimonial e CFTV · Rede Esposende</div></div><div class="selo">AUDITORIA<br>&amp; CONTROLE</div></div>
+      <div class="meta">${meta}</div>
+      <div class="info"><b>Filtros:</b> ${esc(descFiltros())}<br><b>Fonte:</b> ${esc(r.fonte)}</div>
+      ${r.obs ? `<div class="obs">${esc(r.obs)}</div>` : ''}
+      ${tabela(r.cols, r.linhas || [], {total: r.totalLinha, vazio: 'Nenhum registro com os filtros atuais.'})}
+      <div class="fim">${N0(n)} registro(s) · emitido por ${esc(S.email)}.</div>
+      <div class="rod"><span>Esposende · Central de Auditoria &amp; Controle</span><span>${esc(tit)} · gerado em ${gerado}</span></div></div></body></html>`;
+  }
+  window.imprimirLista = async (tit, r) => { if (!S.painel) { toast('Aguarde o painel carregar.'); return; } await imprimirDoc(htmlLista(await logo(), tit, r), tit); };
+  window.__relListaHtml = htmlLista; // usado só para conferência
   window.relatorioExecutivo = () => imprimir('executivo', 'Relatório executivo');
   window.relatorioPainel = () => imprimir('painel', 'Painel em PDF');
   window.__relExecHtml = html; // usado só para conferência
