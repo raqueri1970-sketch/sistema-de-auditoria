@@ -979,28 +979,61 @@ async function situacaoPlano(id, s) { const {error} = await sb.from('cftv_plano'
 // =====================================================================================================================
 // RELATÓRIOS (PDF pela impressão, Excel e versão para impressão)
 // =====================================================================================================================
+// Cada relatório: colunas, linhas, Excel, fonte e — para os cards e a linha de total — cards [[título, valor, detalhe, destaque]] e totalLinha.
+const R0 = v => 'R$ ' + Math.round(Number(v) || 0).toLocaleString('pt-BR'); // card: R$ inteiro (centavos só na tabela)
+const qLojas = (l, f) => new Set(l.map(f).filter(c => c !== null && c !== undefined)).size;
 const RELATORIOS = {
-  inventario: ['Inventário completo por loja', () => ({cols: COL_EQ, linhas: eqF().sort((a, b) => a.loja_codigo - b.loja_codigo), xls: eqF().map(xlsEq), fonte: 'cftv_equipamentos (planilhas por loja, cadastro manual e instalações de notas)'})],
-  patrimonio: ['Patrimônio total da rede (investido em 2026 + parque anterior)', () => { const l = (S.pat || {}).linhas || [];
+  inventario: ['Inventário completo por loja', () => { const l = eqF().sort((a, b) => a.loja_codigo - b.loja_codigo), q = (f = () => true) => soma(l.filter(f), e => e.quantidade);
+    const val = soma(l, e => Number(e.quantidade || 0) * Number(e.custo_unit || 0)), semCusto = l.filter(e => e.custo_unit === null).length;
+    return {cols: COL_EQ, linhas: l, xls: l.map(xlsEq), fonte: 'cftv_equipamentos (planilhas por loja, cadastro manual e instalações de notas)',
+      cards: [['Lojas com equipamento', nf(qLojas(l, e => e.loja_codigo))], ['Equipamentos (unidades)', nf(q())], ['Câmeras', nf(q(e => e.categoria === 'camera'))],
+        ['Instalados', nf(q(e => e.situacao === 'instalado'))], ['Com defeito / fora de operação', nf(q(e => ['defeito', 'fora_operacao'].includes(e.situacao)))],
+        ['Valor pelo custo cadastrado', R0(val), semCusto ? `${nf(semCusto)} linha(s) sem custo cadastrado` : '', 1]],
+      totalLinha: [`Total · ${nf(qLojas(l, e => e.loja_codigo))} lojas`, '', '', '', nf(q()), '', '', '', '']}; }],
+  patrimonio: ['Patrimônio total da rede (investido em 2026 + parque anterior)', () => { const P = S.pat || {}, l = P.linhas || [], v = f => soma(l.filter(f), x => x.valor);
     return {cols: COL_PAT, linhas: l, xls: l.map(xlsPat), fonte: 'Compras de 2026 pelo custo real das notas (conferidas e executadas) + parque anterior a 2026 a preço de reposição de hoje (cftv_patrimonio)',
-      total: brl((S.pat || {}).total), obs: `Itens marcados "estimado" vêm da ocupação dos gravadores (planilha) ou de 1 HD por gravador. ${brl((S.pat || {}).sem_loja)} estão em notas sem loja definida.`}; }],
-  investimentos: ['Investimentos de 2026', () => { const l = docsF(d => ['aquisicao', 'instalacao'].includes(d.natureza)); return {cols: COL_DOC, linhas: l, xls: l.map(xlsDoc), fonte: 'Notas fiscais importadas (cftv_documentos)', total: brl(soma(l, d => d.valor_total))}; }],
-  manutencao_mensal: ['Despesas mensais de manutenção', () => { const l = S.painel.manutencao_mensal; return {cols: [{t: 'Mês', f: x => { const [a, m] = String(x.mes || '').split('-'); return m ? ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][m - 1] + '/' + a : esc(x.mes); }}, {t: 'Ocorrências', n: 1, f: x => x.qtd}, {t: 'Valor', n: 1, f: x => brl(x.valor)}], linhas: l, xls: l, fonte: 'cftv_manutencoes', total: brl(soma(l, x => x.valor))}; }],
-  ranking: ['Ranking de custos por loja', () => { const l = resumoLojas().filter(x => x.compras + x.instalacao + x.manutencao > 0).sort((a, b) => (b.compras + b.instalacao + b.manutencao) - (a.compras + a.instalacao + a.manutencao));
+      total: brl(P.total), obs: `Itens marcados "estimado" vêm da ocupação dos gravadores (planilha) ou de 1 HD por gravador. ${brl(P.sem_loja)} estão em notas sem loja definida.`,
+      cards: [['Lojas', nf(qLojas(l, x => x.loja))], ['Itens (unidades)', nf(soma(l, x => x.qtd))], ['Investido em 2026', R0(v(x => x.base === 'compras_2026'))],
+        ['Parque anterior a 2026', R0(v(x => x.base === 'anterior_2026'))], ['Estimativa', R0(v(x => x.base === 'estimativa'))], ['Patrimônio total', R0(P.total), '', 1]],
+      totalLinha: [`Total · ${nf(qLojas(l, x => x.loja))} lojas`, '', '', '', nf(soma(l, x => x.qtd)), '', brl(soma(l, x => x.valor)), '']}; }],
+  investimentos: ['Investimentos de 2026', () => { const l = docsF(d => ['aquisicao', 'instalacao'].includes(d.natureza)), v = n => soma(l.filter(d => d.natureza === n), d => d.valor_total);
+    return {cols: COL_DOC, linhas: l, xls: l.map(xlsDoc), fonte: 'Notas fiscais importadas (cftv_documentos)', total: brl(soma(l, d => d.valor_total)),
+      cards: [['Notas', nf(l.length)], ['Lojas', nf(qLojas(l, d => d.loja_codigo))], ['Fornecedores', nf(qLojas(l, d => d.fornecedor))], ['Equipamentos', R0(v('aquisicao'))], ['Instalação', R0(v('instalacao'))], ['Total investido', R0(soma(l, d => d.valor_total)), '', 1]],
+      totalLinha: [`Total · ${nf(l.length)} notas`, '', '', '', '', '', brl(soma(l, d => d.valor_total)), '']}; }],
+  manutencao_mensal: ['Despesas mensais de manutenção', () => { const l = S.painel.manutencao_mensal || [], t = soma(l, x => x.valor);
+    return {cols: [{t: 'Mês', f: x => { const [a, m] = String(x.mes || '').split('-'); return m ? ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][m - 1] + '/' + a : esc(x.mes); }}, {t: 'Ocorrências', n: 1, f: x => x.qtd}, {t: 'Valor', n: 1, f: x => brl(x.valor)}], linhas: l, xls: l, fonte: 'cftv_manutencoes', total: brl(t),
+      cards: [['Meses com gasto', nf(l.length)], ['Ocorrências', nf(soma(l, x => x.qtd))], ['Média por mês', R0(l.length ? t / l.length : 0)], ['Total de manutenção', R0(t), '', 1]],
+      totalLinha: ['Total', nf(soma(l, x => x.qtd)), brl(t)]}; }],
+  ranking: ['Ranking de custos por loja', () => { const l = resumoLojas().filter(x => x.compras + x.instalacao + x.manutencao > 0).sort((a, b) => (b.compras + b.instalacao + b.manutencao) - (a.compras + a.instalacao + a.manutencao)), t = k => soma(l, x => x[k]);
     return {cols: [{t: 'Loja', f: x => esc(x.nome)}, {t: 'Equipamentos', n: 1, f: x => brl(x.compras)}, {t: 'Instalação', n: 1, f: x => brl(x.instalacao)}, {t: 'Manutenção', n: 1, f: x => brl(x.manutencao)}, {t: 'Total', n: 1, f: x => brl(x.compras + x.instalacao + x.manutencao)}, {t: 'Câmeras', n: 1, f: x => nf(x.cameras)}],
-      linhas: l, xls: l.map(x => ({Loja: x.nome, Equipamentos: x.compras, Instalacao: x.instalacao, Manutencao: x.manutencao, Total: x.compras + x.instalacao + x.manutencao, Cameras: x.cameras})), fonte: 'cftv_documentos e cftv_manutencoes'}; }],
-  defeitos: ['Equipamentos com maior frequência de defeitos', () => { const g = {}; for (const m of manF()) { const k = (m.categoria || 'nao_informada'); g[k] = g[k] || {k, n: 0, v: 0, lojas: new Set()}; g[k].n++; g[k].v += Number(m.valor_total); g[k].lojas.add(m.loja_codigo); }
+      linhas: l, xls: l.map(x => ({Loja: x.nome, Equipamentos: x.compras, Instalacao: x.instalacao, Manutencao: x.manutencao, Total: x.compras + x.instalacao + x.manutencao, Cameras: x.cameras})), fonte: 'cftv_documentos e cftv_manutencoes',
+      cards: [['Lojas com gasto', nf(l.length)], ['Equipamentos', R0(t('compras'))], ['Instalação', R0(t('instalacao'))], ['Manutenção', R0(t('manutencao'))], ['Total geral', R0(t('compras') + t('instalacao') + t('manutencao')), '', 1]],
+      totalLinha: [`Total · ${nf(l.length)} lojas`, brl(t('compras')), brl(t('instalacao')), brl(t('manutencao')), brl(t('compras') + t('instalacao') + t('manutencao')), nf(t('cameras'))]}; }],
+  defeitos: ['Equipamentos com maior frequência de defeitos', () => { const g = {}, ms = manF(); for (const m of ms) { const k = (m.categoria || 'nao_informada'); g[k] = g[k] || {k, n: 0, v: 0, lojas: new Set()}; g[k].n++; g[k].v += Number(m.valor_total); g[k].lojas.add(m.loja_codigo); }
     const l = Object.values(g).sort((a, b) => b.n - a.n); return {cols: [{t: 'Equipamento', f: x => esc(CAT[x.k] || 'Não informado')}, {t: 'Ocorrências', n: 1, f: x => x.n}, {t: 'Lojas', n: 1, f: x => x.lojas.size}, {t: 'Custo', n: 1, f: x => brl(x.v)}], linhas: l,
-      xls: l.map(x => ({Equipamento: CAT[x.k] || 'Não informado', Ocorrencias: x.n, Lojas: x.lojas.size, Custo: x.v})), fonte: 'cftv_manutencoes'}; }],
-  estoque: ['Cobertura de câmeras nos estoques', () => { const l = [...S.ativas.keys()].sort((a, b) => a - b).map(c => ({c, x: S.cob.find(y => y.loja_codigo === c && y.area === 'estoque')}));
+      xls: l.map(x => ({Equipamento: CAT[x.k] || 'Não informado', Ocorrencias: x.n, Lojas: x.lojas.size, Custo: x.v})), fonte: 'cftv_manutencoes',
+      cards: [['Tipos de equipamento', nf(l.length)], ['Ocorrências', nf(ms.length)], ['Lojas com defeito', nf(qLojas(ms, m => m.loja_codigo))], ['Mais frequente', l.length ? esc(CAT[l[0].k] || 'Não informado') : '—', l.length ? `${nf(l[0].n)} ocorrência(s)` : ''], ['Custo total', R0(soma(l, x => x.v)), '', 1]],
+      totalLinha: ['Total', nf(ms.length), nf(qLojas(ms, m => m.loja_codigo)), brl(soma(l, x => x.v))]}; }],
+  estoque: ['Cobertura de câmeras nos estoques', () => { const l = [...S.ativas.keys()].sort((a, b) => a - b).map(c => ({c, x: S.cob.find(y => y.loja_codigo === c && y.area === 'estoque')})), sit = k => l.filter(r => r.x && r.x.situacao === k).length;
+    const falta = soma(l, r => r.x ? r.x.necessidade_cameras : 0), precisam = l.filter(r => r.x && Number(r.x.necessidade_cameras) > 0).length;
     return {cols: [{t: 'Loja', f: r => esc(nomeLoja(r.c))}, {t: 'Estoque', f: r => r.x ? chip(...SIT_COB[r.x.situacao]) : chip('sem dados', 'neu')}, {t: 'Faltam câmeras', n: 1, f: r => nf(r.x ? r.x.necessidade_cameras : null)}, {t: 'Levantamento', f: r => esc(((S.lojas.get(r.c) || {}).necessidade_texto) || '—')}],
-      linhas: l, xls: l.map(r => ({Loja: nomeLoja(r.c), Estoque: r.x ? SIT_COB[r.x.situacao][0] : 'sem dados', FaltamCameras: r.x ? r.x.necessidade_cameras : null, Levantamento: (S.lojas.get(r.c) || {}).necessidade_texto})), fonte: 'cftv_cobertura (levantamento de necessidades e avaliações da Segurança)'}; }],
-  evitaveis: ['Custos potencialmente evitáveis', () => { const l = manF(m => EVITAVEIS.includes(m.classificacao)); return {cols: COL_MAN, linhas: l, xls: l.map(xlsMan), fonte: 'cftv_manutencoes', total: brl(soma(l, m => m.valor_total)),
-    obs: 'Só entram ocorrências classificadas como dano acidental ou possível mau uso (este último somente com evidência suficiente).'}; }],
+      linhas: l, xls: l.map(r => ({Loja: nomeLoja(r.c), Estoque: r.x ? SIT_COB[r.x.situacao][0] : 'sem dados', FaltamCameras: r.x ? r.x.necessidade_cameras : null, Levantamento: (S.lojas.get(r.c) || {}).necessidade_texto})), fonte: 'cftv_cobertura (levantamento de necessidades e avaliações da Segurança)',
+      cards: [['Lojas ativas', nf(l.length)], ['Estoque coberto', nf(sit('coberta'))], ['Parcial', nf(sit('parcial'))], ['Sem cobertura', nf(sit('sem_cobertura'))], ['Sem dados / não avaliada', nf(l.filter(r => !r.x || r.x.situacao === 'nao_avaliada').length)], ['Lojas que precisam de câmera', nf(precisam), `${nf(falta)} câmera(s) faltando`, 1]],
+      totalLinha: [`Total · ${nf(l.length)} lojas`, '', nf(falta), '']}; }],
+  evitaveis: ['Custos potencialmente evitáveis', () => { const l = manF(m => EVITAVEIS.includes(m.classificacao));
+    return {cols: COL_MAN, linhas: l, xls: l.map(xlsMan), fonte: 'cftv_manutencoes', total: brl(soma(l, m => m.valor_total)),
+      obs: 'Só entram ocorrências classificadas como dano acidental ou possível mau uso (este último somente com evidência suficiente).',
+      cards: [['Ocorrências', nf(l.length)], ['Lojas', nf(qLojas(l, m => m.loja_codigo))], ['Dano acidental', nf(l.filter(m => m.classificacao === 'dano_acidental').length)], ['Possível mau uso', nf(l.filter(m => m.classificacao === 'possivel_mau_uso').length)], ['Custo evitável', R0(soma(l, m => m.valor_total)), '', 1]],
+      totalLinha: [`Total · ${nf(l.length)} ocorrências`, '', '', '', '', brl(soma(l, m => m.pecas)), brl(soma(l, m => m.mao_obra)), brl(soma(l, m => m.valor_total))]}; }],
   plano: ['Plano de investimentos futuros', () => { const l = S.plano.filter(p => ['planejado', 'aprovado'].includes(p.situacao) && S.ativas.has(p.loja_codigo)).sort((a, b) => b.valor_estimado - a.valor_estimado), mc = p => p.memoria_calculo || {};
+    const t = k => soma(l, p => mc(p)[k]), cam = soma(l, p => p.cameras), grav = soma(l, p => p.gravadores), tot = soma(l, p => p.valor_estimado);
     return {cols: [{t: 'Loja', f: p => esc(nomeLoja(p.loja_codigo))}, {t: 'Câmeras', n: 1, f: p => p.cameras}, {t: 'Gravadores', n: 1, f: p => p.gravadores}, {t: 'Equipamento', n: 1, f: p => brl(mc(p).equipamento_orcamento)}, {t: 'Cabeamento', n: 1, f: p => brl(mc(p).cabeamento)}, {t: 'Mão de obra', n: 1, f: p => brl(mc(p).mao_obra)}, {t: 'Total', n: 1, f: p => brl(p.valor_estimado)}],
       linhas: l, xls: l.map(p => ({Loja: nomeLoja(p.loja_codigo), Cameras: p.cameras, Gravadores: p.gravadores, Equipamento: mc(p).equipamento_orcamento, Cabeamento: mc(p).cabeamento, MaoObra: mc(p).mao_obra, Total: Number(p.valor_estimado)})),
-      fonte: 'cftv_plano · preços da proposta KGMlan 1011040400 (26/10/2026) e premissas', total: brl(soma(l, p => p.valor_estimado))}; }],
+      fonte: 'cftv_plano · preços da proposta KGMlan 1011040400 (26/10/2026) e premissas', total: brl(tot),
+      cards: [['Lojas que precisam', nf(qLojas(l, p => p.loja_codigo)), `de ${nf(S.ativas.size)} lojas ativas`], ['Câmeras', nf(cam), l.length ? `média de ${nf(cam / l.length, 1)} por loja` : ''], ['Gravadores', nf(grav)],
+        ['Equipamento', R0(t('equipamento_orcamento')), tot ? `${nf(t('equipamento_orcamento') / tot * 100)}% do total` : ''], ['Cabeamento', R0(t('cabeamento')), tot ? `${nf(t('cabeamento') / tot * 100)}% do total` : ''],
+        ['Mão de obra', R0(t('mao_obra')), tot ? `${nf(t('mao_obra') / tot * 100)}% do total` : ''], ['Total geral', R0(tot), l.length ? `média de ${R0(tot / l.length)} por loja` : '', 1]],
+      totalLinha: [`Total · ${nf(qLojas(l, p => p.loja_codigo))} lojas`, nf(cam), nf(grav), brl(t('equipamento_orcamento')), brl(t('cabeamento')), brl(t('mao_obra')), brl(tot)]}; }],
 };
 // =====================================================================================================================
 // PAGAMENTOS × NOTAS — cruza o Contas a Pagar do Sallamo (mesma fonte da Auditoria Financeira) com as notas do CFTV.
@@ -1122,14 +1155,16 @@ function rRelatorios() {
   <h2>Relatórios detalhados</h2>
   <div class="grid relg">${Object.entries(RELATORIOS).map(([k, [t]]) => card(t, DESC_REL[k] || '', `<button class="btn pri peq" onclick="abrirRel('${k}')">Ver</button><button class="btn peq" onclick="abrirRel('${k}',true)">PDF / imprimir</button><button class="btn peq" onclick="xlsRel('${k}')">Excel</button>`)).join('')}</div>`;
 }
+const relCards = r => r.cards ? `<div class="relk">${r.cards.map(([t, v, d, x]) => `<div class="relk-c${x ? ' destaque' : ''}"><div class="t">${t}</div><div class="v">${v}</div>${d ? `<div class="d">${d}</div>` : ''}</div>`).join('')}</div>` : '';
 function abrirRel(k, imprimir) {
   const [tit, fn] = RELATORIOS[k];
   let r; try { r = fn(); } catch (e) { toast('Não foi possível montar o relatório: ' + e.message, 7000); return; }
   if (imprimir) return imprimirLista(tit, r); // documento próprio: não imprime a tela do módulo
   abrirModal(tit, `<div class="rel"><div class="relcab"><div class="t">${esc(tit)} · Rede Esposende</div>
     <div class="m">${esc(descFiltros())} · Fonte: ${esc(r.fonte)} · Dados atualizados em ${dBR(S.painel.atualizado_em)} · Emitido em ${new Date().toLocaleString('pt-BR')} por ${esc(S.email)}</div>
-    ${r.obs ? `<div class="m">${esc(r.obs)}</div>` : ''}${r.total ? `<div class="m"><b>Total: ${r.total}</b></div>` : ''}</div>
-    <div class="noprint" style="margin:0 0 10px"><button class="btn pri peq" onclick="abrirRel('${k}',true)">PDF / imprimir</button></div>${tabela(r.cols, r.linhas)}</div>`, {nome: tit, linhas: r.xls});
+    ${r.obs ? `<div class="m">${esc(r.obs)}</div>` : ''}</div>
+    ${relCards(r)}
+    <div class="noprint" style="margin:0 0 10px"><button class="btn pri peq" onclick="abrirRel('${k}',true)">PDF / imprimir</button></div>${tabela(r.cols, r.linhas, {total: r.totalLinha})}</div>`, {nome: tit, linhas: r.xls});
   sb.rpc('cftv_registrar', {p_acao: 'exportacao', p_tabela: 'relatorio', p_registro: tit}).then(() => {});
 }
 function xlsRel(k) { const [tit, fn] = RELATORIOS[k], r = fn(); exportarXls(tit, r.xls); }
