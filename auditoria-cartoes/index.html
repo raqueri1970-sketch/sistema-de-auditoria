@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cartões Recorrentes — Auditoria</title>
+<style>
+:root{--bg:#071322;--card:#10243b;--line:#29425e;--tx:#eaf2ff;--mut:#9fb5cf;--alto:#e5484d;--medio:#e6ad4b;--baixo:#3b82c4;--ok:#2f9e6b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px system-ui,Arial}
+main{max-width:1200px;margin:auto;padding:20px 16px}h1{font-size:24px;margin:8px 0 4px}h2{font-size:17px;margin:24px 0 8px}
+.muted{color:var(--mut)}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.num{font-size:26px;font-weight:800;margin-top:4px}
+label{display:block;margin:8px 0 4px;color:var(--mut);font-size:12px}
+input,textarea,button,select{font:inherit;color:var(--tx);background:#0b1b2e;border:1px solid #3b6289;border-radius:8px;padding:8px 10px}
+textarea{width:100%;min-height:90px}button{background:#1a426c;cursor:pointer}button:hover{background:#235486}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--card)}td.n{text-align:right;font-variant-numeric:tabular-nums}
+.tbl{overflow:auto;max-height:520px}.pill{display:inline-block;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700;color:#fff}
+.ALTO{background:var(--alto)}.MÉDIO{background:var(--medio);color:#1b1300}.BAIXO{background:var(--baixo)}
+.why{font-size:12px;color:var(--mut)}details summary{cursor:pointer}
+.notice{background:#172b43;border:1px solid #38516c;padding:12px;border-radius:9px;line-height:1.5}
+@media print{body{background:#fff;color:#000}.noprint{display:none}.card{border-color:#999;background:#fff}th{background:#fff;color:#000}}
+</style>
+</head>
+<body>
+<main>
+<div class="row noprint" style="justify-content:space-between"><div><h1>💳 Cartões Recorrentes no PDV</h1>
+<div class="muted">Detecta o mesmo cartão pagando várias vendas de clientes diferentes — padrão de desvio de PIX / pagamento com cartão próprio do colaborador.</div></div>
+<button onclick="location.href='../index.html'">← Portal</button></div>
+
+<p class="notice noprint"><b>Como usar:</b> no SiTef Express → Relatórios → Transações, filtre a loja e o período (ideal: 60–90 dias), exporte em <b>CSV ou Excel</b> e carregue aqui. O arquivo é lido só no seu navegador; nada é enviado para servidor. Resultado é <b>indício para apuração</b> (cruzar com venda no Seta, vendedor, câmeras), não prova.</p>
+
+<div class="card noprint">
+ <div class="row">
+  <div><label>Arquivo do SiTef (CSV / XLSX)</label><input type="file" id="arq" accept=".csv,.txt,.xlsx,.xls"></div>
+  <div><label>Mín. usos no mesmo dia</label><input type="number" id="minDia" value="2" min="2" style="width:90px"></div>
+  <div><label>Mín. dias distintos</label><input type="number" id="minDias" value="3" min="1" style="width:90px"></div>
+  <div><label>Janela "em sequência" (min)</label><input type="number" id="janela" value="60" min="5" style="width:90px"></div>
+ </div>
+ <label>Lista de vigilância — cartões ou BINs suspeitos (um por linha). Ex.: <code>515497*8303</code> ou só o BIN <code>515535</code> (pega cartão virtual regerado com outro final)</label>
+ <textarea id="watch" placeholder="515497*8303&#10;515535"></textarea>
+ <label>Ou cole as linhas aqui (Data;Loja;Cartão;PDV;NSU;Valor — separador ; ou TAB)</label>
+ <textarea id="cola" placeholder="30/10/2026 19:00:45;80 - Salgueiro;515497******8303;00000004;003001552;R$ 143,99"></textarea>
+ <div class="row" style="margin-top:10px"><button id="go">Analisar</button><button id="csv">Exportar suspeitos (CSV)</button><button onclick="print()">Imprimir / PDF</button><span id="msg" class="muted"></span></div>
+</div>
+
+<div class="grid" id="kpis"></div>
+<h2>Ranking de cartões suspeitos</h2>
+<div class="card tbl"><table id="rank"><thead><tr><th>Risco</th><th>Cartão</th><th>Loja</th><th class="n">Transações</th><th class="n">Dias</th><th class="n">Máx/dia</th><th class="n">Total</th><th>PDVs</th><th>Período</th><th>Motivos</th></tr></thead><tbody></tbody></table></div>
+<h2>Detalhe das transações suspeitas</h2>
+<div class="card tbl"><table id="det"><thead><tr><th>Data/hora</th><th>Cartão</th><th>Loja</th><th>PDV</th><th>NSU Host</th><th class="n">Valor</th><th>Bandeira</th><th class="muted">Δ anterior</th></tr></thead><tbody></tbody></table></div>
+<p class="muted">Próximo passo para cada NSU: localizar a venda no Seta (vendedor, usuário do caixa, cliente, forma de pagamento e parcelas) e a imagem da câmera no horário exato.</p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+const $=s=>document.querySelector(s);let RAW=[],SUSP=[];
+const norm=s=>String(s??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+const brl=v=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+function num(v){if(typeof v==='number')return v;v=String(v??'').replace(/[^\d,.-]/g,'');if(v.includes(','))v=v.replace(/\./g,'').replace(',','.');return parseFloat(v)||0}
+function data(v){if(v instanceof Date)return v;if(typeof v==='number')return new Date(Math.round((v-25569)*864e5)+new Date().getTimezoneOffset()*6e4);
+ const m=String(v).match(/(\d{2})\/(\d{2})\/(\d{4})\D*(\d{2})?:?(\d{2})?:?(\d{2})?/);return m?new Date(+m[3],m[2]-1,+m[1],+(m[4]||0),+(m[5]||0),+(m[6]||0)):null}
+const COLS={data:['data','datahora','dataehora'],loja:['loja','estabelecimento'],cartao:['cartao','numerocartao','cartaomascarado'],pdv:['pdv','terminal'],nsu:['nsuhost','nsu','nsuautorizador'],valor:['valor','valortransacao'],rede:['rede'],produto:['produto','bandeira'],hora:['hora']};
+function mapear(rows){if(!rows.length)return[];const head=rows[0].map(norm);const idx={};
+ for(const[k,al]of Object.entries(COLS))idx[k]=head.findIndex(h=>al.includes(h));
+ if(idx.cartao<0||idx.data<0){ // sem cabeçalho: ordem padrão do relatório
+  return rows.map(r=>({data:r[0],loja:r[1],cartao:r[2],pdv:r[3],nsu:r[4],valor:r[5],produto:r[6]}));}
+ return rows.slice(1).map(r=>{const o={};for(const k in idx)o[k]=idx[k]>=0?r[idx[k]]:'';if(o.hora)o.data=String(o.data).slice(0,10)+' '+o.hora;return o})}
+function limpar(list){return list.map(o=>{const c=String(o.cartao||'').replace(/\s/g,'');const m=c.match(/^(\d{6})\D*(\d{4})$/);
+ return{dt:data(o.data),loja:String(o.loja||'').trim(),cartao:m?m[1]+'******'+m[2]:c,bin:m?m[1]:c.slice(0,6),fim:m?m[2]:c.slice(-4),pdv:String(o.pdv||'').replace(/^0+/,''),nsu:String(o.nsu||''),valor:num(o.valor),produto:String(o.produto||o.rede||'')}}).filter(o=>o.dt&&o.cartao.length>=8)}
+function watchlist(){return $('#watch').value.split(/\n/).map(s=>s.trim()).filter(Boolean).map(s=>{const d=s.replace(/\D/g,'');return d.length<=6?{bin:d}:{bin:d.slice(0,6),fim:d.slice(-4)}})}
+function analisar(){const minDia=+$('#minDia').value,minDias=+$('#minDias').value,jan=+$('#janela').value*6e4,W=watchlist();
+ const g={};for(const t of RAW){const k=t.cartao+'|'+t.loja;(g[k]=g[k]||[]).push(t)}
+ const res=[];for(const k in g){const L=g[k].sort((a,b)=>a.dt-b.dt);const dias={};L.forEach(t=>{const d=t.dt.toLocaleDateString('pt-BR');dias[d]=(dias[d]||0)+1});
+  const maxDia=Math.max(...Object.values(dias)),nDias=Object.keys(dias).length;let seq=0;for(let i=1;i<L.length;i++)if(L[i].dt-L[i-1].dt<=jan)seq++;
+  const pdvs=[...new Set(L.map(t=>t.pdv))];const vig=W.some(w=>w.bin===L[0].bin&&(!w.fim||w.fim===L[0].fim));
+  const diasRep=Object.values(dias).filter(v=>v>=minDia).length;let score=0,why=[];
+  if(vig){score+=50;why.push('na lista de vigilância')}
+  if(maxDia>=minDia){score+=10*maxDia;why.push(maxDia+'× no mesmo dia')}
+  if(diasRep>=2){score+=8*diasRep;why.push('repetição em '+diasRep+' dias')}
+  if(nDias>=minDias){score+=3*nDias;why.push('usado em '+nDias+' dias')}
+  if(seq){score+=4*seq;why.push(seq+' uso(s) em sequência ≤'+(jan/6e4)+'min')}
+  if(pdvs.length>1&&L.length>2){score+=5;why.push('vários PDVs')}
+  if(score<20&&!vig)continue;
+  res.push({L,cartao:L[0].cartao,loja:L[0].loja,n:L.length,nDias,maxDia,total:L.reduce((s,t)=>s+t.valor,0),pdvs,score,why,risco:score>=60||vig?'ALTO':score>=35?'MÉDIO':'BAIXO'})}
+ res.sort((a,b)=>b.score-a.score);SUSP=res;render(res)}
+function render(res){const alto=res.filter(r=>r.risco==='ALTO');const tot=alto.reduce((s,r)=>s+r.total,0);
+ $('#kpis').innerHTML=[['Transações lidas',RAW.length.toLocaleString('pt-BR')],['Cartões sinalizados',res.length],['Risco ALTO',alto.length],['Valor em risco ALTO',brl(tot)]].map(([a,b])=>`<div class="card"><small class="muted">${a}</small><div class="num">${b}</div></div>`).join('');
+ const e=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+ $('#rank tbody').innerHTML=res.map(r=>`<tr><td><span class="pill ${r.risco}">${r.risco}</span></td><td><b>${e(r.cartao)}</b></td><td>${e(r.loja)}</td><td class="n">${r.n}</td><td class="n">${r.nDias}</td><td class="n">${r.maxDia}</td><td class="n">${brl(r.total)}</td><td>${e(r.pdvs.join(', '))}</td><td>${r.L[0].dt.toLocaleDateString('pt-BR')} → ${r.L.at(-1).dt.toLocaleDateString('pt-BR')}</td><td class="why">${e(r.why.join(' · '))}</td></tr>`).join('')||'<tr><td colspan="10" class="muted">Nenhum padrão encontrado.</td></tr>';
+ const det=res.filter(r=>r.risco!=='BAIXO').flatMap(r=>r.L.map((t,i)=>({...t,d:i?Math.round((t.dt-r.L[i-1].dt)/6e4):null})));
+ $('#det tbody').innerHTML=det.map(t=>`<tr><td>${t.dt.toLocaleString('pt-BR')}</td><td>${e(t.cartao)}</td><td>${e(t.loja)}</td><td>${e(t.pdv)}</td><td>${e(t.nsu)}</td><td class="n">${brl(t.valor)}</td><td>${e(t.produto)}</td><td class="muted">${t.d==null?'':t.d<1440?t.d+' min':Math.round(t.d/1440)+' d'}</td></tr>`).join('');
+ $('#msg').textContent=RAW.length+' transações analisadas.'}
+async function ler(){let rows=[];const f=$('#arq').files[0];
+ if(f){if(/\.xlsx?$/i.test(f.name)){const wb=XLSX.read(await f.arrayBuffer(),{cellDates:true});rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:''})}
+  else{const t=await f.text();const sep=t.split('\n')[0].includes(';')?';':t.includes('\t')?'\t':',';rows=t.split(/\r?\n/).filter(l=>l.trim()).map(l=>l.split(sep).map(c=>c.replace(/^"|"$/g,'')))}}
+ const c=$('#cola').value.trim();if(c)rows=rows.concat(c.split(/\r?\n/).map(l=>l.split(/;|\t/)));
+ RAW=limpar(mapear(rows.filter(r=>r.some(x=>String(x).trim()))));analisar()}
+$('#go').onclick=()=>ler().catch(err=>$('#msg').textContent='Erro ao ler: '+err.message);
+$('#csv').onclick=()=>{const L=[['risco','cartao','loja','datahora','pdv','nsu','valor','motivos']];SUSP.forEach(r=>r.L.forEach(t=>L.push([r.risco,r.cartao,r.loja,t.dt.toLocaleString('pt-BR'),t.pdv,t.nsu,t.valor.toFixed(2).replace('.',','),r.why.join(' / ')])));
+ const b=new Blob(['﻿'+L.map(l=>l.map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(';')).join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='cartoes-suspeitos.csv';a.click()};
+</script>
+</body>
+</html>
