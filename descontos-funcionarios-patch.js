@@ -3,9 +3,9 @@
    que lê e grava a base em cmpaud_cargas (nuvem compartilhada: o que um usuário carrega, todos veem).
    O módulo antigo deixa de ser carregado: ele tentava trocar a base apagando todas as linhas de uma vez e o banco
    cancelava (limite de 8 s) — por isso a carga do Roberto não chegava para os outros usuários.
-   Uso no index.html do Portal: inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('descontos-funcionarios-patch.js?v=20261116-1',location.href).href+'"></scr'+'ipt>'); */
+   Uso no index.html do Portal: inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('descontos-funcionarios-patch.js?v=20261116-2',location.href).href+'"></scr'+'ipt>'); */
 (function(){
-  if(window.__dfPatch)return;window.__dfPatch='20261116-1';
+  if(window.__dfPatch)return;window.__dfPatch='20261116-2';
   var BASE=(function(){try{return new URL('./',document.currentScript.src).href}catch(e){return location.origin+'/portal-esposende-login/'}})();
   var URL_MOD=BASE+'descontos-funcionarios/index.html?v='+window.__dfPatch;
   function docs(w,a,p){if(p>4)return a;try{if(w.document)a.push(w.document)}catch(e){return a}for(var i=0;i<w.frames.length;i++)try{docs(w.frames[i],a,p+1)}catch(e){}return a}

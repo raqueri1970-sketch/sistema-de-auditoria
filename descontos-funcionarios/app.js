@@ -108,7 +108,7 @@ function usarBase(B) {
   $('fReg').innerHTML = '<option value="">Todas</option>' + X.regionais.map(r => `<option>${esc(r)}</option>`).join('');
   preencherLojas();
   $('fSit').innerHTML = '<option value="">Todos</option>' + Object.entries(DF.SIT).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
-  $('fCat').innerHTML = '<option value="">Todas (sem arredondamento)</option>' + Object.entries(DF.CAT).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
+  $('fCat').innerHTML = '<option value="">Todas (sem brinde/arredondamento)</option>' + Object.entries(DF.CAT).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
   statusTela(); aplicar();
 }
 function preencherLojas() {
@@ -144,7 +144,7 @@ function aplicar() {
   F = [];
   for (let i = 0; i < A.n; i++) {
     const c = A.cat[i];
-    if (cat ? c !== cat : (c === 'ARRED' || c === 'SEM_DESC')) continue;
+    if (cat ? c !== cat : (c === 'ARRED' || c === 'SEM_DESC' || c === 'BRINDE')) continue;
     if (C.data[i] < de || C.data[i] > ate) continue;
     if (loja >= 0 && C.loja[i] !== loja) continue;
     if (reg && X.lojaReg[C.loja[i]] !== reg) continue;
@@ -289,7 +289,7 @@ function cardsCalc() {
     const s = A.cli[C.cli[i]]; if (s.sit !== 'FUNC' && s.sit !== 'FUNC_PROV') continue;
     let x = fc.get(s.f); if (!x) { x = {f: s.f, nomes: new Set(), com: new Set(), sem: new Set(), linhas: [], desc: 0, bruto: 0}; fc.set(s.f, x); }
     x.nomes.add(C.cli[i]); x.linhas.push(i); x.bruto += C.preco[i];
-    if (A.cat[i] === 'ARRED' || A.cat[i] === 'SEM_DESC') x.sem.add(C.cod[i]); else { x.com.add(C.cod[i]); x.desc += C.desc[i]; }
+    if (A.cat[i] === 'ARRED' || A.cat[i] === 'SEM_DESC' || A.cat[i] === 'BRINDE') x.sem.add(C.cod[i]); else { x.com.add(C.cod[i]); x.desc += C.desc[i]; }
   }
   X.funcCli = [...fc.values()];
   const clientesId = new Set(X.todos.filter(i => A.cli[C.cli[i]].sit !== 'SEMNOME').map(i => C.cli[i])).size;
@@ -311,8 +311,8 @@ function cardsCalc() {
     {id: 'incomp', cls: 'neu', t: 'Nome incompleto / sem nome', n: brl0(s(incomp)), d: `${nf(pp(incomp))} clientes com 1–2 nomes: não dá para confirmar se é funcionário · ${nf(v(incomp))} vendas`, idx: incomp},
     {id: 'camp', cls: 'neu', t: 'Campanha Meias (não aponta)', n: brl0(s(camp)), d: `${nf(v(camp))} vendas com Meia Hoahi + calçado · separado das suspeitas`, cmp: comparar(camp), idx: camp}
   ];
-  const arred = X.todos.filter(i => A.cat[i] === 'ARRED');
-  X.arred = {n: arred.length, v: s(arred)};
+  const arred = X.todos.filter(i => A.cat[i] === 'ARRED'), brinde = X.todos.filter(i => A.cat[i] === 'BRINDE');
+  X.arred = {n: arred.length, v: s(arred), nb: brinde.length, vb: s(brinde)};
   $('cSusp').textContent = P.susp.filter(p => p.nivel === 'alto').length || '';
 }
 
@@ -436,7 +436,7 @@ function telaPainel(el) {
   const rgs = [...rg.entries()].sort((a, b) => b[1].d - a[1].d), maxR = Math.max(1, ...rgs.map(r => r[1].d));
   const top = P.susp.slice(0, 8);
   el.innerHTML = `<h2>Indicadores do período</h2><div class="df-cards">${K.map(cardHTML).join('')}</div>
-    ${X.arred.n ? `<div class="df-aviso warn" style="margin-top:12px">Desconsiderados <b>${nf(X.arred.n)}</b> itens com desconto de centavos sem percentual (arredondamento do caixa, total ${brl(X.arred.v)}) e excessos de até R$ 0,50 acima do limite de ${DF.LIMITE}%.</div>` : ''}
+    <div class="df-aviso warn" style="margin-top:12px">Desconsiderados: <b>${nf(X.arred.nb)}</b> itens Democrata com R$ 0,01 (brinde de carteira, ${brl(X.arred.vb)})${X.arred.n ? `, <b>${nf(X.arred.n)}</b> descontos de centavos sem percentual (arredondamento, ${brl(X.arred.v)})` : ''} e excessos de até R$ 0,50 acima do limite de ${DF.LIMITE}%.</div>
     <div class="df-grid2" style="margin-top:12px">
       <div class="card"><h2 style="margin-top:0">Desconto por mês (R$)</h2><div class="df-barras">${barras || '<div class="vazio">Sem dados</div>'}</div>
         <div class="df-leg">${grupos.map(g => `<span><i style="background:${g[1]}"></i>${g[0]}</span>`).join('')}</div></div>
@@ -609,7 +609,7 @@ function fichaFuncionario(k) {
   fichaHTML(A.B.func[k][1], 'FUNC', A.B.func[k], todas, p);
 }
 function fichaHTML(nome, sit, f, todas, p) {
-  const C = A.B.col, com = todas.filter(i => A.cat[i] !== 'ARRED' && A.cat[i] !== 'SEM_DESC'), sem = todas.filter(i => A.cat[i] === 'ARRED' || A.cat[i] === 'SEM_DESC');
+  const C = A.B.col, com = todas.filter(i => A.cat[i] !== 'ARRED' && A.cat[i] !== 'SEM_DESC' && A.cat[i] !== 'BRINDE'), sem = todas.filter(i => A.cat[i] === 'ARRED' || A.cat[i] === 'SEM_DESC' || A.cat[i] === 'BRINDE');
   const meses = [...new Set(com.map(i => X.mes[i]))].sort((a, b) => a - b);
   const vend = new Map(); com.forEach(i => vend.set(C.vend[i], (vend.get(C.vend[i]) || 0) + C.desc[i]));
   const corpo = () => `<div class="df-ficha">
@@ -706,7 +706,7 @@ function relatorioExecutivo() {
   const vend = P.suspVend.slice(0, 25);
   imprimir('Relatório executivo — Descontos de Funcionários', subRel(),
     `<div class="cards">${cards}</div>
-     <div class="av">Regras: limite de ${DF.LIMITE}% por item com tolerância de R$ 0,50; descontos de centavos sem percentual (arredondamento) desconsiderados (${nf(X.arred.n)} itens, ${brl(X.arred.v)}); campanha Meias (Meia Hoahi + calçado) separada. Funcionário identificado pelo nome no cadastro de Funcionários Ativos, aceitando erro de digitação e nome abreviado.</div>
+     <div class="av">Regras: limite de ${DF.LIMITE}% por item com tolerância de R$ 0,50; Democrata com R$ 0,01 = brinde de carteira, desconsiderado (${nf(X.arred.nb)} itens); outros centavos sem percentual = arredondamento (${nf(X.arred.n)} itens); campanha Meias (Meia Hoahi + calçado) separada. Funcionário identificado pelo nome no cadastro de Funcionários Ativos, aceitando erro de digitação e nome abreviado.</div>
      <h2>Pessoas com risco alto (${nf(P.susp.filter(p => p.nivel === 'alto').length)})</h2>${tabelaRelPessoas(susp)}
      <h2>Vendedores que concedem desconto a quem não é funcionário</h2>${tabelaRelGen(colsVend, vend)}
      <h2>Por loja</h2>${tabelaRelGen(colsLoja, P.lojas.slice().sort((a, b) => b.desc - a.desc))}`);

@@ -3,7 +3,8 @@
  *
  * Regras (Controladoria, 16/11/2026):
  *  - Limite do desconto de funcionário: 10% do item. Desconto até R$ 0,50 acima do limite é tolerado (arredondamento).
- *  - Desconto de centavos sem percentual (ex.: R$ 0,01 em produto de R$ 299,99) é arredondamento do caixa, não desconto.
+ *  - Item Democrata com R$ 0,01 de desconto (sem percentual) = brinde de carteira: desconsiderado (desconto tratado como zero).
+ *  - Outro desconto de centavos sem percentual é arredondamento do caixa, não desconto.
  *  - Venda com Meia Hoahi + calçado = Campanha Meias (não aponta): fica separada, não entra nas suspeitas.
  *  - Funcionário = nome no cadastro de Funcionários Ativos, aceitando erro de digitação ("RODIGUES" × "RODRIGUES")
  *    e nome abreviado ("MARIA DE FATIMA G DE OLIVEIRA"). Nome curto demais (2 palavras) não é confirmado.
@@ -170,7 +171,7 @@
     INCOMP: 'Nome incompleto (não confirmado)', TERC: 'Não é funcionário', SEMNOME: 'Cliente sem nome'
   };
   const CAT = {
-    ARRED: 'Arredondamento (centavos)', CAMP: 'Campanha Meias (não aponta)', FUNC_OK: 'Funcionário dentro do limite (10%)',
+    BRINDE: 'Brinde de carteira (Democrata) — desconsiderado', ARRED: 'Arredondamento (centavos)', CAMP: 'Campanha Meias (não aponta)', FUNC_OK: 'Funcionário dentro do limite (10%)',
     FUNC_ACIMA: 'Funcionário acima do limite', COLAB: 'Colaborador fora do cadastro', TERC: 'Desconto a não funcionário',
     INCOMP: 'Nome incompleto', SEMNOME: 'Cliente sem nome', SEM_DESC: 'Sem desconto'
   };
@@ -196,6 +197,7 @@
       return {nome, sit: 'TERC', f: -1, modo: m.modo};
     });
     // campanha Meias: venda com Meia Hoahi e com algum item que não é meia
+    const prodDemo = dic.prod.map(p => /^DEMOCRATA\b/.test(p));
     const prodMeia = dic.prod.map(p => /\bMEIAS?\b/.test(p)), prodHoahi = dic.prod.map(p => p.includes('HOAHI'));
     const vendaH = new Set(), vendaNM = new Set();
     for (let i = 0; i < n; i++) { if (prodHoahi[C.prod[i]]) vendaH.add(C.cod[i]); if (!prodMeia[C.prod[i]]) vendaNM.add(C.cod[i]); }
@@ -214,7 +216,7 @@
       if (autoVenda(C.cli[i], C.vend[i])) flags[i] |= 1;
       if (s.f >= 0 && (s.sit === 'FUNC' || s.sit === 'FUNC_PROV') && adm[s.f] && C.data[i] < adm[s.f]) flags[i] |= 2;
       if (d <= 0) { cat[i] = 'SEM_DESC'; continue; }
-      if (C.pct[i] < 1 && d <= TOL) { cat[i] = 'ARRED'; continue; }
+      if (C.pct[i] < 1 && d <= TOL) { cat[i] = prodDemo[C.prod[i]] ? 'BRINDE' : 'ARRED'; continue; }
       if (vendaH.has(C.cod[i]) && vendaNM.has(C.cod[i])) { cat[i] = 'CAMP'; continue; }
       const ex = d - p * LIMITE / 100;
       if (s.sit === 'FUNC' || s.sit === 'FUNC_PROV') { if (ex > TOL) { cat[i] = 'FUNC_ACIMA'; excesso[i] = r2(ex); } else cat[i] = 'FUNC_OK'; }
@@ -231,8 +233,8 @@
     return {i, data: `${dt.slice(6, 8)}/${dt.slice(4, 6)}/${dt.slice(0, 4)}`, dataN: C.data[i], venda: C.cod[i], loja: d.loja[C.loja[i]],
       cliente: d.cli[C.cli[i]], sit: s.sit, sitTxt: SIT[s.sit] || s.sit, cadastro: f && (s.sit === 'FUNC' || s.sit === 'FUNC_PROV') ? f[1] : '',
       cpf: f && (s.sit === 'FUNC' || s.sit === 'FUNC_PROV') ? f[2] : '', admissao: f ? f[4] : '',
-      vendedor: d.vend[C.vend[i]], produto: d.prod[C.prod[i]], qtd: C.qtd[i], preco: C.preco[i], pct: C.pct[i], desc: C.desc[i],
-      pago: r2(C.preco[i] - C.desc[i]), autorizador: d.aut[C.aut[i]] || '', obs: d.obs[C.obs[i]] || '', cat: A.cat[i], catTxt: CAT[A.cat[i]],
+      vendedor: d.vend[C.vend[i]], produto: d.prod[C.prod[i]], qtd: C.qtd[i], preco: C.preco[i], pct: C.pct[i], desc: A.cat[i] === 'BRINDE' ? 0 : C.desc[i],
+      pago: A.cat[i] === 'BRINDE' ? C.preco[i] : r2(C.preco[i] - C.desc[i]), autorizador: d.aut[C.aut[i]] || '', obs: d.obs[C.obs[i]] || '', cat: A.cat[i], catTxt: CAT[A.cat[i]],
       excesso: A.excesso[i], auto: !!(A.flags[i] & 1), antesAdm: !!(A.flags[i] & 2)};
   }
 
