@@ -1,0 +1,1711 @@
+From ea03aa175b9544136b7ff1b7d100f6dd4969192b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 16 Nov 2026 18:43:59 +0000
+Subject: [PATCH] =?UTF-8?q?Descontos=20de=20Funcion=C3=A1rios:=20nova=20ve?=
+ =?UTF-8?q?rs=C3=A3o=20do=20m=C3=B3dulo=20(base=20compartilhada=20na=20nuv?=
+ =?UTF-8?q?em,=20pesquisa=20inteligente,=20suspeitas,=20relat=C3=B3rios=20?=
+ =?UTF-8?q?com=20data=20e=20n=C2=BA=20da=20venda)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q1bK7z2T21qSMRm7yD1oWe
+---
+ descontos-funcionarios-patch.js           |  36 +
+ descontos-funcionarios/.gitignore         |  12 +
+ descontos-funcionarios/README.md          |  40 +
+ descontos-funcionarios/app.js             | 863 ++++++++++++++++++++++
+ descontos-funcionarios/estilo.css         | 128 ++++
+ descontos-funcionarios/index.html         |  90 +++
+ descontos-funcionarios/logo-esposende.jpg | Bin 0 -> 10808 bytes
+ descontos-funcionarios/nucleo.js          | 241 ++++++
+ index.html                                |   2 +
+ 9 files changed, 1412 insertions(+)
+ create mode 100644 descontos-funcionarios-patch.js
+ create mode 100644 descontos-funcionarios/.gitignore
+ create mode 100644 descontos-funcionarios/README.md
+ create mode 100644 descontos-funcionarios/app.js
+ create mode 100644 descontos-funcionarios/estilo.css
+ create mode 100644 descontos-funcionarios/index.html
+ create mode 100644 descontos-funcionarios/logo-esposende.jpg
+ create mode 100644 descontos-funcionarios/nucleo.js
+
+diff --git a/descontos-funcionarios-patch.js b/descontos-funcionarios-patch.js
+new file mode 100644
+index 0000000..9e04830
+--- /dev/null
++++ b/descontos-funcionarios-patch.js
+@@ -0,0 +1,36 @@
++/* Descontos de Funcionários — nova versão do módulo dentro do Portal (16/11/2026).
++   A página "Descontos de Funcionários" (pg-cmpaud) passa a mostrar a tela descontos-funcionarios/ (mesmo login do Portal),
++   que lê e grava a base em cmpaud_cargas (nuvem compartilhada: o que um usuário carrega, todos veem).
++   O módulo antigo deixa de ser carregado: ele tentava trocar a base apagando todas as linhas de uma vez e o banco
++   cancelava (limite de 8 s) — por isso a carga do Roberto não chegava para os outros usuários.
++   Uso no index.html do Portal: inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('descontos-funcionarios-patch.js?v=20261116-1',location.href).href+'"></scr'+'ipt>'); */
++(function(){
++  if(window.__dfPatch)return;window.__dfPatch='20261116-1';
++  var BASE=(function(){try{return new URL('./',document.currentScript.src).href}catch(e){return location.origin+'/portal-esposende-login/'}})();
++  var URL_MOD=BASE+'descontos-funcionarios/index.html?v='+window.__dfPatch;
++  function docs(w,a,p){if(p>4)return a;try{if(w.document)a.push(w.document)}catch(e){return a}for(var i=0;i<w.frames.length;i++)try{docs(w.frames[i],a,p+1)}catch(e){}return a}
++  function pagina(d){
++    var pg=d.getElementById('pg-cmpaud');if(pg)return pg;
++    var t=[].filter.call(d.querySelectorAll('.phtitle'),function(e){return /Descontos de Funcion/i.test(e.textContent||'')})[0];
++    return t?t.closest('.pg'):null;
++  }
++  function instalar(d){
++    var w=d.defaultView,pg=pagina(d);if(!pg)return;
++    // não carrega mais o módulo antigo
++    if(w.execMod&&!w.execMod.__df){var orig=w.execMod;w.execMod=function(pid){if(pid==='cmpaud')return;return orig.apply(this,arguments)};w.execMod.__df=1}
++    if(pg.querySelector('[data-df-frame]'))return;
++    [].forEach.call(pg.children,function(c){if(!c.classList.contains('ph'))c.style.display='none'});
++    var ph=pg.querySelector('.ph');
++    if(ph)[].forEach.call(ph.querySelectorAll('button'),function(b){if(!/Voltar/i.test(b.textContent||''))b.style.display='none'});
++    var f=d.createElement('iframe');f.setAttribute('data-df-frame','1');f.title='Descontos de Funcionários';
++    f.setAttribute('allow','clipboard-write; downloads');
++    f.style.cssText='display:block;width:100%;border:0;border-radius:12px;background:#070b16;height:calc(100vh - 150px);min-height:620px';
++    pg.appendChild(f);
++    var carregar=function(){if(!f.getAttribute('src'))f.setAttribute('src',URL_MOD)};
++    // carrega quando a página é aberta (não pesa a Visão Geral)
++    if(pg.classList.contains('on'))carregar();
++    new w.MutationObserver(function(){if(pg.classList.contains('on'))carregar()}).observe(pg,{attributes:true,attributeFilter:['class','style']});
++  }
++  function varrer(){docs(window,[],0).forEach(function(d){try{instalar(d)}catch(e){console.warn('[Portal] Descontos de Funcionários:',e)}})}
++  varrer();setInterval(varrer,1500);
++})();
+diff --git a/descontos-funcionarios/.gitignore b/descontos-funcionarios/.gitignore
+new file mode 100644
+index 0000000..b81dd60
+--- /dev/null
++++ b/descontos-funcionarios/.gitignore
+@@ -0,0 +1,12 @@
++# Dados de auditoria (planilhas, CPFs, vendas) nunca vão para o repositório público: ficam no Supabase.
++*.json
++*.xlsx
++*.xls
++*.csv
++*.CSV
++*.pdf
++*.png
++*.jpg
++*.jpeg
++# exceção: logo oficial dos relatórios (arte pública)
++!logo-esposende.jpg
+diff --git a/descontos-funcionarios/README.md b/descontos-funcionarios/README.md
+new file mode 100644
+index 0000000..5b8394a
+--- /dev/null
++++ b/descontos-funcionarios/README.md
+@@ -0,0 +1,40 @@
++# Descontos de Funcionários (módulo do Portal)
++
++Tela: `descontos-funcionarios/` — substitui, dentro do Portal, a página antiga "Descontos de Funcionários" (`pg-cmpaud`)
++pelo patch `descontos-funcionarios-patch.js`. Mesmo login do Portal; acesso para Administração, Controladoria e Compras
++(`portal_is_staff`).
++
++## Por que a base não atualizava para todos (16/11/2026)
++O módulo antigo trocava a base apagando as 54.249 linhas de `cmpaud_descontos` num único comando. Cada linha apagada
++dispara 3 gatilhos de backup e o comando passava do limite de 8 s do banco → cancelado ("⚠ Não sincronizado").
++Resultado: desde 10/08 nenhuma carga chegou à nuvem; quem carregava via a base só no próprio computador.
++
++Agora cada carga é um registro em `cmpaud_cargas` + partes compactadas (gzip/base64, ~400 KB) em `cmpaud_cargas_partes`
++(migração `supabase/migrations/20261116_cmpaud_cargas.sql`). Cada parte é um INSERT pequeno; a carga só vale para todos
++quando está completa (`cmpaud_ativar_carga`), a anterior fica no histórico e nada é apagado. A tela confere a nuvem a
++cada minuto e avisa "Nova base enviada por …". Pode-se enviar só o arquivo que mudou (ex.: só o cadastro de
++funcionários): o restante continua o da nuvem.
++
++## Arquivos aceitos (reconhecidos pelo conteúdo)
++- **Base de Descontos** (CSV/XLSX do sistema): REPORTGROUP, CODIGO (nº da venda), DATA, PRODUTOX, NOMECLIENTE, QUANTIDADE,
++  VPRECOITEM, VDESCITEM, PERCENTOX, AUTORIZADORX, VENDEDOR, OBS.
++- **Funcionários Ativos** (XLSX): Codigo, Nome, Cpf, Data Nascimento, Data Admissão.
++- **Regional** (XLSX): Filial, Regional, Tipo, UF.
++
++## Regras (nucleo.js — mesmo código no navegador e na conferência em Node)
++- Limite do desconto de funcionário: 10% do item; até **R$ 0,50 acima** do limite é tolerado.
++- Desconto de centavos sem percentual (ex.: R$ 0,01) = arredondamento do caixa, não é desconto.
++- Venda com Meia Hoahi + calçado = Campanha Meias (separada, não aponta).
++- Funcionário = nome no cadastro de ativos, aceitando erro de digitação ("JACKSON RODIGUES" = "JACKSON RODRIGUES") e nome
++  abreviado. Quem aparece como **vendedor** nas vendas mas não está na lista de ativos = "Colaborador fora do cadastro".
++  Nome com 1–2 palavras = "Nome incompleto" (não confirmado).
++- Sinais por pessoa (pontuação): não é funcionário, fora do cadastro, acima do limite, antes da admissão, volume de
++  possível revenda (≥10 pares/mês), 3+ unidades do mesmo produto numa venda, 4+ lojas, auto-venda constante,
++  desconto acumulado ≥ R$ 1.000. Alto ≥ 50 · Médio ≥ 30. Vendedores: quantos terceiros distintos receberam desconto dele.
++
++## Tela
++Cards inteligentes (clicam e abrem a composição, que soma o card), pesquisa inteligente (nome com erro, CPF, matrícula,
++vendedor, nº da venda, loja, regional, produto), fichas por pessoa e por vendedor (inclui compras sem desconto),
++abas Suspeitas · Por pessoa · Por vendedor · Por loja/regional · Lançamentos · Relatórios · Carregar arquivos.
++Todos os relatórios (impressão/PDF com a logo e Excel) trazem **data, nº da venda**, loja, quem recebeu, vendedor,
++produto, valores, % e liberação, com subtotal por pessoa e total geral, respeitando período, pesquisa e filtros.
+diff --git a/descontos-funcionarios/app.js b/descontos-funcionarios/app.js
+new file mode 100644
+index 0000000..824cafa
+--- /dev/null
++++ b/descontos-funcionarios/app.js
+@@ -0,0 +1,863 @@
++/* Descontos de Funcionários — tela do Portal Esposende.
++ * A base fica no Supabase (cmpaud_cargas + cmpaud_cargas_partes, compactada em partes pequenas): quem carrega
++ * os arquivos envia uma vez e todos os usuários passam a ver a mesma base (a tela confere a nuvem a cada minuto).
++ * Regras e cruzamento de nomes ficam em nucleo.js (mesmo código usado na conferência dos números).
++ */
++'use strict';
++const SB_URL = 'https://rdztzurfesnobfkazgpm.supabase.co';
++const SB_KEY = 'sb_publishable_4LHSO4TrP7F4m4tpJyH44g_BGmfC92h';
++const NO_PORTAL = /github\.io$/.test(location.hostname);
++const sb = supabase.createClient(SB_URL, SB_KEY, {auth: {persistSession: true, autoRefreshToken: true, ...(NO_PORTAL ? {} : {storageKey: 'df-auth'})}});
++const PARTE = 400000; // caracteres por parte (cada INSERT fica bem abaixo do limite de 8 s do banco)
++
++// ---------------- utilidades ----------------
++const $ = id => document.getElementById(id);
++const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
++const brl = v => Number(v || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
++const brl0 = v => 'R$ ' + Math.round(Number(v || 0)).toLocaleString('pt-BR');
++const nf = (v, d = 0) => Number(v || 0).toLocaleString('pt-BR', {minimumFractionDigits: d, maximumFractionDigits: d});
++const pct = (a, b) => b ? nf(a / b * 100, 1) + '%' : '—';
++const dBR = n => { const s = String(n); return s.length === 8 ? `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}` : s ? s.slice(0, 10).split('-').reverse().join('/') : '—'; };
++const iso2n = s => s ? +s.replace(/-/g, '') : 0;
++const n2iso = n => { const s = String(n); return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`; };
++const MESES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
++const mesRot = m => MESES[m % 100 - 1] + '/' + String(Math.floor(m / 100)).slice(2);
++const cpfF = c => c && c.length === 11 ? `${c.slice(0, 3)}.${c.slice(3, 6)}.${c.slice(6, 9)}-${c.slice(9)}` : (c || '—');
++const lojaNum = l => { const m = String(l).match(/^\s*0*(\d+)/); return m ? +m[1] : -1; };
++function toast(m, ms = 5000) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', ms); }
++function mostrar(v) { ['vLogin', 'vSem', 'vApp'].forEach(x => $(x).classList.toggle('hidden', x !== v)); }
++const soma = (arr, f) => { let s = 0; for (const x of arr) s += f(x); return s; };
++
++// ---------------- estado ----------------
++let CARGA = null;   // registro de cmpaud_cargas em uso
++let A = null;       // análise (nucleo.analisar)
++let X = null;       // índices auxiliares (regional da loja, meses…)
++let F = [];         // linhas que passam nos filtros
++let ABA = 'painel';
++let BUSCA = null;   // {tipo, valor, rotulo}
++const ORD = {};     // ordenação por tabela
++
++// ---------------- login ----------------
++async function entrar() {
++  $('lErr').textContent = '';
++  const {error} = await sb.auth.signInWithPassword({email: $('lEmail').value.trim().toLowerCase(), password: $('lSenha').value});
++  if (error) { $('lErr').textContent = /invalid/i.test(error.message) ? 'E-mail ou senha incorretos.' : error.message; return; }
++  iniciar();
++}
++async function iniciar() {
++  const {data: {session}} = await sb.auth.getSession();
++  if (!session) { mostrar('vLogin'); return; }
++  const st = await sb.rpc('portal_is_staff');
++  if (!st.error && st.data === false) { mostrar('vSem'); return; }
++  mostrar('vApp');
++  ligarTela();
++  await recarregarNuvem(false);
++  setInterval(conferirNovaCarga, 60000);
++}
++
++// ---------------- nuvem ----------------
++async function cargaAtiva() {
++  const r = await sb.from('cmpaud_cargas').select('*').eq('status', 'ativa').order('ativada_em', {ascending: false}).limit(1);
++  if (r.error) throw r.error; return r.data[0] || null;
++}
++function b64ParaBytes(b64) { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
++function bytesParaB64(u) { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); }
++async function gunzip(u) { return await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream('gzip'))).text(); }
++async function gzip(txt) { return new Uint8Array(await new Response(new Blob([txt]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer()); }
++
++async function baixarCarga(c) {
++  const partes = [];
++  for (let p = 0; p < c.partes; p += 4) { // até 4 partes por pedido (≈1,6 MB)
++    const r = await sb.from('cmpaud_cargas_partes').select('parte,dados').eq('carga_id', c.id).gte('parte', p).lt('parte', p + 4).order('parte');
++    if (r.error) throw r.error; partes.push(...r.data);
++  }
++  if (partes.length !== c.partes) throw new Error(`Base incompleta na nuvem (${partes.length} de ${c.partes} partes).`);
++  return JSON.parse(await gunzip(b64ParaBytes(partes.map(x => x.dados).join(''))));
++}
++async function recarregarNuvem(avisar) {
++  try {
++    statusTela('carregando');
++    const c = await cargaAtiva();
++    if (!c) { CARGA = null; A = null; statusTela(); abrirAba('carregar'); return; }
++    if (CARGA && CARGA.id === c.id && A) { CARGA = c; statusTela(); if (avisar) toast('A base já é a mais recente da nuvem.'); return; }
++    const B = await baixarCarga(c);
++    CARGA = c; usarBase(B);
++    if (avisar) toast('Base atualizada da nuvem.');
++  } catch (e) { console.error(e); statusTela(); avisoTopo('bad', 'Não foi possível ler a base da nuvem: ' + esc(e.message || e)); }
++}
++async function conferirNovaCarga() {
++  try {
++    const c = await cargaAtiva();
++    if (c && (!CARGA || c.id !== CARGA.id)) {
++      avisoTopo('warn', `<b>Nova base enviada</b> por ${esc(c.usuario || '—')} em ${new Date(c.ativada_em).toLocaleString('pt-BR')}. ` +
++        `<button class="btn peq pri" onclick="recarregarNuvem(true)">Atualizar agora</button>`, 'nova');
++    }
++  } catch (e) { /* silencioso: tenta de novo no próximo minuto */ }
++}
++
++// ---------------- base em memória ----------------
++function usarBase(B) {
++  A = DF.analisar(B);
++  const C = B.col, d = B.dic;
++  const reg = new Map(); for (const r of B.reg) reg.set(lojaNum(r[0]), r);
++  const lojaReg = d.loja.map(l => { const r = reg.get(lojaNum(l)); return r && r[1] ? r[1] : 'SEM REGIONAL'; });
++  let min = 99999999, max = 0; for (const x of C.data) { if (x < min) min = x; if (x > max) max = x; }
++  X = {lojaReg, min, max, mes: Int32Array.from(C.data, x => Math.floor(x / 100)), regionais: [...new Set(lojaReg)].sort()};
++  // filtros
++  $('fDe').value = n2iso(min); $('fAte').value = n2iso(max); $('fDe').min = $('fAte').min = n2iso(min); $('fDe').max = $('fAte').max = n2iso(max);
++  $('fReg').innerHTML = '<option value="">Todas</option>' + X.regionais.map(r => `<option>${esc(r)}</option>`).join('');
++  preencherLojas();
++  $('fSit').innerHTML = '<option value="">Todos</option>' + Object.entries(DF.SIT).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
++  $('fCat').innerHTML = '<option value="">Todas (sem arredondamento)</option>' + Object.entries(DF.CAT).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
++  statusTela(); aplicar();
++}
++function preencherLojas() {
++  const r = $('fReg').value, d = A.B.dic.loja;
++  const ls = d.map((l, i) => [l, i]).filter(([l, i]) => !r || X.lojaReg[i] === r).sort((a, b) => lojaNum(a[0]) - lojaNum(b[0]));
++  const atual = $('fLoja').value;
++  $('fLoja').innerHTML = '<option value="">Todas</option>' + ls.map(([l, i]) => `<option value="${i}">${esc(l)}</option>`).join('');
++  if (ls.some(([, i]) => String(i) === atual)) $('fLoja').value = atual;
++}
++
++// ---------------- filtros ----------------
++function casaBusca() {
++  if (!BUSCA) return null;
++  const C = A.B.col, d = A.B.dic, b = BUSCA;
++  if (b.tipo === 'cli') return i => C.cli[i] === b.valor;
++  if (b.tipo === 'vend') return i => C.vend[i] === b.valor;
++  if (b.tipo === 'loja') return i => C.loja[i] === b.valor;
++  if (b.tipo === 'reg') return i => X.lojaReg[C.loja[i]] === b.valor;
++  if (b.tipo === 'venda') return i => C.cod[i] === b.valor;
++  if (b.tipo === 'prod') return i => C.prod[i] === b.valor;
++  if (b.tipo === 'func') { const s = new Set(A.cli.map((c, k) => c.f === b.valor && (c.sit === 'FUNC' || c.sit === 'FUNC_PROV') ? k : -1).filter(k => k >= 0)); return i => s.has(C.cli[i]); }
++  // texto livre: cada palavra precisa aparecer em algum campo da linha
++  const ts = DF.norm(b.valor).split(' ').filter(Boolean);
++  const sets = ts.map(t => ({t, cli: new Set(), vend: new Set(), prod: new Set(), loja: new Set()}));
++  for (const s of sets) for (const k of ['cli', 'vend', 'prod', 'loja']) d[k].forEach((v, i) => { if (v.includes(s.t)) s[k].add(i); });
++  return i => sets.every(s => s.cli.has(C.cli[i]) || s.vend.has(C.vend[i]) || s.prod.has(C.prod[i]) || s.loja.has(C.loja[i]) || C.cod[i].includes(s.t));
++}
++function aplicar() {
++  if (!A) return;
++  const C = A.B.col, de = iso2n($('fDe').value) || 0, ate = iso2n($('fAte').value) || 99999999;
++  const reg = $('fReg').value, loja = $('fLoja').value === '' ? -1 : +$('fLoja').value, sit = $('fSit').value, cat = $('fCat').value;
++  const bq = casaBusca();
++  F = [];
++  for (let i = 0; i < A.n; i++) {
++    const c = A.cat[i];
++    if (cat ? c !== cat : (c === 'ARRED' || c === 'SEM_DESC')) continue;
++    if (C.data[i] < de || C.data[i] > ate) continue;
++    if (loja >= 0 && C.loja[i] !== loja) continue;
++    if (reg && X.lojaReg[C.loja[i]] !== reg) continue;
++    if (sit && A.cli[C.cli[i]].sit !== sit) continue;
++    if (bq && !bq(i)) continue;
++    F.push(i);
++  }
++  // mesmo recorte, mas com todas as classificações (para "funcionário comprando como cliente" e arredondamentos)
++  X.todos = [];
++  for (let i = 0; i < A.n; i++) {
++    if (C.data[i] < de || C.data[i] > ate) continue;
++    if (loja >= 0 && C.loja[i] !== loja) continue;
++    if (reg && X.lojaReg[C.loja[i]] !== reg) continue;
++    if (sit && A.cli[C.cli[i]].sit !== sit) continue;
++    if (bq && !bq(i)) continue;
++    X.todos.push(i);
++  }
++  calcular(); chipsAtivos(); desenhar();
++}
++function limparFiltros() {
++  BUSCA = null; $('busca').value = '';
++  $('fDe').value = n2iso(X.min); $('fAte').value = n2iso(X.max); $('fReg').value = ''; preencherLojas(); $('fLoja').value = ''; $('fSit').value = ''; $('fCat').value = '';
++  aplicar();
++}
++function chipsAtivos() {
++  const ch = [];
++  if (BUSCA) ch.push(['busca', '🔎 ' + BUSCA.rotulo]);
++  if ($('fReg').value) ch.push(['fReg', 'Regional: ' + $('fReg').value]);
++  if ($('fLoja').value) ch.push(['fLoja', 'Loja: ' + A.B.dic.loja[+$('fLoja').value]]);
++  if ($('fSit').value) ch.push(['fSit', DF.SIT[$('fSit').value]]);
++  if ($('fCat').value) ch.push(['fCat', DF.CAT[$('fCat').value]]);
++  $('ativos').innerHTML = `<span class="chip">Período: ${dBR($('fDe').value)} a ${dBR($('fAte').value)}</span>` +
++    ch.map(([k, t]) => `<span class="chip roxo">${esc(t)}<button title="Remover" onclick="tirarFiltro('${k}')">×</button></span>`).join('');
++}
++function tirarFiltro(k) { if (k === 'busca') { BUSCA = null; $('busca').value = ''; } else { $(k).value = ''; if (k === 'fReg') preencherLojas(); } aplicar(); }
++const periodoTxt = () => `${dBR($('fDe').value)} a ${dBR($('fAte').value)}`;
++function filtrosTxt() {
++  const p = [];
++  if (BUSCA) p.push('Pesquisa: ' + BUSCA.rotulo);
++  if ($('fReg').value) p.push('Regional: ' + $('fReg').value);
++  if ($('fLoja').value) p.push('Loja: ' + A.B.dic.loja[+$('fLoja').value]);
++  if ($('fSit').value) p.push(DF.SIT[$('fSit').value]);
++  if ($('fCat').value) p.push(DF.CAT[$('fCat').value]);
++  return p.join(' · ') || 'Sem filtros';
++}
++
++// ---------------- cálculos ----------------
++let P = null; // pessoas · V vendedores · L lojas · K cards
++function calcular() {
++  const C = A.B.col, d = A.B.dic;
++  // pessoas (beneficiários) — campanha não entra nas suspeitas
++  const pes = new Map();
++  for (const i of F) {
++    const c = C.cli[i]; let p = pes.get(c);
++    if (!p) { p = {c, nome: d.cli[c], s: A.cli[c], linhas: [], vendas: new Set(), lojas: new Set(), vends: new Set(), meses: new Set(), pares: 0, bruto: 0, desc: 0, camp: 0, exc: 0, nExc: 0, auto: new Set(), antes: 0, maxMesmo: 0, terc: 0}; pes.set(c, p); }
++    p.linhas.push(i);
++    if (A.cat[i] === 'CAMP') { p.camp += C.desc[i]; continue; }
++    p.vendas.add(C.cod[i]); p.lojas.add(C.loja[i]); p.vends.add(C.vend[i]); p.meses.add(X.mes[i]);
++    p.pares += C.qtd[i]; p.bruto += C.preco[i]; p.desc += C.desc[i];
++    if (A.excesso[i] > 0) { p.exc += A.excesso[i]; p.nExc++; }
++    if (A.flags[i] & 1) p.auto.add(C.cod[i]);
++    if (A.flags[i] & 2) p.antes++;
++  }
++  // mesmo produto várias unidades na mesma venda
++  for (const p of pes.values()) {
++    const m = new Map(); for (const i of p.linhas) { if (A.cat[i] === 'CAMP') continue; const k = C.cod[i] + '|' + C.prod[i]; m.set(k, (m.get(k) || 0) + C.qtd[i]); }
++    for (const v of m.values()) if (v > p.maxMesmo) p.maxMesmo = v;
++    pontuar(p);
++  }
++  // vendedores (quem concede)
++  const ven = new Map();
++  for (const i of F) {
++    if (A.cat[i] === 'CAMP') continue;
++    const v = C.vend[i]; let x = ven.get(v);
++    if (!x) { x = {v, nome: d.vend[v] || '(sem vendedor)', lojas: new Set(), vendas: new Set(), benef: new Set(), terc: new Set(), descTerc: 0, desc: 0, bruto: 0, auto: new Set(), nExc: 0, linhas: []}; ven.set(v, x); }
++    x.linhas.push(i); x.lojas.add(C.loja[i]); x.vendas.add(C.cod[i]); x.benef.add(C.cli[i]); x.desc += C.desc[i]; x.bruto += C.preco[i];
++    const s = A.cli[C.cli[i]].sit;
++    if (s === 'TERC' || s === 'COLAB' || s === 'INCOMP' || s === 'SEMNOME') { if (!(A.flags[i] & 1)) { x.terc.add(C.cli[i]); x.descTerc += C.desc[i]; } }
++    if (A.flags[i] & 1) x.auto.add(C.cod[i]);
++    if (A.excesso[i] > 0) x.nExc++;
++  }
++  for (const x of ven.values()) {
++    x.pontos = (x.terc.size >= 5 ? 40 : x.terc.size >= 3 ? 20 : x.terc.size ? 5 : 0) + (x.nExc ? 30 : 0) + (x.descTerc >= 500 ? 15 : 0);
++    x.nivel = x.pontos >= 50 ? 'alto' : x.pontos >= 25 ? 'medio' : x.pontos > 0 ? 'baixo' : '';
++  }
++  // lojas
++  const lj = new Map();
++  for (const i of F) {
++    const l = C.loja[i]; let x = lj.get(l);
++    if (!x) { x = {l, nome: d.loja[l], reg: X.lojaReg[l], linhas: [], vendas: new Set(), desc: 0, bruto: 0, func: 0, terc: 0, colab: 0, camp: 0, exc: 0, pessoas: new Set()}; lj.set(l, x); }
++    x.linhas.push(i); x.vendas.add(C.cod[i]); x.desc += C.desc[i]; x.bruto += C.preco[i]; x.pessoas.add(C.cli[i]);
++    const c = A.cat[i];
++    if (c === 'FUNC_OK' || c === 'FUNC_ACIMA') x.func += C.desc[i]; else if (c === 'CAMP') x.camp += C.desc[i]; else if (c === 'COLAB') x.colab += C.desc[i]; else x.terc += C.desc[i];
++    if (A.excesso[i] > 0) x.exc++;
++  }
++  P = {pes: [...pes.values()], ven: [...ven.values()], lojas: [...lj.values()]};
++  P.susp = P.pes.filter(p => p.nivel).sort((a, b) => b.pontos - a.pontos || b.desc - a.desc);
++  P.suspVend = P.ven.filter(x => x.nivel).sort((a, b) => b.pontos - a.pontos || b.descTerc - a.descTerc);
++  cardsCalc();
++}
++function pontuar(p) {
++  const m = [], s = p.s.sit, n = p.vendas.size, meses = Math.max(p.meses.size, 1), pm = p.pares / meses;
++  let pt = 0;
++  if (s === 'TERC' && n) { pt += n >= 5 ? 40 : 30; m.push(`Recebeu desconto sem ser funcionário (${n} compra${n > 1 ? 's' : ''})`); }
++  if (s === 'COLAB' && n) { pt += 30; m.push('Vende nas lojas (aparece como vendedor) mas não está no cadastro de Funcionários Ativos — confirmar vínculo'); }
++  if (s === 'INCOMP' && n >= 3) { pt += 10; m.push('Nome incompleto no cadastro do cliente: não dá para confirmar se é funcionário'); }
++  if (p.nExc) { pt += 30; m.push(`${p.nExc} item(ns) com desconto acima de ${DF.LIMITE}% (excesso ${brl(p.exc)}, já descontada a tolerância de R$ 0,50)`); }
++  if (p.antes) { pt += 30; m.push(`${p.antes} item(ns) comprados com desconto antes da data de admissão`); }
++  if (n && p.pares >= 15 && pm >= 10) { pt += 20; m.push(`Volume alto: ${nf(pm, 1)} pares por mês (possível revenda)`); }
++  else if (n && p.pares >= 12 && pm >= 6) { pt += 10; m.push(`Volume acima do comum: ${nf(pm, 1)} pares por mês`); }
++  if (p.maxMesmo >= 3) { pt += 15; m.push(`${nf(p.maxMesmo)} unidades do mesmo produto numa única venda`); }
++  if (p.lojas.size >= 4) { pt += 10; m.push(`Comprou com desconto em ${p.lojas.size} lojas diferentes`); }
++  if (n >= 10 && p.auto.size / n >= 0.8) { pt += 10; m.push(`Registra a própria venda em ${nf(p.auto.size / n * 100)}% das compras (sem segregação)`); }
++  if (p.desc >= 1000) { pt += 10; m.push(`Desconto acumulado alto: ${brl(p.desc)}`); }
++  p.pontos = pt; p.motivos = m; p.nivel = pt >= 50 ? 'alto' : pt >= 30 ? 'medio' : pt > 0 ? 'baixo' : '';
++}
++
++// cards inteligentes — título diz o número, base com data, comparação e composição ao clicar
++function serieMensal(idx, val = i => A.B.col.desc[i]) { const m = new Map(); for (const i of idx) m.set(X.mes[i], (m.get(X.mes[i]) || 0) + val(i)); return m; }
++function comparar(idx, val) {
++  const s = serieMensal(idx, val), meses = [...new Set(F.map(i => X.mes[i]).concat(X.todos.map(i => X.mes[i])))].sort((a, b) => a - b);
++  if (meses.length < 2) return null;
++  const ult = meses[meses.length - 1], ant = meses.slice(0, -1), media = soma(ant, m => s.get(m) || 0) / ant.length, v = s.get(ult) || 0;
++  const diaFim = X.max % 100, mesAberto = Math.floor(X.max / 100) === ult && diaFim < 28;
++  const ref = mesAberto ? media * diaFim / 30 : media;
++  if (!ref && !v) return null;
++  const p = ref ? (v - ref) / ref * 100 : 100;
++  return {txt: `${mesRot(ult)}${mesAberto ? ' (até dia ' + diaFim + ')' : ''}: ${val === undefined ? brl0(v) : nf(v)} · ${p >= 0 ? '▲' : '▼'} ${nf(Math.abs(p))}% vs média${mesAberto ? ' proporcional' : ''}`, cls: Math.abs(p) < 5 ? 'eq' : p > 0 ? 'up' : 'down'};
++}
++let K = [];
++function cardsCalc() {
++  const C = A.B.col, por = cat => F.filter(i => A.cat[i] === cat);
++  const real = F.filter(i => A.cat[i] !== 'CAMP');
++  const func = F.filter(i => A.cat[i] === 'FUNC_OK' || A.cat[i] === 'FUNC_ACIMA');
++  const exc = F.filter(i => A.excesso[i] > 0), terc = por('TERC'), colab = por('COLAB'), camp = por('CAMP'), incomp = F.filter(i => A.cat[i] === 'INCOMP' || A.cat[i] === 'SEMNOME');
++  const auto = real.filter(i => A.flags[i] & 1), antes = real.filter(i => A.flags[i] & 2);
++  const semAut = real.filter(i => !A.B.dic.aut[C.aut[i]]);
++  const revenda = P.pes.filter(p => p.motivos.some(m => /possível revenda|mesmo produto/.test(m)));
++  // clientes que são funcionários (todo o recorte, com e sem desconto)
++  const fc = new Map();
++  for (const i of X.todos) {
++    const s = A.cli[C.cli[i]]; if (s.sit !== 'FUNC' && s.sit !== 'FUNC_PROV') continue;
++    let x = fc.get(s.f); if (!x) { x = {f: s.f, nomes: new Set(), com: new Set(), sem: new Set(), linhas: [], desc: 0, bruto: 0}; fc.set(s.f, x); }
++    x.nomes.add(C.cli[i]); x.linhas.push(i); x.bruto += C.preco[i];
++    if (A.cat[i] === 'ARRED' || A.cat[i] === 'SEM_DESC') x.sem.add(C.cod[i]); else { x.com.add(C.cod[i]); x.desc += C.desc[i]; }
++  }
++  X.funcCli = [...fc.values()];
++  const clientesId = new Set(X.todos.filter(i => A.cli[C.cli[i]].sit !== 'SEMNOME').map(i => C.cli[i])).size;
++  const soSem = X.funcCli.filter(x => x.sem.size && !x.com.size).length, ambos = X.funcCli.filter(x => x.sem.size && x.com.size).length;
++  const s = idx => soma(idx, i => C.desc[i]), v = idx => new Set(idx.map(i => C.cod[i])).size, pp = idx => new Set(idx.map(i => C.cli[i])).size;
++  const base = `base até ${dBR(X.max)}`;
++  K = [
++    {id: 'total', cls: 'neu', t: 'Desconto concedido no período', n: brl0(s(F)), d: `${nf(v(F))} vendas · ${nf(pp(F))} beneficiários · inclui campanha Meias (${brl0(s(camp))})`, cmp: comparar(F), idx: F},
++    {id: 'funccli', cls: 'roxo', t: 'Clientes que são funcionários', n: nf(X.funcCli.length), d: `de ${nf(clientesId)} clientes com nome no período · ${nf(X.funcCli.length - soSem - ambos)} só com desconto de funcionário · ${nf(soSem + ambos)} compraram também sem o desconto (como cliente comum)`, base: 'cruzamento por nome com o cadastro de Funcionários Ativos (aceita grafia diferente)', abrir: abrirFuncCli},
++    {id: 'func', cls: 'ok', t: `Desconto a funcionários (até ${DF.LIMITE}%)`, n: brl0(s(func)), d: `${nf(v(func))} vendas · ${nf(pp(func))} funcionários · ${pct(s(func), s(real))} do desconto fora da campanha`, cmp: comparar(func), idx: func},
++    {id: 'exc', cls: exc.length ? 'bad' : 'ok', t: `Acima do limite de ${DF.LIMITE}% (tolerância R$ 0,50)`, n: nf(exc.length) + ' itens', d: `excesso ${brl(soma(exc, i => A.excesso[i]))} · desconto total ${brl(s(exc))} · ${nf(pp(exc))} pessoas`, idx: exc, cmp: comparar(exc, i => 1)},
++    {id: 'terc', cls: terc.length ? 'bad' : 'ok', t: 'Desconto a quem não é funcionário', n: brl0(s(terc)), d: `${nf(v(terc))} vendas · ${nf(pp(terc))} pessoas fora do cadastro e que não vendem nas lojas`, cmp: comparar(terc), idx: terc},
++    {id: 'colab', cls: colab.length ? 'warn' : 'ok', t: 'Colaboradores fora do cadastro de ativos', n: brl0(s(colab)), d: `${nf(pp(colab))} pessoas que aparecem como vendedor e recebem desconto sem estar na lista de Funcionários Ativos · ${nf(v(colab))} vendas`, cmp: comparar(colab), idx: colab},
++    {id: 'auto', cls: 'warn', t: 'Auto-venda: vendedor = quem recebeu', n: nf(v(auto)) + ' vendas', d: `${brl(s(auto))} de desconto · ${nf(pp(auto))} pessoas registraram a própria compra`, cmp: comparar(auto, i => 1), idx: auto},
++    {id: 'antes', cls: antes.length ? 'bad' : 'ok', t: 'Desconto antes da admissão', n: nf(pp(antes)) + ' pessoas', d: `${nf(v(antes))} vendas · ${brl(s(antes))} de desconto antes da data de admissão no cadastro`, idx: antes},
++    {id: 'revenda', cls: revenda.length ? 'warn' : 'ok', t: 'Possível revenda (volume alto)', n: nf(revenda.length) + ' pessoas', d: `≥10 pares/mês ou 3+ unidades do mesmo produto numa venda · ${brl(soma(revenda, p => p.desc))} de desconto`, abrir: () => abrirPessoas('Possível revenda (volume alto)', revenda)},
++    {id: 'susp', cls: P.susp.filter(p => p.nivel === 'alto').length ? 'bad' : 'warn', t: 'Pessoas com suspeita (risco alto)', n: nf(P.susp.filter(p => p.nivel === 'alto').length), d: `${nf(P.susp.filter(p => p.nivel === 'medio').length)} risco médio · ${nf(P.suspVend.filter(x => x.nivel === 'alto').length)} vendedores concedendo a vários terceiros`, abrir: () => abrirAba('suspeitas')},
++    {id: 'semaut', cls: semAut.length ? 'warn' : 'ok', t: 'Sem responsável pela liberação', n: pct(semAut.length, real.length), d: `${nf(semAut.length)} de ${nf(real.length)} itens com desconto não informam quem autorizou (campo AUTORIZADOR vazio)`, idx: semAut},
++    {id: 'incomp', cls: 'neu', t: 'Nome incompleto / sem nome', n: brl0(s(incomp)), d: `${nf(pp(incomp))} clientes com 1–2 nomes: não dá para confirmar se é funcionário · ${nf(v(incomp))} vendas`, idx: incomp},
++    {id: 'camp', cls: 'neu', t: 'Campanha Meias (não aponta)', n: brl0(s(camp)), d: `${nf(v(camp))} vendas com Meia Hoahi + calçado · separado das suspeitas`, cmp: comparar(camp), idx: camp}
++  ];
++  const arred = X.todos.filter(i => A.cat[i] === 'ARRED');
++  X.arred = {n: arred.length, v: s(arred)};
++  $('cSusp').textContent = P.susp.filter(p => p.nivel === 'alto').length || '';
++}
++
++// ---------------- topo ----------------
++function statusTela(est) {
++  const el = $('status');
++  if (est === 'carregando') { el.innerHTML = '<span class="chip">☁ Lendo a base da nuvem…</span>'; return; }
++  if (!CARGA) { el.innerHTML = '<span class="chip warn">☁ Nenhuma base na nuvem — carregue os arquivos</span>'; return; }
++  const dias = Math.floor((Date.now() - new Date(CARGA.ativada_em)) / 864e5);
++  const a = CARGA.arquivos || {};
++  el.innerHTML = `<span class="chip ok">☁ Na nuvem: enviada ${new Date(CARGA.ativada_em).toLocaleString('pt-BR')} por ${esc(CARGA.usuario || '—')}${dias ? ' (há ' + dias + ' dia' + (dias > 1 ? 's' : '') + ')' : ''}</span>` +
++    `<span class="chip">Vendas de ${dBR(CARGA.periodo_ini)} a ${dBR(CARGA.periodo_fim)}</span>` +
++    `<span class="chip">${nf(CARGA.linhas)} itens · ${nf(CARGA.funcionarios)} funcionários no cadastro</span>` +
++    (a.funcionarios ? `<span class="chip">Cadastro: ${esc(a.funcionarios.nome)}</span>` : '') +
++    (A && A.B.reg.length ? '' : '<span class="chip warn">Sem planilha Regional</span>');
++  // base desatualizada: alerta visível
++  const atraso = X ? Math.floor((Date.now() - new Date(n2iso(X.max) + 'T12:00:00')) / 864e5) : 0;
++  if (atraso > 7) avisoTopo('warn', `A última venda da base é de <b>${dBR(X.max)}</b> (${atraso} dias atrás). Carregue o relatório de descontos atualizado.`, 'atraso');
++}
++function avisoTopo(cls, html, id = 'geral') {
++  let el = $('aviso-' + id);
++  if (!el) { el = document.createElement('div'); el.id = 'aviso-' + id; $('avisos').appendChild(el); }
++  el.className = 'df-aviso ' + cls; el.innerHTML = html;
++}
++
++// ---------------- busca inteligente ----------------
++let SUG = [], SUGi = -1;
++function sugerir(q) {
++  const box = $('sug');
++  q = DF.norm(q);
++  if (!A || q.length < 2) { box.classList.add('hidden'); SUG = []; return; }
++  const C = A.B.col, d = A.B.dic, ts = q.split(' ').filter(Boolean), out = [];
++  const bate = s => ts.every(t => s.includes(t));
++  const aprox = s => { const st = DF.toks(s); return ts.every(t => st.some(x => x.startsWith(t) || (t.length >= 4 && DF.sim(t, x.slice(0, Math.max(t.length, 4))) >= 0.75))); };
++  // totais por cliente/vendedor/loja no período
++  const tc = new Map(), tv = new Map();
++  for (const i of F) { tc.set(C.cli[i], (tc.get(C.cli[i]) || 0) + C.desc[i]); tv.set(C.vend[i], (tv.get(C.vend[i]) || 0) + C.desc[i]); }
++  if (/^\d{4,}$/.test(q)) {
++    const vs = new Map(); for (let i = 0; i < A.n; i++) if (C.cod[i].includes(q)) { const k = C.cod[i]; if (!vs.has(k)) vs.set(k, [0, i]); vs.get(k)[0] += C.desc[i]; if (vs.size > 12) break; }
++    for (const [k, [v, i]] of vs) out.push({g: 'Vendas', tipo: 'venda', valor: k, rotulo: 'Venda nº ' + k, txt: `Venda nº ${k} · ${dBR(C.data[i])} · ${d.loja[C.loja[i]]}`, v: brl(v)});
++  }
++  const fs = []; A.B.func.forEach((f, k) => { if (bate(f[1]) || bate(f[2]) || bate(f[0]) || aprox(f[1])) fs.push(k); });
++  for (const k of fs.slice(0, 8)) {
++    const f = A.B.func[k]; const nomes = A.cli.map((c, j) => c.f === k && (c.sit === 'FUNC' || c.sit === 'FUNC_PROV') ? j : -1).filter(j => j >= 0);
++    out.push({g: 'Funcionários (cadastro)', tipo: 'func', valor: k, rotulo: f[1], txt: `${f[1]} <span class="mut">· CPF ${cpfF(f[2])}</span>`, v: brl(soma(nomes, j => tc.get(j) || 0))});
++  }
++  const cl = []; d.cli.forEach((c, k) => { if (c && (bate(c) || aprox(c))) cl.push(k); });
++  cl.sort((a, b) => (tc.get(b) || 0) - (tc.get(a) || 0));
++  for (const k of cl.slice(0, 8)) out.push({g: 'Quem recebeu o desconto', tipo: 'cli', valor: k, rotulo: d.cli[k], txt: `${esc(d.cli[k])} <span class="mut">· ${esc(DF.SIT[A.cli[k].sit])}</span>`, v: brl(tc.get(k) || 0)});
++  const vl = []; d.vend.forEach((c, k) => { if (c && bate(c)) vl.push(k); });
++  vl.sort((a, b) => (tv.get(b) || 0) - (tv.get(a) || 0));
++  for (const k of vl.slice(0, 6)) out.push({g: 'Vendedores (quem concedeu)', tipo: 'vend', valor: k, rotulo: 'Vendedor ' + d.vend[k], txt: esc(d.vend[k]), v: brl(tv.get(k) || 0)});
++  d.loja.forEach((l, k) => { if (bate(l)) out.push({g: 'Lojas', tipo: 'loja', valor: k, rotulo: l, txt: esc(l), v: X.lojaReg[k]}); });
++  X.regionais.forEach(r => { if (bate(r)) out.push({g: 'Regionais', tipo: 'reg', valor: r, rotulo: 'Regional ' + r, txt: esc(r), v: ''}); });
++  const pr = []; d.prod.forEach((p, k) => { if (bate(p)) pr.push(k); });
++  for (const k of pr.slice(0, 5)) out.push({g: 'Produtos', tipo: 'prod', valor: k, rotulo: d.prod[k], txt: esc(d.prod[k]), v: ''});
++  out.unshift({g: 'Pesquisa livre', tipo: 'texto', valor: q, rotulo: '"' + q + '"', txt: `Filtrar tudo que contém <b>${esc(q)}</b> (nome, vendedor, produto, loja ou nº da venda)`, v: 'Enter'});
++  SUG = out; SUGi = -1;
++  let g = '';
++  box.innerHTML = out.map((o, k) => (o.g !== g ? `<div class="g">${esc(g = o.g)}</div>` : '') + `<button type="button" data-k="${k}"><span>${o.txt}</span><span class="v">${esc(o.v)}</span></button>`).join('');
++  box.querySelectorAll('button').forEach(b => b.addEventListener('mousedown', e => { e.preventDefault(); escolher(+b.dataset.k); }));
++  box.classList.remove('hidden');
++}
++function escolher(k) {
++  const o = SUG[k]; if (!o) return;
++  $('sug').classList.add('hidden'); $('busca').value = o.tipo === 'texto' ? o.valor : o.rotulo;
++  BUSCA = {tipo: o.tipo, valor: o.valor, rotulo: o.rotulo};
++  aplicar();
++  if (o.tipo === 'cli') fichaPessoa(o.valor);
++  else if (o.tipo === 'func') fichaFuncionario(o.valor);
++  else if (o.tipo === 'vend') fichaVendedor(o.valor);
++  else if (o.tipo === 'venda') abrirLinhas('Venda nº ' + o.valor, F.slice());
++}
++
++// ---------------- desenho ----------------
++function ligarTela() {
++  if (ligarTela.ok) return; ligarTela.ok = true;
++  ['fDe', 'fAte', 'fLoja', 'fSit', 'fCat'].forEach(id => $(id).addEventListener('change', aplicar));
++  $('fReg').addEventListener('change', () => { preencherLojas(); aplicar(); });
++  $('abas').querySelectorAll('button').forEach(b => b.addEventListener('click', () => abrirAba(b.dataset.a)));
++  const bi = $('busca'); let t;
++  bi.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => sugerir(bi.value), 160); if (!bi.value && BUSCA) { BUSCA = null; aplicar(); } });
++  bi.addEventListener('keydown', e => {
++    const bs = $('sug').querySelectorAll('button');
++    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); SUGi = Math.max(0, Math.min(bs.length - 1, SUGi + (e.key === 'ArrowDown' ? 1 : -1))); bs.forEach((b, k) => b.classList.toggle('on', k === SUGi)); }
++    else if (e.key === 'Enter') { e.preventDefault(); if (!SUG.length) sugerir(bi.value); escolher(SUGi >= 0 ? SUGi : 0); }
++    else if (e.key === 'Escape') $('sug').classList.add('hidden');
++  });
++  bi.addEventListener('blur', () => setTimeout(() => $('sug').classList.add('hidden'), 150));
++  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('modal').classList.contains('hidden')) { e.stopPropagation(); fecharModal(); } }, true);
++}
++function abrirAba(a) {
++  ABA = a; $('abas').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.a === a)); desenhar();
++}
++function desenhar() {
++  const el = $('conteudo');
++  if (ABA === 'carregar') return telaCarregar(el);
++  if (!A) { el.innerHTML = '<div class="card vazio">Ainda não há base na nuvem. Use <b>Carregar arquivos</b>.</div>'; return; }
++  ({painel: telaPainel, suspeitas: telaSuspeitas, pessoas: telaPessoas, vendedores: telaVendedores, lojas: telaLojas, lanc: telaLanc, relatorios: telaRelatorios})[ABA](el);
++}
++function cardHTML(k) {
++  return `<button class="df-card ${k.cls}" data-card="${k.id}" title="Clique para ver a composição"><span class="abrir">Abrir ↗</span><div class="t">${esc(k.t)}</div><div class="n">${k.n}</div><div class="d">${esc(k.d)}</div>` +
++    (k.cmp ? `<div class="cmp ${k.cmp.cls}">${esc(k.cmp.txt)}</div>` : '') + `<div class="base">${esc(k.base || 'base até ' + dBR(X.max) + ' · período ' + periodoTxt())}</div></button>`;
++}
++function ligarCards(el) {
++  el.querySelectorAll('[data-card]').forEach(b => b.addEventListener('click', () => {
++    const k = K.find(x => x.id === b.dataset.card); if (!k) return;
++    if (k.abrir) k.abrir(); else abrirLinhas(k.t, k.idx, {agrupar: true});
++  }));
++}
++function telaPainel(el) {
++  const C = A.B.col;
++  // por mês e categoria
++  const meses = [...new Set(F.map(i => X.mes[i]))].sort((a, b) => a - b);
++  const grupos = [['Funcionário', '#22c55e', c => c === 'FUNC_OK'], ['Acima do limite', '#ef4444', c => c === 'FUNC_ACIMA'], ['Não funcionário', '#f87171', c => c === 'TERC'],
++    ['Fora do cadastro', '#f5b301', c => c === 'COLAB'], ['Nome incompleto', '#64748b', c => c === 'INCOMP' || c === 'SEMNOME'], ['Campanha Meias', '#a78bfa', c => c === 'CAMP']];
++  const tab = meses.map(m => grupos.map(g => soma(F.filter(i => X.mes[i] === m && g[2](A.cat[i])), i => C.desc[i])));
++  const maxM = Math.max(1, ...tab.map(r => soma(r, x => x)));
++  const barras = meses.map((m, k) => `<div class="col" data-mes="${m}" title="${mesRot(m)}: ${brl(soma(tab[k], x => x))}"><div class="val">${brl0(soma(tab[k], x => x)).replace('R$ ', '')}</div><div class="pilha" style="height:${Math.round(soma(tab[k], x => x) / maxM * 150)}px">${tab[k].map((v, g) => `<span style="height:${v / Math.max(soma(tab[k], x => x), 1) * 100}%;background:${grupos[g][1]}"></span>`).join('')}</div><div class="rot">${mesRot(m)}</div></div>`).join('');
++  const rg = new Map(); for (const l of P.lojas) { const r = rg.get(l.reg) || {d: 0, t: 0}; r.d += l.desc - l.camp; r.t += l.terc + l.colab; rg.set(l.reg, r); }
++  const rgs = [...rg.entries()].sort((a, b) => b[1].d - a[1].d), maxR = Math.max(1, ...rgs.map(r => r[1].d));
++  const top = P.susp.slice(0, 8);
++  el.innerHTML = `<h2>Indicadores do período</h2><div class="df-cards">${K.map(cardHTML).join('')}</div>
++    ${X.arred.n ? `<div class="df-aviso warn" style="margin-top:12px">Desconsiderados <b>${nf(X.arred.n)}</b> itens com desconto de centavos sem percentual (arredondamento do caixa, total ${brl(X.arred.v)}) e excessos de até R$ 0,50 acima do limite de ${DF.LIMITE}%.</div>` : ''}
++    <div class="df-grid2" style="margin-top:12px">
++      <div class="card"><h2 style="margin-top:0">Desconto por mês (R$)</h2><div class="df-barras">${barras || '<div class="vazio">Sem dados</div>'}</div>
++        <div class="df-leg">${grupos.map(g => `<span><i style="background:${g[1]}"></i>${g[0]}</span>`).join('')}</div></div>
++      <div class="card"><h2 style="margin-top:0">Por regional (sem campanha)</h2>${rgs.map(([r, v]) => `<div class="df-hbar" data-reg="${esc(r)}"><span>${esc(r)}</span><div class="tr"><span style="width:${v.d / maxR * 100}%"></span></div><span class="nw">${brl0(v.d)}${v.t ? ` <span class="vbad">· ${brl0(v.t)} fora</span>` : ''}</span></div>`).join('')}</div>
++    </div>
++    <h2>Maiores suspeitas <button class="btn peq" onclick="abrirAba('suspeitas')">Ver todas</button></h2>
++    <div class="card">${tabelaPessoas(top, 'painelSusp', true)}</div>`;
++  ligarCards(el);
++  el.querySelectorAll('[data-mes]').forEach(b => b.addEventListener('click', () => { const m = +b.dataset.mes; abrirLinhas('Descontos de ' + mesRot(m), F.filter(i => X.mes[i] === m), {agrupar: true}); }));
++  el.querySelectorAll('[data-reg]').forEach(b => b.addEventListener('click', () => { $('fReg').value = b.dataset.reg; preencherLojas(); aplicar(); }));
++  ligarTabela(el);
++}
++const nivelChip = n => n === 'alto' ? '<span class="chip bad">Alto</span>' : n === 'medio' ? '<span class="chip warn">Médio</span>' : n === 'baixo' ? '<span class="chip">Baixo</span>' : '<span class="chip ok">—</span>';
++const sitChip = s => `<span class="chip ${s === 'FUNC' ? 'ok' : s === 'FUNC_PROV' ? 'ok' : s === 'TERC' ? 'bad' : s === 'COLAB' ? 'warn' : ''}">${esc(DF.SIT[s])}</span>`;
++
++// tabela genérica com ordenação, totais e clique
++function tabela(id, cols, linhas, onClick, total) {
++  const o = ORD[id] || {k: cols.find(c => c.ord)?.k, d: -1};
++  const col = cols.find(c => c.k === o.k);
++  if (col) linhas = linhas.slice().sort((a, b) => { const x = col.v(a), y = col.v(b); return (x > y ? 1 : x < y ? -1 : 0) * o.d; });
++  const lim = 500, mostra = linhas.slice(0, lim);
++  TAB[id] = {linhas: mostra, onClick, cols, todas: linhas};
++  return `<div class="tw"><table data-tab="${id}"><thead><tr>${cols.map(c => `<th class="${c.cls || ''}" data-k="${c.k}">${esc(c.t)}${o.k === c.k ? (o.d > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
++    <tbody>${mostra.map((r, k) => `<tr class="${onClick ? 'cl' : ''}" data-r="${k}">${cols.map(c => `<td class="${c.cls || ''}">${c.h ? c.h(r) : esc(c.v(r))}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="vazio">Nada no recorte</td></tr>`}</tbody>
++    ${total ? `<tfoot><tr>${cols.map((c, k) => `<td class="${c.cls || ''}">${k === 0 ? 'TOTAL (' + nf(linhas.length) + ')' : c.tot ? c.tot(linhas) : ''}</td>`).join('')}</tr></tfoot>` : ''}</table></div>` +
++    (linhas.length > lim ? `<div class="df-pag">Mostrando ${lim} de ${nf(linhas.length)} — o total acima considera todas. Use o Excel ou o relatório para a lista completa.</div>` : '');
++}
++const TAB = {};
++function ligarTabela(el) {
++  el.querySelectorAll('table[data-tab]').forEach(tb => {
++    const id = tb.dataset.tab, T = TAB[id]; if (!T) return;
++    tb.querySelectorAll('th[data-k]').forEach(th => th.addEventListener('click', () => { const o = ORD[id] || {}; ORD[id] = {k: th.dataset.k, d: o.k === th.dataset.k ? -o.d : -1}; desenhar(); if (!$('modal').classList.contains('hidden') && $('mCorpo').contains(tb)) reabrirModal(); }));
++    if (T.onClick) tb.querySelectorAll('tbody tr[data-r]').forEach(tr => tr.addEventListener('click', () => T.onClick(T.linhas[+tr.dataset.r])));
++  });
++}
++const colsPessoa = [
++  {k: 'nivel', t: 'Risco', v: p => p.pontos, h: p => nivelChip(p.nivel) + ` <span class="mut">${p.pontos}</span>`, ord: true},
++  {k: 'nome', t: 'Quem recebeu', v: p => p.nome, h: p => `<b>${esc(p.nome)}</b>${p.s.sit === 'FUNC_PROV' ? `<div class="mut">cadastro: ${esc(A.B.func[p.s.f][1])}</div>` : ''}`},
++  {k: 'sit', t: 'Situação', v: p => p.s.sit, h: p => sitChip(p.s.sit)},
++  {k: 'vendas', t: 'Compras', cls: 'r', v: p => p.vendas.size, h: p => nf(p.vendas.size), tot: L => nf(soma(L, p => p.vendas.size))},
++  {k: 'pares', t: 'Pares/itens', cls: 'r', v: p => p.pares, h: p => nf(p.pares), tot: L => nf(soma(L, p => p.pares))},
++  {k: 'bruto', t: 'Valor vendido', cls: 'r', v: p => p.bruto, h: p => brl(p.bruto), tot: L => brl(soma(L, p => p.bruto))},
++  {k: 'desc', t: 'Desconto', cls: 'r', v: p => p.desc, h: p => `<b>${brl(p.desc)}</b>`, tot: L => brl(soma(L, p => p.desc))},
++  {k: 'lojas', t: 'Lojas', cls: 'c', v: p => p.lojas.size, h: p => nf(p.lojas.size)},
++  {k: 'auto', t: 'Auto-venda', cls: 'c', v: p => p.auto.size, h: p => p.auto.size ? nf(p.auto.size) : '—'},
++  {k: 'motivos', t: 'Por que aponta', v: p => p.motivos.length, h: p => p.motivos.length ? '<ul class="df-motivos" style="margin:0">' + p.motivos.map(m => `<li>${esc(m)}</li>`).join('') + '</ul>' : '<span class="mut">—</span>'}
++];
++function tabelaPessoas(lista, id, compacta) { return tabela(id, compacta ? colsPessoa.filter(c => c.k !== 'lojas' && c.k !== 'pares') : colsPessoa, lista, p => fichaPessoa(p.c), true); }
++function telaSuspeitas(el) {
++  const vend = P.suspVend;
++  el.innerHTML = `<h2>Pessoas que receberam desconto com sinais de irregularidade</h2>
++    <div class="df-aviso warn" style="margin-top:0">Pontuação: não é funcionário (+30/+40), colaborador fora do cadastro (+30), acima do limite de ${DF.LIMITE}% (+30), antes da admissão (+30), volume de possível revenda (+10/+20), 3+ unidades do mesmo produto (+15), 4+ lojas (+10), sempre registra a própria venda (+10), desconto acumulado ≥ R$ 1.000 (+10). <b>Alto ≥ 50 · Médio ≥ 30.</b> É indício para conferir, não conclusão.</div>
++    <div class="df-acoes" style="margin:10px 0"><button class="btn" onclick="relatorioPessoas('Suspeitas — pessoas', P.susp)">🖨 Relatório</button><button class="btn" onclick="excelPessoas('suspeitas', P.susp)">⬇ Excel</button></div>
++    <div class="card">${tabelaPessoas(P.susp, 'susp')}</div>
++    <h2>Vendedores que concedem desconto a quem não é funcionário</h2>
++    <div class="card">${tabelaVend(vend, 'suspV')}</div>`;
++  ligarTabela(el);
++}
++function telaPessoas(el) {
++  const L = P.pes.filter(p => p.vendas.size);
++  el.innerHTML = `<h2>Todas as pessoas que receberam desconto no período (sem campanha)</h2>
++    <div class="df-acoes" style="margin-bottom:10px"><button class="btn" onclick="relatorioPessoas('Descontos por pessoa', P.pes.filter(p=>p.vendas.size))">🖨 Relatório</button><button class="btn" onclick="excelPessoas('por-pessoa', P.pes.filter(p=>p.vendas.size))">⬇ Excel</button></div>
++    <div class="card">${tabelaPessoas(L, 'pessoas')}</div>`;
++  ligarTabela(el);
++}
++const colsVend = [
++  {k: 'nivel', t: 'Risco', v: x => x.pontos, h: x => nivelChip(x.nivel), ord: true},
++  {k: 'nome', t: 'Vendedor (quem concedeu)', v: x => x.nome, h: x => `<b>${esc(x.nome)}</b><div class="mut">${esc([...x.lojas].map(l => A.B.dic.loja[l]).join(' · '))}</div>`},
++  {k: 'vendas', t: 'Vendas c/ desconto', cls: 'r', v: x => x.vendas.size, h: x => nf(x.vendas.size), tot: L => nf(soma(L, x => x.vendas.size))},
++  {k: 'desc', t: 'Desconto concedido', cls: 'r', v: x => x.desc, h: x => brl(x.desc), tot: L => brl(soma(L, x => x.desc))},
++  {k: 'benef', t: 'Beneficiários', cls: 'c', v: x => x.benef.size, h: x => nf(x.benef.size)},
++  {k: 'terc', t: 'Não func./fora do cadastro', cls: 'c', v: x => x.terc.size, h: x => x.terc.size ? `<span class="vbad">${nf(x.terc.size)}</span>` : '—', tot: L => nf(soma(L, x => x.terc.size))},
++  {k: 'descTerc', t: 'Desconto a eles', cls: 'r', v: x => x.descTerc, h: x => x.descTerc ? `<span class="vbad">${brl(x.descTerc)}</span>` : '—', tot: L => brl(soma(L, x => x.descTerc))},
++  {k: 'auto', t: 'Auto-vendas', cls: 'c', v: x => x.auto.size, h: x => x.auto.size ? nf(x.auto.size) : '—'},
++  {k: 'nExc', t: 'Acima do limite', cls: 'c', v: x => x.nExc, h: x => x.nExc ? `<span class="vbad">${nf(x.nExc)}</span>` : '—'}
++];
++function tabelaVend(lista, id) { return tabela(id, colsVend, lista, x => fichaVendedor(x.v), true); }
++function telaVendedores(el) {
++  el.innerHTML = `<h2>Quem concede os descontos (vendedor da venda)</h2>
++    <div class="df-acoes" style="margin-bottom:10px"><button class="btn" onclick="relatorioVendedores()">🖨 Relatório</button><button class="btn" onclick="excelVendedores()">⬇ Excel</button></div>
++    <div class="card">${tabelaVend(P.ven, 'vend')}</div>`;
++  ligarTabela(el);
++}
++const colsLoja = [
++  {k: 'nome', t: 'Loja', v: x => lojaNum(x.nome), h: x => `<b>${esc(x.nome)}</b>`},
++  {k: 'reg', t: 'Regional', v: x => x.reg},
++  {k: 'vendas', t: 'Vendas', cls: 'r', v: x => x.vendas.size, h: x => nf(x.vendas.size), tot: L => nf(soma(L, x => x.vendas.size))},
++  {k: 'func', t: 'Funcionários', cls: 'r', v: x => x.func, h: x => brl(x.func), tot: L => brl(soma(L, x => x.func))},
++  {k: 'terc', t: 'Não func. / incompleto', cls: 'r', v: x => x.terc, h: x => x.terc ? `<span class="vbad">${brl(x.terc)}</span>` : '—', tot: L => brl(soma(L, x => x.terc))},
++  {k: 'colab', t: 'Fora do cadastro', cls: 'r', v: x => x.colab, h: x => x.colab ? `<span class="vwarn">${brl(x.colab)}</span>` : '—', tot: L => brl(soma(L, x => x.colab))},
++  {k: 'camp', t: 'Campanha', cls: 'r', v: x => x.camp, h: x => brl(x.camp), tot: L => brl(soma(L, x => x.camp))},
++  {k: 'desc', t: 'Desconto total', cls: 'r', v: x => x.desc, h: x => `<b>${brl(x.desc)}</b>`, tot: L => brl(soma(L, x => x.desc)), ord: true},
++  {k: 'exc', t: 'Acima limite', cls: 'c', v: x => x.exc, h: x => x.exc ? `<span class="vbad">${x.exc}</span>` : '—'}
++];
++function telaLojas(el) {
++  el.innerHTML = `<h2>Por loja</h2><div class="df-acoes" style="margin-bottom:10px"><button class="btn" onclick="relatorioLojas()">🖨 Relatório</button><button class="btn" onclick="excelLojas()">⬇ Excel</button></div>
++    <div class="card">${tabela('lojas', colsLoja, P.lojas, x => abrirLinhas(x.nome, x.linhas, {agrupar: true}), true)}</div>`;
++  ligarTabela(el);
++}
++const colsLanc = [
++  {k: 'dataN', t: 'Data', v: r => r.dataN, h: r => r.data, ord: true},
++  {k: 'venda', t: 'Nº venda', v: r => r.venda, h: r => `<b>${esc(r.venda)}</b>`},
++  {k: 'loja', t: 'Loja', v: r => r.loja},
++  {k: 'cliente', t: 'Quem recebeu', v: r => r.cliente, h: r => `${esc(r.cliente)}${r.cadastro && r.cadastro !== r.cliente ? `<div class="mut">cadastro: ${esc(r.cadastro)}</div>` : ''}`},
++  {k: 'sit', t: 'Situação', v: r => r.sit, h: r => sitChip(r.sit)},
++  {k: 'vendedor', t: 'Vendedor', v: r => r.vendedor, h: r => esc(r.vendedor) + (r.auto ? ' <span class="chip warn">auto-venda</span>' : '')},
++  {k: 'produto', t: 'Produto', v: r => r.produto},
++  {k: 'qtd', t: 'Qtd', cls: 'r', v: r => r.qtd, h: r => nf(r.qtd), tot: L => nf(soma(L, r => r.qtd))},
++  {k: 'preco', t: 'Valor venda', cls: 'r', v: r => r.preco, h: r => brl(r.preco), tot: L => brl(soma(L, r => r.preco))},
++  {k: 'pct', t: '%', cls: 'r', v: r => r.pct, h: r => `<span class="${r.excesso > 0 ? 'vbad' : ''}">${nf(r.pct, 1)}%</span>`},
++  {k: 'desc', t: 'Desconto', cls: 'r', v: r => r.desc, h: r => `<b>${brl(r.desc)}</b>${r.excesso > 0 ? `<div class="vbad">+${brl(r.excesso)} acima</div>` : ''}`, tot: L => brl(soma(L, r => r.desc))},
++  {k: 'pago', t: 'Valor pago', cls: 'r', v: r => r.pago, h: r => brl(r.pago), tot: L => brl(soma(L, r => r.pago))},
++  {k: 'autorizador', t: 'Liberação', v: r => r.autorizador, h: r => r.autorizador ? esc(r.autorizador) : '<span class="vwarn">não informado</span>'},
++  {k: 'cat', t: 'Classificação', v: r => r.catTxt, h: r => esc(r.catTxt) + (r.antesAdm ? ' <span class="chip bad">antes da admissão</span>' : '')}
++];
++function telaLanc(el) {
++  const L = F.map(i => DF.linha(A, i));
++  el.innerHTML = `<h2>Lançamentos do recorte (${nf(L.length)} itens)</h2>${totaisHTML(F)}
++    <div class="df-acoes" style="margin-bottom:10px"><button class="btn" onclick="relatorioLinhas('Lançamentos com desconto', F, {agrupar:true})">🖨 Relatório (agrupado por pessoa)</button><button class="btn" onclick="relatorioLinhas('Lançamentos com desconto', F)">🖨 Relatório (por data)</button><button class="btn" onclick="excelLancamentos()">⬇ Excel</button></div>
++    <div class="card">${tabela('lanc', colsLanc, L, r => fichaPessoa(A.B.col.cli[r.i]), true)}</div>`;
++  ligarTabela(el);
++}
++function totaisHTML(idx) {
++  const C = A.B.col, b = soma(idx, i => C.preco[i]), d = soma(idx, i => C.desc[i]);
++  return `<div class="df-tot"><div>Valor vendido<b>${brl(b)}</b></div><div>Desconto<b>${brl(d)}</b></div><div>% médio<b>${pct(d, b)}</b></div><div>Valor pago<b>${brl(b - d)}</b></div><div>Vendas<b>${nf(new Set(idx.map(i => C.cod[i])).size)}</b></div><div>Itens<b>${nf(idx.length)}</b></div><div>Pessoas<b>${nf(new Set(idx.map(i => C.cli[i])).size)}</b></div></div>`;
++}
++
++// ---------------- modal e fichas ----------------
++let MODAL = null;
++function abrirModal(tit, sub, corpo, acoes) {
++  MODAL = {tit, sub, corpo, acoes};
++  $('mTit').textContent = tit; $('mSub').textContent = sub || '';
++  $('mAcoes').innerHTML = ''; (acoes || []).forEach(([t, f, c]) => { const b = document.createElement('button'); b.className = 'btn ' + (c || ''); b.textContent = t; b.onclick = f; $('mAcoes').appendChild(b); });
++  const fe = document.createElement('button'); fe.className = 'btn'; fe.textContent = 'Fechar'; fe.onclick = fecharModal; $('mAcoes').appendChild(fe);
++  $('mCorpo').innerHTML = typeof corpo === 'function' ? corpo() : corpo; ligarTabela($('mCorpo'));
++  $('modal').classList.remove('hidden'); document.body.style.overflow = 'hidden';
++}
++function reabrirModal() { if (MODAL) abrirModal(MODAL.tit, MODAL.sub, MODAL.corpo, MODAL.acoes); }
++function fecharModal() { $('modal').classList.add('hidden'); document.body.style.overflow = ''; MODAL = null; }
++function abrirLinhas(tit, idx, op = {}) {
++  const L = idx.map(i => DF.linha(A, i));
++  abrirModal(tit, `${periodoTxt()} · ${filtrosTxt()}`, () => totaisHTML(idx) + tabela('m-lanc', colsLanc, L, r => fichaPessoa(A.B.col.cli[r.i]), true),
++    [['🖨 Imprimir / PDF', () => relatorioLinhas(tit, idx, op), 'pri'], ['⬇ Excel', () => excelLinhas(tit, idx)]]);
++}
++function abrirPessoas(tit, lista) {
++  abrirModal(tit, periodoTxt(), () => tabelaPessoas(lista, 'm-pes'), [['🖨 Imprimir / PDF', () => relatorioPessoas(tit, lista), 'pri'], ['⬇ Excel', () => excelPessoas(tit, lista)]]);
++}
++function abrirFuncCli() {
++  const L = X.funcCli.map(x => ({x, f: A.B.func[x.f]}));
++  const cols = [
++    {k: 'nome', t: 'Funcionário (cadastro)', v: r => r.f[1], h: r => `<b>${esc(r.f[1])}</b><div class="mut">CPF ${cpfF(r.f[2])} · admissão ${dBR(r.f[4])}</div>`},
++    {k: 'como', t: 'Nome na venda', v: r => [...r.x.nomes].map(c => A.B.dic.cli[c]).join(' / ')},
++    {k: 'com', t: 'Compras c/ desconto', cls: 'r', v: r => r.x.com.size, h: r => nf(r.x.com.size), tot: T => nf(soma(T, r => r.x.com.size)), ord: true},
++    {k: 'sem', t: 'Compras sem desconto (como cliente)', cls: 'r', v: r => r.x.sem.size, h: r => r.x.sem.size ? `<span class="vwarn">${nf(r.x.sem.size)}</span>` : '—', tot: T => nf(soma(T, r => r.x.sem.size))},
++    {k: 'bruto', t: 'Valor comprado', cls: 'r', v: r => r.x.bruto, h: r => brl(r.x.bruto), tot: T => brl(soma(T, r => r.x.bruto))},
++    {k: 'desc', t: 'Desconto recebido', cls: 'r', v: r => r.x.desc, h: r => brl(r.x.desc), tot: T => brl(soma(T, r => r.x.desc))}
++  ];
++  abrirModal('Clientes que são funcionários', `${periodoTxt()} · funcionário identificado entre os clientes da base (com e sem desconto)`, () => tabela('m-fc', cols, L, r => fichaFuncionario(r.x.f), true),
++    [['🖨 Imprimir / PDF', () => relatorioFuncCli(L, cols), 'pri'], ['⬇ Excel', () => excelGen('clientes-que-sao-funcionarios', cols, L)]]);
++}
++function fichaPessoa(c) {
++  const s = A.cli[c], todas = X.todos.filter(i => A.B.col.cli[i] === c), p = P.pes.find(x => x.c === c);
++  const f = s.f >= 0 && (s.sit === 'FUNC' || s.sit === 'FUNC_PROV') ? A.B.func[s.f] : null;
++  fichaHTML(A.B.dic.cli[c], s.sit, f, todas, p);
++}
++function fichaFuncionario(k) {
++  const nomes = new Set(A.cli.map((c, j) => c.f === k && (c.sit === 'FUNC' || c.sit === 'FUNC_PROV') ? j : -1).filter(j => j >= 0));
++  const todas = X.todos.filter(i => nomes.has(A.B.col.cli[i]));
++  const p = P.pes.filter(x => nomes.has(x.c)).sort((a, b) => b.pontos - a.pontos)[0];
++  fichaHTML(A.B.func[k][1], 'FUNC', A.B.func[k], todas, p);
++}
++function fichaHTML(nome, sit, f, todas, p) {
++  const C = A.B.col, com = todas.filter(i => A.cat[i] !== 'ARRED' && A.cat[i] !== 'SEM_DESC'), sem = todas.filter(i => A.cat[i] === 'ARRED' || A.cat[i] === 'SEM_DESC');
++  const meses = [...new Set(com.map(i => X.mes[i]))].sort((a, b) => a - b);
++  const vend = new Map(); com.forEach(i => vend.set(C.vend[i], (vend.get(C.vend[i]) || 0) + C.desc[i]));
++  const corpo = () => `<div class="df-ficha">
++      <div>Situação<b>${esc(DF.SIT[sit])}</b></div>
++      ${f ? `<div>Cadastro<b>${esc(f[1])}</b></div><div>CPF<b>${cpfF(f[2])}</b></div><div>Admissão<b>${dBR(f[4])}</b></div><div>Matrícula<b>${esc(f[0])}</b></div>` : ''}
++      <div>Compras com desconto<b>${nf(new Set(com.map(i => C.cod[i])).size)}</b></div><div>Compras sem desconto<b>${nf(new Set(sem.map(i => C.cod[i])).size)}</b></div>
++      <div>Valor comprado<b>${brl(soma(todas, i => C.preco[i]))}</b></div><div>Desconto recebido<b>${brl(soma(com, i => C.desc[i]))}</b></div>
++      <div>Pares/itens<b>${nf(soma(todas, i => C.qtd[i]))}</b></div><div>Risco<b>${p ? nivelChip(p.nivel) + ' ' + p.pontos + ' pts' : '—'}</b></div></div>
++    ${p && p.motivos.length ? `<div class="df-aviso ${p.nivel === 'alto' ? 'bad' : 'warn'}" style="margin:0 0 12px"><b>Por que aponta:</b><ul class="df-motivos">${p.motivos.map(m => `<li>${esc(m)}</li>`).join('')}</ul></div>` : ''}
++    <div class="df-tot">${meses.map(m => `<div>${mesRot(m)}<b>${brl(soma(com.filter(i => X.mes[i] === m), i => C.desc[i]))}</b></div>`).join('')}</div>
++    <div class="sub" style="margin:6px 0">Vendedores que atenderam: ${[...vend.entries()].sort((a, b) => b[1] - a[1]).map(([v, d]) => esc(A.B.dic.vend[v]) + ' (' + brl(d) + ')').join(' · ')}</div>
++    ${tabela('m-ficha', colsLanc, todas.map(i => DF.linha(A, i)), null, true)}`;
++  abrirModal(nome, `Ficha completa · ${periodoTxt()} · inclui compras sem desconto`, corpo,
++    [['🖨 Imprimir / PDF', () => relatorioLinhas('Ficha — ' + nome, todas, {ficha: {nome, sit, f, p}}), 'pri'], ['⬇ Excel', () => excelLinhas('ficha-' + nome, todas)]]);
++}
++function fichaVendedor(v) {
++  const x = P.ven.find(y => y.v === v); const idx = x ? x.linhas : [];
++  const ben = new Map(); idx.forEach(i => { const c = A.B.col.cli[i]; ben.set(c, (ben.get(c) || 0) + A.B.col.desc[i]); });
++  abrirModal('Vendedor ' + A.B.dic.vend[v], `${periodoTxt()} · descontos que este vendedor registrou`, () =>
++    `${x ? `<div class="df-ficha"><div>Vendas c/ desconto<b>${nf(x.vendas.size)}</b></div><div>Desconto concedido<b>${brl(x.desc)}</b></div><div>Beneficiários<b>${nf(x.benef.size)}</b></div><div>Não func./fora do cadastro<b>${nf(x.terc.size)}</b></div><div>Desconto a eles<b>${brl(x.descTerc)}</b></div><div>Auto-vendas<b>${nf(x.auto.size)}</b></div></div>` : ''}
++     <div class="sub" style="margin:6px 0">Para quem: ${[...ben.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30).map(([c, d]) => `${esc(A.B.dic.cli[c])} <span class="mut">(${esc(DF.SIT[A.cli[c].sit])}, ${brl(d)})</span>`).join(' · ')}</div>
++     ${tabela('m-vend', colsLanc, idx.map(i => DF.linha(A, i)), r => fichaPessoa(A.B.col.cli[r.i]), true)}`,
++    [['🖨 Imprimir / PDF', () => relatorioLinhas('Vendedor ' + A.B.dic.vend[v], idx, {agrupar: true}), 'pri'], ['⬇ Excel', () => excelLinhas('vendedor-' + A.B.dic.vend[v], idx)]]);
++}
++
++// ---------------- relatórios (impressão / PDF) ----------------
++let LOGO = null;
++async function logo() {
++  if (LOGO) return LOGO;
++  try { const b = await (await fetch('logo-esposende.jpg')).blob(); LOGO = await new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); }); } catch (e) { LOGO = ''; }
++  return LOGO;
++}
++const CSS_REL = `@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font:10.5px Arial,Helvetica,sans-serif;color:#0f172a;margin:0}
++.cab{display:flex;align-items:center;gap:14px;border-bottom:3px solid #0b2a5b;padding-bottom:8px;margin-bottom:10px}.cab img{height:46px}.cab h1{font-size:17px;margin:0;color:#0b2a5b}.cab .st{font-size:10.5px;color:#475569;margin-top:2px}.cab .selo{margin-left:auto;text-align:right;font-weight:800;color:#0b2a5b;font-size:10px}
++.cards{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px}.cards div{border:1px solid #cbd5e1;border-left:4px solid #0b2a5b;border-radius:6px;padding:6px 10px;min-width:120px;font-size:9.5px;color:#475569}.cards b{display:block;font-size:14px;color:#0f172a}
++.cards .bad{border-left-color:#dc2626}.cards .warn{border-left-color:#d97706}.cards .ok{border-left-color:#16a34a}
++table{width:100%;border-collapse:collapse;margin-bottom:10px}th{background:#0b2a5b;color:#fff;font-size:9px;text-transform:uppercase;padding:5px;text-align:left}td{padding:4px 5px;border-bottom:1px solid #e2e8f0;font-size:9.5px;vertical-align:top}
++tr:nth-child(even) td{background:#f1f5f9}.r{text-align:right;white-space:nowrap}.c{text-align:center}.tot td{background:#dbe4f3!important;font-weight:800;border-top:2px solid #0b2a5b}.sub td{background:#eef2f8!important;font-weight:700}
++.gr td{background:#0b2a5b!important;color:#fff;font-weight:800;font-size:10.5px;padding:6px 8px}thead{display:table-header-group}tr{page-break-inside:avoid}.av{border:1px solid #f59e0b;background:#fffbeb;padding:6px 9px;border-radius:6px;margin:6px 0;font-size:10px}
++h2{font-size:12px;color:#0b2a5b;border-bottom:1px solid #cbd5e1;padding-bottom:3px;margin:14px 0 6px}ul{margin:2px 0 2px 16px;padding:0}.rod{margin-top:12px;border-top:1px solid #cbd5e1;padding-top:5px;font-size:9px;color:#64748b;display:flex;justify-content:space-between}
++.vbad{color:#b91c1c;font-weight:700}`;
++async function imprimir(titulo, sub, corpo) {
++  const lg = await logo();
++  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(titulo)}</title><style>${CSS_REL}</style></head><body>
++    <div class="cab">${lg ? `<img src="${lg}" alt="Esposende">` : ''}<div><h1>${esc(titulo)}</h1><div class="st">${esc(sub)}</div></div><div class="selo">AUDITORIA<br>&amp; CONTROLE</div></div>
++    ${corpo}<div class="rod"><span>Esposende · Central de Auditoria &amp; Controle · Descontos de Funcionários</span><span>Base enviada por ${esc(CARGA?.usuario || '—')} em ${CARGA ? new Date(CARGA.ativada_em).toLocaleString('pt-BR') : '—'} · gerado em ${new Date().toLocaleString('pt-BR')}</span></div></body></html>`;
++  const ifr = document.createElement('iframe'); ifr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
++  document.body.appendChild(ifr);
++  const d = ifr.contentDocument; d.open(); d.write(html); d.close();
++  setTimeout(() => { try { ifr.contentWindow.focus(); ifr.contentWindow.print(); } catch (e) { const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); w.print(); } } setTimeout(() => ifr.remove(), 60000); }, 400);
++}
++const subRel = () => `Período ${periodoTxt()} · ${filtrosTxt()} · última venda da base ${dBR(X.max)}`;
++function cardsRel(idx) {
++  const C = A.B.col, b = soma(idx, i => C.preco[i]), d = soma(idx, i => C.desc[i]);
++  return `<div class="cards"><div>Valor vendido<b>${brl(b)}</b></div><div class="bad">Desconto<b>${brl(d)}</b></div><div>% médio<b>${pct(d, b)}</b></div><div>Valor pago<b>${brl(b - d)}</b></div><div>Vendas<b>${nf(new Set(idx.map(i => C.cod[i])).size)}</b></div><div>Itens<b>${nf(idx.length)}</b></div><div>Pessoas<b>${nf(new Set(idx.map(i => C.cli[i])).size)}</b></div></div>`;
++}
++const linhaRel = r => `<tr><td class="nw">${r.data}</td><td><b>${esc(r.venda)}</b></td><td>${esc(r.loja)}</td><td>${esc(r.cliente)}${r.cadastro && r.cadastro !== r.cliente ? `<br><i>cad.: ${esc(r.cadastro)}</i>` : ''}</td><td>${esc(r.sitTxt)}</td><td>${esc(r.vendedor)}${r.auto ? ' (auto-venda)' : ''}</td><td>${esc(r.produto)}</td><td class="r">${nf(r.qtd)}</td><td class="r">${brl(r.preco)}</td><td class="r ${r.excesso > 0 ? 'vbad' : ''}">${nf(r.pct, 1)}%</td><td class="r"><b>${brl(r.desc)}</b>${r.excesso > 0 ? `<br><span class="vbad">+${brl(r.excesso)}</span>` : ''}</td><td class="r">${brl(r.pago)}</td><td>${r.autorizador ? esc(r.autorizador) : 'NÃO INFORMADO'}</td></tr>`;
++const cabRel = '<tr><th>Data</th><th>Nº venda</th><th>Loja</th><th>Quem recebeu</th><th>Situação</th><th>Vendedor</th><th>Produto</th><th class="r">Qtd</th><th class="r">Valor venda</th><th class="r">%</th><th class="r">Desconto</th><th class="r">Valor pago</th><th>Liberação</th></tr>';
++const totRel = (L, rot) => `<tr class="${rot ? 'sub' : 'tot'}"><td colspan="7">${esc(rot || 'TOTAL GERAL')} — ${nf(new Set(L.map(r => r.venda)).size)} vendas · ${nf(L.length)} itens</td><td class="r">${nf(soma(L, r => r.qtd))}</td><td class="r">${brl(soma(L, r => r.preco))}</td><td class="r">${pct(soma(L, r => r.desc), soma(L, r => r.preco))}</td><td class="r">${brl(soma(L, r => r.desc))}</td><td class="r">${brl(soma(L, r => r.pago))}</td><td></td></tr>`;
++function relatorioLinhas(tit, idx, op = {}) {
++  if (idx.length > 8000 && !confirm(`São ${nf(idx.length)} itens — o relatório fica muito grande para imprimir. Continuar? (Para a lista completa, prefira o Excel.)`)) return;
++  const L = idx.map(i => DF.linha(A, i)).sort((a, b) => a.dataN - b.dataN || (a.venda < b.venda ? -1 : 1));
++  let corpo = cardsRel(idx);
++  if (op.ficha) {
++    const {sit, f, p} = op.ficha;
++    corpo += `<div class="cards"><div>Situação<b>${esc(DF.SIT[sit])}</b></div>${f ? `<div>Cadastro<b>${esc(f[1])}</b></div><div>CPF<b>${cpfF(f[2])}</b></div><div>Admissão<b>${dBR(f[4])}</b></div>` : ''}${p ? `<div class="${p.nivel === 'alto' ? 'bad' : 'warn'}">Risco<b>${p.nivel || '—'} (${p.pontos} pts)</b></div>` : ''}</div>` +
++      (p && p.motivos.length ? `<div class="av"><b>Por que aponta:</b><ul>${p.motivos.map(m => `<li>${esc(m)}</li>`).join('')}</ul></div>` : '');
++  }
++  if (op.agrupar) {
++    const g = new Map(); L.forEach(r => { if (!g.has(r.cliente)) g.set(r.cliente, []); g.get(r.cliente).push(r); });
++    const gs = [...g.entries()].sort((a, b) => soma(b[1], r => r.desc) - soma(a[1], r => r.desc));
++    corpo += `<table><thead>${cabRel}</thead><tbody>` + gs.map(([c, ls]) => `<tr class="gr"><td colspan="13">${esc(c)} — ${esc(ls[0].sitTxt)}${ls[0].cpf ? ' · CPF ' + cpfF(ls[0].cpf) : ''}</td></tr>${ls.map(linhaRel).join('')}${totRel(ls, 'Subtotal ' + c)}`).join('') +
++      `${totRel(L)}</tbody></table>`;
++  } else corpo += `<table><thead>${cabRel}</thead><tbody>${L.map(linhaRel).join('')}${totRel(L)}</tbody></table>`;
++  imprimir(tit, subRel(), corpo);
++}
++function tabelaRelPessoas(lista) {
++  return `<table><thead><tr><th>Risco</th><th>Quem recebeu</th><th>Situação</th><th class="r">Compras</th><th class="r">Pares</th><th class="r">Valor vendido</th><th class="r">Desconto</th><th class="c">Lojas</th><th>Por que aponta</th></tr></thead><tbody>
++    ${lista.map(p => `<tr><td>${p.nivel || '—'} (${p.pontos})</td><td><b>${esc(p.nome)}</b>${p.s.sit === 'FUNC_PROV' ? `<br><i>cad.: ${esc(A.B.func[p.s.f][1])}</i>` : ''}</td><td>${esc(DF.SIT[p.s.sit])}</td><td class="r">${nf(p.vendas.size)}</td><td class="r">${nf(p.pares)}</td><td class="r">${brl(p.bruto)}</td><td class="r"><b>${brl(p.desc)}</b></td><td class="c">${p.lojas.size}</td><td>${p.motivos.length ? '<ul>' + p.motivos.map(m => `<li>${esc(m)}</li>`).join('') + '</ul>' : '—'}</td></tr>`).join('')}
++    <tr class="tot"><td colspan="3">TOTAL — ${nf(lista.length)} pessoas</td><td class="r">${nf(soma(lista, p => p.vendas.size))}</td><td class="r">${nf(soma(lista, p => p.pares))}</td><td class="r">${brl(soma(lista, p => p.bruto))}</td><td class="r">${brl(soma(lista, p => p.desc))}</td><td></td><td></td></tr></tbody></table>`;
++}
++function relatorioPessoas(tit, lista) { lista = lista.slice().sort((a, b) => b.pontos - a.pontos || b.desc - a.desc); imprimir(tit, subRel(), tabelaRelPessoas(lista)); }
++function tabelaRelGen(cols, L) {
++  return `<table><thead><tr>${cols.map(c => `<th class="${c.cls || ''}">${esc(c.t)}</th>`).join('')}</tr></thead><tbody>${L.map(r => `<tr>${cols.map(c => `<td class="${c.cls || ''}">${c.h ? c.h(r) : esc(c.v(r))}</td>`).join('')}</tr>`).join('')}
++    <tr class="tot">${cols.map((c, k) => `<td class="${c.cls || ''}">${k === 0 ? 'TOTAL (' + nf(L.length) + ')' : c.tot ? c.tot(L) : ''}</td>`).join('')}</tr></tbody></table>`.replace(/<span class="chip[^"]*">([^<]*)<\/span>/g, '$1');
++}
++function relatorioVendedores() { imprimir('Descontos por vendedor (quem concedeu)', subRel(), tabelaRelGen(colsVend, P.ven.slice().sort((a, b) => b.pontos - a.pontos || b.desc - a.desc))); }
++function relatorioLojas() { imprimir('Descontos por loja', subRel(), tabelaRelGen(colsLoja, P.lojas.slice().sort((a, b) => lojaNum(a.nome) - lojaNum(b.nome)))); }
++function relatorioFuncCli(L, cols) { imprimir('Clientes que são funcionários', subRel(), tabelaRelGen(cols, L.slice().sort((a, b) => b.x.com.size - a.x.com.size))); }
++function relatorioExecutivo() {
++  if (!A) return;
++  const cards = K.map(k => `<div class="${k.cls === 'roxo' || k.cls === 'neu' ? '' : k.cls}">${esc(k.t)}<b>${k.n}</b>${esc(k.d)}</div>`).join('');
++  const susp = P.susp.filter(p => p.nivel === 'alto').slice(0, 40);
++  const vend = P.suspVend.slice(0, 25);
++  imprimir('Relatório executivo — Descontos de Funcionários', subRel(),
++    `<div class="cards">${cards}</div>
++     <div class="av">Regras: limite de ${DF.LIMITE}% por item com tolerância de R$ 0,50; descontos de centavos sem percentual (arredondamento) desconsiderados (${nf(X.arred.n)} itens, ${brl(X.arred.v)}); campanha Meias (Meia Hoahi + calçado) separada. Funcionário identificado pelo nome no cadastro de Funcionários Ativos, aceitando erro de digitação e nome abreviado.</div>
++     <h2>Pessoas com risco alto (${nf(P.susp.filter(p => p.nivel === 'alto').length)})</h2>${tabelaRelPessoas(susp)}
++     <h2>Vendedores que concedem desconto a quem não é funcionário</h2>${tabelaRelGen(colsVend, vend)}
++     <h2>Por loja</h2>${tabelaRelGen(colsLoja, P.lojas.slice().sort((a, b) => b.desc - a.desc))}`);
++}
++
++// ---------------- Excel ----------------
++function baixarXLSX(nome, linhas) {
++  const ws = XLSX.utils.json_to_sheet(linhas); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Dados');
++  XLSX.writeFile(wb, (nome || 'descontos').replace(/[^\w\-À-ú ]+/g, '').slice(0, 80) + '.xlsx');
++}
++function excelLinhas(nome, idx) {
++  const L = idx.map(i => DF.linha(A, i)).sort((a, b) => a.dataN - b.dataN);
++  const out = L.map(r => ({'Data': r.data, 'Nº venda': r.venda, 'Loja': r.loja, 'Regional': X.lojaReg[A.B.col.loja[r.i]], 'Quem recebeu': r.cliente, 'Situação': r.sitTxt, 'Nome no cadastro': r.cadastro, 'CPF': cpfF(r.cpf), 'Admissão': r.admissao ? dBR(r.admissao) : '',
++    'Vendedor': r.vendedor, 'Auto-venda': r.auto ? 'SIM' : '', 'Produto': r.produto, 'Qtd': r.qtd, 'Valor venda': r.preco, '%': r.pct, 'Desconto': r.desc, 'Acima do limite (R$)': r.excesso || '', 'Valor pago': r.pago,
++    'Liberação': r.autorizador || 'NÃO INFORMADO', 'Classificação': r.catTxt, 'Antes da admissão': r.antesAdm ? 'SIM' : '', 'Obs': r.obs}));
++  out.push({'Data': 'TOTAL', 'Nº venda': new Set(L.map(r => r.venda)).size + ' vendas', 'Qtd': soma(L, r => r.qtd), 'Valor venda': DF.r2(soma(L, r => r.preco)), 'Desconto': DF.r2(soma(L, r => r.desc)), 'Valor pago': DF.r2(soma(L, r => r.pago))});
++  baixarXLSX(nome, out);
++}
++function excelLancamentos() { if (A) excelLinhas('descontos-lancamentos', F); }
++function excelPessoas(nome, lista) {
++  const out = lista.map(p => ({'Risco': p.nivel, 'Pontos': p.pontos, 'Quem recebeu': p.nome, 'Situação': DF.SIT[p.s.sit], 'Nome no cadastro': p.s.f >= 0 ? A.B.func[p.s.f][1] : '', 'CPF': p.s.f >= 0 && (p.s.sit === 'FUNC' || p.s.sit === 'FUNC_PROV') ? cpfF(A.B.func[p.s.f][2]) : '',
++    'Compras': p.vendas.size, 'Pares/itens': p.pares, 'Valor vendido': DF.r2(p.bruto), 'Desconto': DF.r2(p.desc), 'Lojas': p.lojas.size, 'Auto-vendas': p.auto.size, 'Motivos': p.motivos.join(' | ')}));
++  out.push({'Quem recebeu': 'TOTAL', 'Compras': soma(lista, p => p.vendas.size), 'Pares/itens': soma(lista, p => p.pares), 'Valor vendido': DF.r2(soma(lista, p => p.bruto)), 'Desconto': DF.r2(soma(lista, p => p.desc))});
++  baixarXLSX(nome, out);
++}
++function excelGen(nome, cols, L) {
++  const tira = s => String(s).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
++  const out = L.map(r => Object.fromEntries(cols.map(c => [c.t, typeof c.v(r) === 'number' ? DF.r2(c.v(r)) : tira(c.h ? c.h(r) : c.v(r))])));
++  out.push(Object.fromEntries(cols.map((c, k) => [c.t, k === 0 ? 'TOTAL' : c.tot ? tira(c.tot(L)) : ''])));
++  baixarXLSX(nome, out);
++}
++function excelVendedores() { excelGen('por-vendedor', colsVend, P.ven); }
++function excelLojas() { excelGen('por-loja', colsLoja, P.lojas); }
++
++// ---------------- relatórios (aba) ----------------
++function telaRelatorios(el) {
++  const R = [
++    ['Relatório executivo', 'Cards, pessoas com risco alto, vendedores e lojas.', 'relatorioExecutivo()', null],
++    ['Todos os lançamentos (agrupado por pessoa)', 'Data, nº da venda, loja, quem recebeu, vendedor, produto, valores e liberação — subtotal por pessoa.', "relatorioLinhas('Lançamentos com desconto',F,{agrupar:true})", 'excelLancamentos()'],
++    ['Todos os funcionários — totalizado', 'Cada funcionário que recebeu desconto, com compras, pares, valor e desconto.', "relatorioPessoas('Funcionários — descontos recebidos',P.pes.filter(p=>p.vendas.size&&(p.s.sit==='FUNC'||p.s.sit==='FUNC_PROV')))", "excelPessoas('funcionarios',P.pes.filter(p=>p.vendas.size&&(p.s.sit==='FUNC'||p.s.sit==='FUNC_PROV')))"],
++    ['Clientes que são funcionários', 'Funcionários que aparecem como clientes, com e sem desconto.', 'abrirFuncCli()', null],
++    ['Desconto a quem não é funcionário', 'Detalhado por pessoa, com data e nº da venda.', "relatorioLinhas('Desconto a quem não é funcionário',F.filter(i=>A.cat[i]==='TERC'),{agrupar:true})", "excelLinhas('nao-funcionarios',F.filter(i=>A.cat[i]==='TERC'))"],
++    ['Colaboradores fora do cadastro de ativos', 'Quem vende nas lojas e recebe desconto sem estar na lista de ativos.', "relatorioLinhas('Colaboradores fora do cadastro',F.filter(i=>A.cat[i]==='COLAB'),{agrupar:true})", "excelLinhas('fora-do-cadastro',F.filter(i=>A.cat[i]==='COLAB'))"],
++    ['Acima do limite de 10%', 'Itens com desconto acima do limite (tolerância de R$ 0,50).', "relatorioLinhas('Acima do limite',F.filter(i=>A.excesso[i]>0),{agrupar:true})", "excelLinhas('acima-do-limite',F.filter(i=>A.excesso[i]>0))"],
++    ['Auto-venda', 'Vendas em que o vendedor é quem recebeu o desconto.', "relatorioLinhas('Auto-venda',F.filter(i=>A.cat[i]!=='CAMP'&&(A.flags[i]&1)),{agrupar:true})", "excelLinhas('auto-venda',F.filter(i=>A.cat[i]!=='CAMP'&&(A.flags[i]&1)))"],
++    ['Desconto antes da admissão', 'Compras com desconto antes da data de admissão.', "relatorioLinhas('Antes da admissão',F.filter(i=>A.cat[i]!=='CAMP'&&(A.flags[i]&2)),{agrupar:true})", "excelLinhas('antes-da-admissao',F.filter(i=>A.cat[i]!=='CAMP'&&(A.flags[i]&2)))"],
++    ['Suspeitas (todas as pessoas pontuadas)', 'Risco, motivos e totais.', "relatorioPessoas('Suspeitas',P.susp)", "excelPessoas('suspeitas',P.susp)"],
++    ['Por vendedor', 'Quem concedeu, para quantos não funcionários.', 'relatorioVendedores()', 'excelVendedores()'],
++    ['Por loja', 'Desconto por loja e regional, separado por tipo.', 'relatorioLojas()', 'excelLojas()']
++  ];
++  el.innerHTML = `<h2>Relatórios — respeitam o período, a pesquisa e os filtros do topo</h2><div class="df-aviso ok" style="margin-top:0">${esc(subRel())}</div>
++    <div class="df-cards" style="margin-top:12px">${R.map(r => `<div class="card"><b>${esc(r[0])}</b><div class="sub" style="margin:6px 0 10px">${esc(r[1])}</div><div class="df-acoes"><button class="btn pri" onclick="${r[2]}">🖨 Imprimir / PDF</button>${r[3] ? `<button class="btn" onclick="${r[3]}">⬇ Excel</button>` : ''}</div></div>`).join('')}</div>`;
++}
++
++// ---------------- carregar arquivos e enviar à nuvem ----------------
++let NOVOS = {};
++function telaCarregar(el) {
++  const a = CARGA ? CARGA.arquivos || {} : {};
++  el.innerHTML = `<h2>Carregar arquivos e enviar para a nuvem</h2>
++    <div class="df-aviso ok" style="margin-top:0">Pode enviar os 3 arquivos juntos ou só o que mudou: o que não for enviado continua o da base atual da nuvem. Assim que o envio termina, <b>todos os usuários</b> passam a ver a base nova (a tela confere a nuvem a cada minuto).</div>
++    <div class="df-up" id="up" tabindex="0">📂 <b>Arraste aqui</b> ou clique para escolher — Base de Descontos (.csv/.xlsx), Funcionários Ativos (.xlsx) e Regional (.xlsx). O tipo é reconhecido pelo conteúdo.<input type="file" id="upIn" multiple accept=".csv,.xlsx,.xls,.txt" class="hidden"></div>
++    <div class="df-arqs">${['descontos', 'funcionarios', 'regional'].map(t => `<div><b>${{descontos: 'Base de Descontos', funcionarios: 'Funcionários Ativos', regional: 'Regional'}[t]}</b><div class="sub">${NOVOS[t] ? `<span class="vok">Novo: ${esc(NOVOS[t].nome)} · ${nf(NOVOS[t].dados.length)} linhas</span>` : a[t] ? 'Na nuvem: ' + esc(a[t].nome) + ' · ' + nf(a[t].linhas) + ' linhas' : '<span class="vwarn">Ainda não carregado</span>'}</div></div>`).join('')}</div>
++    <div id="upMsg"></div>
++    <div class="df-acoes" style="margin-top:12px"><button class="btn verde" id="btEnviar" ${Object.keys(NOVOS).length ? '' : 'disabled'} onclick="enviar()">☁ Enviar para a nuvem</button><button class="btn" onclick="NOVOS={};desenhar()">Limpar seleção</button></div>
++    <div class="df-barra hidden" id="upBar"><span></span></div>
++    <h2>Histórico de cargas</h2><div class="card" id="hist">Carregando…</div>`;
++  const up = $('up'), inp = $('upIn');
++  up.onclick = () => inp.click(); up.onkeydown = e => { if (e.key === 'Enter') inp.click(); };
++  inp.onchange = () => lerArquivos(inp.files);
++  up.ondragover = e => { e.preventDefault(); up.classList.add('drag'); }; up.ondragleave = () => up.classList.remove('drag');
++  up.ondrop = e => { e.preventDefault(); up.classList.remove('drag'); lerArquivos(e.dataTransfer.files); };
++  historico();
++}
++async function historico() {
++  const r = await sb.from('cmpaud_cargas').select('id,criado_em,ativada_em,usuario,status,linhas,periodo_ini,periodo_fim,total_desconto,funcionarios,arquivos').order('id', {ascending: false}).limit(30);
++  if (!$('hist')) return;
++  if (r.error) { $('hist').textContent = 'Não foi possível ler o histórico: ' + r.error.message; return; }
++  $('hist').innerHTML = `<div class="tw"><table><thead><tr><th>Enviada em</th><th>Por</th><th>Situação</th><th>Vendas de</th><th class="r">Itens</th><th class="r">Desconto</th><th class="r">Funcionários</th><th>Arquivos</th></tr></thead><tbody>${r.data.map(c => `<tr><td class="nw">${new Date(c.ativada_em || c.criado_em).toLocaleString('pt-BR')}</td><td>${esc(c.usuario || '—')}</td><td>${c.status === 'ativa' ? '<span class="chip ok">em uso</span>' : c.status === 'substituida' ? '<span class="chip">histórico</span>' : `<span class="chip warn">${esc(c.status)}</span>`}</td><td class="nw">${dBR(c.periodo_ini)} a ${dBR(c.periodo_fim)}</td><td class="r">${nf(c.linhas)}</td><td class="r">${brl(c.total_desconto)}</td><td class="r">${nf(c.funcionarios)}</td><td class="mut">${esc(Object.values(c.arquivos || {}).map(a => a.nome).join(' · '))}</td></tr>`).join('') || '<tr><td colspan="8" class="vazio">Nenhuma carga ainda</td></tr>'}</tbody></table></div>`;
++}
++async function lerLinhasDoArquivo(f) {
++  const buf = await f.arrayBuffer();
++  if (/\.(csv|txt)$/i.test(f.name)) {
++    let txt; try { txt = new TextDecoder('utf-8', {fatal: true}).decode(buf); } catch (e) { txt = new TextDecoder('windows-1252').decode(buf); }
++    return DF.csvParaLinhas(txt);
++  }
++  const wb = XLSX.read(buf, {type: 'array', cellDates: true});
++  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: true, defval: ''});
++}
++async function lerArquivos(files) {
++  const msg = [];
++  for (const f of files) {
++    try {
++      const rows = await lerLinhasDoArquivo(f), t = DF.tipoDoArquivo(rows);
++      if (!t) { msg.push(`<span class="vbad">${esc(f.name)}: não reconheci o arquivo (esperado: Base de Descontos, Funcionários Ativos ou Regional).</span>`); continue; }
++      const dados = t === 'descontos' ? DF.lerDescontos(rows) : t === 'funcionarios' ? DF.lerFuncionarios(rows) : DF.lerRegional(rows);
++      if (!dados.length) throw new Error('arquivo sem linhas');
++      NOVOS[t] = {nome: f.name, dados, tam: f.size};
++      msg.push(`<span class="vok">${esc(f.name)} → ${{descontos: 'Base de Descontos', funcionarios: 'Funcionários Ativos', regional: 'Regional'}[t]} (${nf(dados.length)} linhas)</span>`);
++    } catch (e) { msg.push(`<span class="vbad">${esc(f.name)}: ${esc(e.message || e)}</span>`); }
++  }
++  desenhar(); $('upMsg').innerHTML = `<div class="df-aviso ${msg.some(m => m.includes('vbad')) ? 'warn' : 'ok'}">${msg.join('<br>')}</div>`;
++  if (NOVOS.descontos) {
++    const d = NOVOS.descontos.dados, mx = d.reduce((m, x) => x.data > m ? x.data : m, ''), mn = d.reduce((m, x) => x.data < m ? x.data : m, '9');
++    const tot = soma(d, x => x.desc);
++    $('upMsg').innerHTML += `<div class="df-aviso ok">Base de Descontos: vendas de <b>${dBR(mn)}</b> a <b>${dBR(mx)}</b> · desconto total <b>${brl(tot)}</b>${CARGA && iso2n(mx) < iso2n(CARGA.periodo_fim) ? ` · <span class="vbad">atenção: termina antes da base atual da nuvem (${dBR(CARGA.periodo_fim)})</span>` : ''}</div>`;
++  }
++}
++function descDaBase(B) {
++  const C = B.col, d = B.dic;
++  return C.cod.map((cod, i) => ({loja: d.loja[C.loja[i]], cod, data: n2iso(C.data[i]), prod: d.prod[C.prod[i]], cli: d.cli[C.cli[i]], qtd: C.qtd[i], preco: C.preco[i], desc: C.desc[i], pct: C.pct[i], aut: d.aut[C.aut[i]], vend: d.vend[C.vend[i]], obs: d.obs[C.obs[i]]}));
++}
++async function enviar() {
++  const bt = $('btEnviar'), bar = $('upBar'), sp = bar.querySelector('span');
++  const atual = A ? A.B : null, arqAtual = CARGA ? CARGA.arquivos || {} : {};
++  const desc = NOVOS.descontos ? NOVOS.descontos.dados : atual ? descDaBase(atual) : null;
++  if (!desc) { toast('Carregue a Base de Descontos (a nuvem ainda não tem nenhuma).'); return; }
++  const func = NOVOS.funcionarios ? NOVOS.funcionarios.dados : atual ? atual.func : [];
++  const reg = NOVOS.regional ? NOVOS.regional.dados : atual ? atual.reg : [];
++  if (!func.length && !confirm('Sem cadastro de Funcionários Ativos: todo desconto aparecerá como "não é funcionário". Enviar assim mesmo?')) return;
++  const arquivos = {};
++  for (const t of ['descontos', 'funcionarios', 'regional']) arquivos[t] = NOVOS[t] ? {nome: NOVOS[t].nome, linhas: NOVOS[t].dados.length, em: new Date().toISOString()} : arqAtual[t];
++  for (const t in arquivos) if (!arquivos[t]) delete arquivos[t];
++  bt.disabled = true; bar.classList.remove('hidden'); sp.style.width = '3%';
++  let id = null;
++  try {
++    const B = DF.montarBase(desc.map(x => ({...x})), func, reg, arquivos);
++    const An = DF.analisar(B);
++    const b64 = bytesParaB64(await gzip(JSON.stringify(B)));
++    const partes = []; for (let p = 0; p < b64.length; p += PARTE) partes.push(b64.slice(p, p + PARTE));
++    const C = B.col; let tb = 0, td = 0; for (let i = 0; i < An.n; i++) { tb += C.preco[i]; td += C.desc[i]; }
++    const ins = await sb.from('cmpaud_cargas').insert({partes: partes.length, bytes: b64.length, linhas: An.n, periodo_ini: n2iso(C.data[0]), periodo_fim: n2iso(C.data[An.n - 1]),
++      total_desconto: DF.r2(td), total_venda: DF.r2(tb), funcionarios: func.length, arquivos, resumo: {formato: 'gzip-base64', versao: 1}}).select('id').single();
++    if (ins.error) throw ins.error; id = ins.data.id;
++    for (let k = 0; k < partes.length; k++) {
++      let ok = false, erro;
++      for (let t = 0; t < 4 && !ok; t++) { const r = await sb.from('cmpaud_cargas_partes').upsert({carga_id: id, parte: k, dados: partes[k]}); if (r.error) { erro = r.error; await new Promise(s => setTimeout(s, 1500 * (t + 1))); } else ok = true; }
++      if (!ok) throw erro;
++      sp.style.width = Math.round(5 + (k + 1) / partes.length * 85) + '%';
++    }
++    const at = await sb.rpc('cmpaud_ativar_carga', {p_id: id}); if (at.error) throw at.error;
++    sp.style.width = '100%';
++    NOVOS = {}; CARGA = null;
++    await recarregarNuvem(false);
++    toast('✅ Base enviada para a nuvem. Todos os usuários já veem a versão nova.', 7000);
++    abrirAba('painel');
++  } catch (e) {
++    console.error(e);
++    if (id) await sb.from('cmpaud_cargas').update({status: 'falhou'}).eq('id', id);
++    $('upMsg').innerHTML = `<div class="df-aviso bad">Falha ao enviar para a nuvem: ${esc(e.message || e)}. Nada foi trocado — a base anterior continua valendo. Tente de novo.</div>`;
++    bt.disabled = false;
++  }
++}
++
++iniciar();
+diff --git a/descontos-funcionarios/estilo.css b/descontos-funcionarios/estilo.css
+new file mode 100644
+index 0000000..2c6f307
+--- /dev/null
++++ b/descontos-funcionarios/estilo.css
+@@ -0,0 +1,128 @@
++/* Descontos de Funcionários — tema escuro do Portal (mesma paleta de Segurança e CFTV / Auditoria de Despesas). Prefixo df- nos componentes. */
++:root{
++  --bg:#070b16;--card:#0f172a;--card2:#152039;--card3:#1b2742;
++  --azul:#93c5fd;--azul2:#3b82f6;--azul3:rgba(59,130,246,.14);--linha:rgba(148,163,184,.14);--linha2:rgba(148,163,184,.26);
++  --txt:#eef2fb;--txt2:#d3daea;--mut:#9aa6c2;
++  --ok:#86efac;--okf:rgba(34,197,94,.13);--okb:#22c55e;--warn:#fcd34d;--warnf:rgba(245,179,1,.12);--warnb:#f5b301;
++  --bad:#fca5a5;--badf:rgba(239,68,68,.14);--badb:#ef4444;--roxo:#c4b5fd;--roxof:rgba(167,139,250,.14);
++  --sombra:0 1px 0 rgba(255,255,255,.03) inset,0 10px 30px -18px rgba(0,0,0,.8);
++  color-scheme:dark;
++}
++*{box-sizing:border-box}
++html,body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
++body{background:radial-gradient(1200px 600px at 15% -10%,rgba(59,130,246,.12),transparent 60%),var(--bg);min-height:100vh;padding:calc(env(safe-area-inset-top) + 14px) 16px 40px;max-width:1360px;margin:0 auto}
++.hidden{display:none!important}
++h1{font-size:21px;margin:0;font-weight:800;letter-spacing:-.02em}
++h2{font-size:12px;margin:24px 0 10px;color:var(--mut);text-transform:uppercase;letter-spacing:.09em;font-weight:700;display:flex;gap:10px;align-items:center}
++h2::after{content:"";flex:1;height:1px;background:var(--linha)}
++.sub{color:var(--mut);font-size:12.5px;margin-top:2px}
++.card{background:linear-gradient(180deg,var(--card),#0d1527);border:1px solid var(--linha);border-radius:16px;padding:16px;box-shadow:var(--sombra)}
++.btn{font:600 13px Inter,sans-serif;border:1px solid var(--linha2);background:var(--card2);color:var(--txt);border-radius:10px;padding:8px 13px;cursor:pointer;white-space:nowrap}
++.btn:hover{background:var(--card3)}
++.btn.pri{background:#2563eb;border-color:#3b82f6}.btn.pri:hover{background:#1d4ed8}
++.btn.verde{background:#15803d;border-color:#22c55e}.btn.verm{background:#991b1b;border-color:#ef4444}
++.btn:disabled{opacity:.5;cursor:default}
++.btn.peq{padding:5px 9px;font-size:12px;border-radius:8px}
++input,select{font:14px Inter,sans-serif;background:#0b1423;border:1px solid var(--linha2);color:var(--txt);border-radius:10px;padding:8px 10px;min-height:38px;width:100%}
++input:focus,select:focus{outline:none;border-color:var(--azul2)}
++label{display:block;font-size:11px;color:var(--mut);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
++
++.df-topo{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
++.df-acoes{display:flex;gap:8px;flex-wrap:wrap}
++.df-status{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
++.chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;border:1px solid var(--linha2);background:var(--card2);color:var(--txt2);white-space:nowrap}
++.chip.ok{background:var(--okf);border-color:rgba(34,197,94,.4);color:var(--ok)}
++.chip.warn{background:var(--warnf);border-color:rgba(245,179,1,.4);color:var(--warn)}
++.chip.bad{background:var(--badf);border-color:rgba(239,68,68,.4);color:var(--bad)}
++.chip.roxo{background:var(--roxof);border-color:rgba(167,139,250,.4);color:var(--roxo)}
++.df-aviso{margin-top:12px;padding:11px 14px;border-radius:12px;font-size:13px;border:1px solid}
++.df-aviso.warn{background:var(--warnf);border-color:rgba(245,179,1,.45);color:var(--warn)}
++.df-aviso.bad{background:var(--badf);border-color:rgba(239,68,68,.45);color:var(--bad)}
++.df-aviso.ok{background:var(--okf);border-color:rgba(34,197,94,.45);color:var(--ok)}
++.df-aviso b{color:#fff}
++
++/* busca inteligente */
++.df-busca{position:relative;margin-top:14px}
++.df-busca input{font-size:15px;padding:12px 14px 12px 40px;min-height:48px;border-radius:14px;background:#0b1423 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' fill='none' stroke='%239aa6c2' stroke-width='2'%3E%3Ccircle cx='8' cy='8' r='6'/%3E%3Cpath d='M13 13l4 4'/%3E%3C/svg%3E") 13px 15px no-repeat}
++.df-sug{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:50;background:#0d1628;border:1px solid var(--linha2);border-radius:14px;box-shadow:0 20px 50px -10px rgba(0,0,0,.8);max-height:65vh;overflow:auto;padding:6px}
++.df-sug .g{font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;font-weight:800;padding:8px 10px 4px}
++.df-sug button{display:flex;width:100%;justify-content:space-between;gap:12px;align-items:center;background:none;border:0;color:var(--txt);text-align:left;padding:8px 10px;border-radius:10px;cursor:pointer;font:13px Inter,sans-serif}
++.df-sug button:hover,.df-sug button.on{background:var(--azul3)}
++.df-sug .v{color:var(--mut);font-size:12px;white-space:nowrap}
++
++.df-filtros{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end;margin-top:12px}
++.df-filtros .fbtn{display:flex;gap:8px}
++.df-ativo{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
++.df-ativo .chip button{background:none;border:0;color:inherit;cursor:pointer;padding:0 0 0 4px;font-weight:800}
++
++.df-abas{display:flex;gap:6px;flex-wrap:wrap;margin:16px 0 4px;position:sticky;top:0;z-index:20;background:var(--bg);padding:8px 0}
++.df-abas button{font:700 13px Inter,sans-serif;background:var(--card);border:1px solid var(--linha);color:var(--txt2);border-radius:10px;padding:9px 14px;cursor:pointer}
++.df-abas button.on{background:#1e3a8a;border-color:#3b82f6;color:#fff}
++.df-abas .cont{background:rgba(239,68,68,.25);color:var(--bad);border-radius:999px;padding:0 7px;margin-left:5px;font-size:11px}
++
++/* cards inteligentes */
++.df-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
++.df-card{position:relative;text-align:left;font:inherit;color:inherit;background:linear-gradient(180deg,var(--card),#0d1527);border:1px solid var(--linha);border-left:4px solid var(--azul2);border-radius:14px;padding:14px 14px 12px;cursor:pointer;box-shadow:var(--sombra);transition:transform .12s,border-color .12s}
++.df-card:hover{transform:translateY(-1px);border-color:var(--linha2)}
++.df-card.ok{border-left-color:var(--okb)}.df-card.warn{border-left-color:var(--warnb)}.df-card.bad{border-left-color:var(--badb)}.df-card.roxo{border-left-color:#a78bfa}.df-card.neu{border-left-color:#64748b}
++.df-card .t{font-size:11.5px;font-weight:800;color:var(--txt2);text-transform:uppercase;letter-spacing:.05em;line-height:1.3;padding-right:44px}
++.df-card .n{font-size:26px;font-weight:800;margin:6px 0 2px;letter-spacing:-.02em}
++.df-card.bad .n{color:#fecaca}.df-card.warn .n{color:#fde68a}.df-card.ok .n{color:#bbf7d0}
++.df-card .d{font-size:12px;color:var(--mut);line-height:1.4}
++.df-card .cmp{font-size:11.5px;margin-top:6px;font-weight:700}
++.df-card .cmp.up{color:var(--bad)}.df-card .cmp.down{color:var(--ok)}.df-card .cmp.eq{color:var(--mut)}
++.df-card .base{font-size:10.5px;color:#7d8bab;margin-top:6px}
++.df-card .abrir{position:absolute;top:12px;right:12px;font-size:10.5px;color:var(--azul);font-weight:800}
++
++.df-grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:12px}
++@media(max-width:900px){.df-grid2{grid-template-columns:1fr}}
++
++/* tabelas */
++.tw{overflow:auto;border:1px solid var(--linha);border-radius:12px;max-height:70vh}
++table{width:100%;border-collapse:collapse;font-size:12.5px}
++th{position:sticky;top:0;background:#13213f;color:#cfe0ff;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:9px 10px;border-bottom:1px solid var(--linha2);white-space:nowrap;cursor:pointer;user-select:none;z-index:1}
++td{padding:8px 10px;border-bottom:1px solid var(--linha);vertical-align:top}
++tbody tr:nth-child(even) td{background:rgba(255,255,255,.015)}
++tbody tr.cl{cursor:pointer}tbody tr.cl:hover td{background:var(--azul3)}
++td.r,th.r{text-align:right;white-space:nowrap}td.c,th.c{text-align:center}
++tfoot td{position:sticky;bottom:0;background:#13213f;font-weight:800;color:#fff;border-top:2px solid var(--azul2)}
++.nw{white-space:nowrap}.mut{color:var(--mut)}.b{font-weight:700}
++.vbad{color:var(--bad);font-weight:700}.vwarn{color:var(--warn);font-weight:700}.vok{color:var(--ok);font-weight:700}
++.df-pag{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--mut);flex-wrap:wrap}
++.df-tot{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
++.df-tot div{background:var(--card2);border:1px solid var(--linha);border-radius:10px;padding:7px 11px;font-size:12px;color:var(--mut)}
++.df-tot b{display:block;color:#fff;font-size:15px}
++
++/* barras */
++.df-barras{display:flex;align-items:flex-end;gap:6px;height:190px;padding:10px 4px 0}
++.df-barras .col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;min-width:0;cursor:pointer}
++.df-barras .pilha{width:100%;max-width:46px;display:flex;flex-direction:column-reverse;border-radius:6px 6px 2px 2px;overflow:hidden}
++.df-barras .pilha span{display:block}
++.df-barras .rot{font-size:10.5px;color:var(--mut)}
++.df-barras .val{font-size:10px;color:var(--txt2);white-space:nowrap}
++.df-leg{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--mut);margin-top:8px}
++.df-leg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
++.df-hbar{display:grid;grid-template-columns:minmax(110px,180px) 1fr auto;gap:8px;align-items:center;font-size:12px;margin:5px 0;cursor:pointer}
++.df-hbar .tr{background:var(--card3);border-radius:6px;height:12px;overflow:hidden}.df-hbar .tr span{display:block;height:100%;background:var(--azul2)}
++
++/* modal */
++.df-modal{position:fixed;inset:0;z-index:1000;background:rgba(2,6,15,.78);display:flex;align-items:flex-start;justify-content:center;padding:max(14px,env(safe-area-inset-top)) 10px 14px;overflow:auto}
++.df-mcx{background:#0c1426;border:1px solid var(--linha2);border-radius:16px;width:min(1280px,100%);box-shadow:0 30px 80px -20px #000;display:flex;flex-direction:column;max-height:calc(100vh - 28px)}
++.df-mtopo{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:14px 16px;border-bottom:1px solid var(--linha);flex-wrap:wrap}
++.df-mtopo h3{margin:0;font-size:16px}
++.df-mcorpo{padding:12px 16px 16px;overflow:auto}
++.df-ficha{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:6px 0 12px}
++.df-ficha div{background:var(--card2);border:1px solid var(--linha);border-radius:10px;padding:8px 10px;font-size:11.5px;color:var(--mut)}
++.df-ficha b{display:block;color:#fff;font-size:14px;margin-top:2px}
++.df-motivos{margin:0 0 12px;padding-left:18px;font-size:13px}.df-motivos li{margin:3px 0}
++
++.df-up{border:2px dashed var(--linha2);border-radius:16px;padding:26px;text-align:center;cursor:pointer;background:rgba(59,130,246,.04)}
++.df-up.drag{border-color:var(--azul2);background:var(--azul3)}
++.df-arqs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px}
++.df-arqs>div{background:var(--card2);border:1px solid var(--linha);border-radius:12px;padding:10px 12px;font-size:12.5px}
++.df-barra{height:8px;background:var(--card3);border-radius:99px;overflow:hidden;margin-top:10px}.df-barra span{display:block;height:100%;background:var(--okb);width:0;transition:width .2s}
++
++.login{max-width:380px;margin:60px auto}.login .card>*{margin-bottom:10px}.err{color:var(--bad);font-size:12.5px;min-height:16px}
++#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#111c33;border:1px solid var(--linha2);color:#fff;padding:10px 16px;border-radius:12px;z-index:2000;display:none;max-width:92vw;box-shadow:0 10px 30px #000;font-size:13px}
++.vazio{text-align:center;color:var(--mut);padding:40px 16px}
++@media(max-width:640px){body{padding-left:12px;padding-right:12px}.df-card .n{font-size:22px}h1{font-size:18px}}
+diff --git a/descontos-funcionarios/index.html b/descontos-funcionarios/index.html
+new file mode 100644
+index 0000000..d5860a7
+--- /dev/null
++++ b/descontos-funcionarios/index.html
+@@ -0,0 +1,90 @@
++<!doctype html>
++<html lang="pt-BR">
++<head>
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
++<title>Descontos de Funcionários</title>
++<meta name="theme-color" content="#070b16">
++<link rel="preconnect" href="https://fonts.googleapis.com">
++<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
++<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
++<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
++<script src="nucleo.js?v=20261116-1"></script>
++<link rel="stylesheet" href="estilo.css?v=20261116-1">
++</head>
++<body>
++
++<div id="vLogin" class="hidden login">
++  <h1>🏷️ Descontos de Funcionários</h1>
++  <div class="sub" style="margin-bottom:14px">Entre com o seu usuário do Portal Esposende</div>
++  <div class="card">
++    <div><label for="lEmail">E-mail</label><input id="lEmail" type="email" autocomplete="username"></div>
++    <div><label for="lSenha">Senha</label><input id="lSenha" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')entrar()"></div>
++    <div id="lErr" class="err"></div>
++    <button class="btn pri" style="width:100%" onclick="entrar()">Entrar</button>
++  </div>
++</div>
++
++<div id="vSem" class="hidden card vazio" style="max-width:560px;margin:40px auto">
++  Este módulo é restrito à Controladoria, Administração e Compras.<br>Peça liberação ao administrador do Portal.
++</div>
++
++<div id="vApp" class="hidden">
++  <header class="card">
++    <div class="df-topo">
++      <div>
++        <h1>🏷️ Descontos de Funcionários</h1>
++        <div class="sub">Auditoria de alçadas · quem recebeu desconto, quem concedeu e o que foge da regra</div>
++      </div>
++      <div class="df-acoes">
++        <button class="btn pri" onclick="abrirAba('carregar')">📂 Carregar arquivos</button>
++        <button class="btn" onclick="relatorioExecutivo()">🖨 Relatório executivo</button>
++        <button class="btn" onclick="excelLancamentos()">⬇ Excel</button>
++        <button class="btn" onclick="recarregarNuvem(true)">↻ Atualizar</button>
++      </div>
++    </div>
++    <div class="df-status" id="status"></div>
++    <div id="avisos"></div>
++    <div class="df-busca">
++      <input id="busca" type="search" autocomplete="off" placeholder="Pesquisa inteligente: nome do funcionário ou cliente, vendedor, nº da venda, loja, regional ou produto…" aria-label="Pesquisa inteligente">
++      <div id="sug" class="df-sug hidden"></div>
++    </div>
++    <div class="df-filtros">
++      <div><label for="fDe">De</label><input type="date" id="fDe"></div>
++      <div><label for="fAte">Até</label><input type="date" id="fAte"></div>
++      <div><label for="fReg">Regional</label><select id="fReg"><option value="">Todas</option></select></div>
++      <div><label for="fLoja">Loja</label><select id="fLoja"><option value="">Todas</option></select></div>
++      <div><label for="fSit">Quem recebeu</label><select id="fSit"><option value="">Todos</option></select></div>
++      <div><label for="fCat">Classificação</label><select id="fCat"><option value="">Todas (sem arredondamento)</option></select></div>
++      <div class="fbtn"><button class="btn" onclick="limparFiltros()">Limpar filtros</button></div>
++    </div>
++    <div class="df-ativo" id="ativos"></div>
++  </header>
++
++  <nav class="df-abas" id="abas">
++    <button data-a="painel" class="on">Painel</button>
++    <button data-a="suspeitas">Suspeitas <span class="cont" id="cSusp"></span></button>
++    <button data-a="pessoas">Por pessoa</button>
++    <button data-a="vendedores">Por vendedor</button>
++    <button data-a="lojas">Por loja / regional</button>
++    <button data-a="lanc">Lançamentos</button>
++    <button data-a="relatorios">Relatórios</button>
++    <button data-a="carregar">Carregar arquivos</button>
++  </nav>
++
++  <main id="conteudo"><div class="vazio">Carregando a base da nuvem…</div></main>
++</div>
++
++<div id="modal" class="df-modal hidden" role="dialog" aria-modal="true" aria-labelledby="mTit" onclick="if(event.target===this)fecharModal()">
++  <div class="df-mcx">
++    <div class="df-mtopo">
++      <div><h3 id="mTit"></h3><div class="sub" id="mSub"></div></div>
++      <div class="df-acoes" id="mAcoes"></div>
++    </div>
++    <div class="df-mcorpo" id="mCorpo"></div>
++  </div>
++</div>
++<div id="toast"></div>
++<script src="app.js?v=20261116-1"></script>
++</body>
++</html>
+diff --git a/descontos-funcionarios/logo-esposende.jpg b/descontos-funcionarios/logo-esposende.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..2edb943969d9536e09af8b33b6cf23da35319eeb
+GIT binary patch
+literal 10808
+zcmbVycUTi&+vXru6hf6wq$nUDB28)lrHM)tq98;?qzQ;fk&>Wv1d*;Ngx)cLbm<@{
+zD7`l!G-(oA2&C=!d*6M(Yrow;c6V}RGC9wgnRCy1<~jFMs1wwAfbF`zkv>2}0{}GO
+z2cS*^R{=U&a69pLPe(^b&%n&UKu^zbn&~7XGwW#xE9+?%76|(pP6!(}I|~aZKPNX2
+zFCQNtghN0`fLG`YFCXvUi_n0lGSD-eVqiGM%f`aS`~SRATLE?^z>lVmmPQmf!A?WV
+zPDAYkpx`*^Y5v)Oe{VD=Xu&};GM!{T1$L-r15VKVGkSV@Iy$g-5GV)e*y%Y$<aHQ0
+z%^om{dU9QU8K1=@rd!d*Z9a$-S9tjB)k)?vAPW9-=OrYiE+{G~t6Wi4yLwGe-@wr5
+zy2WivEBKwe*7lDa9y>ZYyLdhK_VM+5;U5wj79J596`hcnl$?_K?tNNzPHtX)L19sG
+z<>#vEn%cVhhW3umuU*~WzV{3bkBp9uPfSiNU>BE`S5|+ot?%sa?H}L|2}j3&anS&@
+z|AGbX{{`&7;bI4IouH$mrDObyi{^wc_@!m1qZg59;LtH+eBj9`dif<2mu`GkMcYX+
+z1#=wt!)JrcXT%j3&h7k#_7AfEJ7BN=zmWY0*ni=g0#4J?fRjhd4#0q;8{P%xG{%T5
+zVJFtAb*GJ6nSghJg@Ls<KwGAkrZ!v%2sw`oj-_ie)63H4as8o<xGpIqng7p^l=e?R
+za_zd5lpY|<`;#j>_)N^>Xfy3odR&>0gSnn(M@s^Ev|KdC+Vosz|M@cMox8H1KR|P{
+zOKQYk5tzDatgoQWk}IZIWlHPJ^iyg>4^Vy^GnDc7FN@TMp%aZ1i>yc{ou*XPx~}|H
+z8pw4w@cfZr;UrUkGi^3nV?%mbK$5E}cxV7n8!pNzQwydUOTW2&E0g|2%FCf>;OQE8
+zgEei%A)1lwgd__ZXT5Whne=&FNt+LYnN8&l|6&A(8B$nqKjYOuEvi@Opn2*A)_`Po
+z(&>Q{Z<5UP0Itl3!BS2Dh>3<Nw?H^)3Xo#@Da!>+Np9-_iU-+A(boaz4LvEYBw%<f
+z+FVMKrl5>V7zANrt*da|e-MPI*tEt1oD<2*ReZ<fZ{a)=`tU82znLBv4bz$)_-KKD
+zKYx0LCUtxOE<a=uH3jQv=GoB<ZXUvD4X)a}=hr04E_oj%y}Hy>5Hi)+>Wy(GC$=nY
+zH;PdK57e=dlGmd6qOP0I1?F8t;tk|?Dgb=zC!GzU0t_k$(z7_iqwQeSzNj4Kw0jF-
+zIY65jk{9?DYcg%qM&aAZC|j7u(EEiuS54QuiKnQZW!{Xr9iQ6Asy_bBEaiMn(zMT>
+zI)A9Ix(DGA6$tjD0`Xj^`K}Er@CF`*9BH9N@{m*sA`C6_+oxky%z~^=*<bmRaj&aq
+zIb7)5D(y$O5fxxrn12OZ(%X?ElWM5|cB5Adh8#u;5ZZA0a?ER5d}E3mkq1m38XMh_
+zS-0VIfu*-@Z4Z6HRe8pj@u*LczkSSdv|qJ_=#6R^VWnjmuT`e(nKixB@o-~1O7GX%
+zWHdL?KKWaEt0m%B1y7i)Vxc=l)RiZ#CcB5<SX0a7^Yk^;mqwOt3LdVNyox9vkC0V@
+zzD}b8k)Q10iPwiyqyrCPSDx`jG>?dB#kg)u<wcLpuEY;r88lX}Z#88wf`z$#uwQS-
+zROD|xbQ-q$qVWRe01Y1O_)KBD=B~Aem`OZ3O5Tg>?teuEAc6EdaSMHM3r)hV0W8n<
+z^@7~ajU<#{&>Z*AsHaA_M+`ObSdkkVMV!k_T=V@T?u<OidG^}RT`ahVapwY?A!Ci9
+z*68vtj%Fo-@1j8$Dy%l`%=@CXUFWG>BTtsy0(f2Mr!oDr<l(ic&+S89x`CsrWsXOz
+zfw6a?H&Go@fefltAe!5s3JmD}ogyo(3Zfv1d*s2R%Ax9;BK^|mGP1<nU`8smcI1yz
+zFza0i7i9>_N@Cw}Uv0IMO(Wi@3lmM;+G2eF<XTkSqavBQe(_JzeR&8@31Yo6`KI85
+zQRt;WV{&Yx<ASS^H-Zj91==m`*<{8((7_9vdk-HSUxZ|0(q@HKtyS6M2cs*moGoIc
+zWAlf)kVA*PHC65n-5=Tiu;IEPo&1aCXVojiC4^~52;vfD3`MhffM%H`nc&J2zLwr8
+z_)x6FK?S;(XiMv$yMv74RDfeu^(?$B_~&Y05uEs=*vzUyi$}<Lo}(2o(f}BY@*#!C
+zcuWlyaDYwXhx!da6LJ=BYCdkMJK-kW<Nd8BhCDfG0(UPV4~C5FY%a>1c3jOs$SE-C
+ze4p5h3xicqf!B@pt_;<SuC=)4R7uv9X1k5ar2TUy?2yAs)Fh@rLzO5?;>K+<6|~E*
+z56hijv`YTO7uS%$Lj{B|cUwkeo~K_3GB9rp@9UdAop|q_A-kB_$Y)^y^Pc2EeB!5~
+z*Ob!T=FdGI#dp#oKnDG&R$}zosq(|tpMkxdi}IC$skIIjV_8ft0ZRRCa-p?WbJto}
+zH7<YCza(R3vcll{Q^TGp7$`fwwUpR_a>q3-FuGdzIEHBL7@9!;lw&Sbfof$~`w~Ne
+zu9;7-Ccna8L;Wa%<^|NYQ-LYhh1Jg9iRY08saMC(Ehv%=3-?TN%^}JCwTx3qg^T5L
+z_`>U^84;Z@ZY@T?jRjepoB!y={UYci{-$^58DX<e_5`Rv<!k__oxAh_6|frIZwk=;
+zGNkmH*Q3;ZQQpK&?T-=H0UdN#dJlyUCdk9uVZxciKZXe&7P9BlJ<l6oGnjkX?{n`J
+zWJjvs)ODiQ3*k;qM?`j&U9>gpATYKfMG5hX0UoFP9!@$mez>@6=+o`NOB^zM(H`?=
+zCIQ$$I1{eo<p>_RYddJ}*>yXSrq;{QD^qP~y=zAme{7Uui4cO%*sq1{$VT(QtcEWw
+zHs{{%T3vaoJP<UcYx0RP6O*T5fwfg=qd-OiZ<gJ7FkD68$NE~%_+aj<Cp-oI7-C?T
+zyT`oK`Q5)eXXRaRnfbBzn4E&7=k-CgpHA00oc`klzUI3vvCTYw3LR9SmN9}NG~rwc
+zz5tppJRg3xHh%i&j&b@T(wC-n+wL=H^#&Jm{6S;P#PAs(G{F({NodLO(;PZ{efJAG
+z(i+xD1*W^(GA<5mVPwl5HxDoDV%TJ&zZq(t<XtUu4K0YtUs|7=!4&4t4^<qnkyEtj
+z;?V@1L@Gf02Sr$h;(DPcP`~v}NRS39u$a7Q%M*Qch~?ROun-r4=J19wx(IWQZC`wj
+z*L$%w$1d<k&olN1L|@3YH%H^9WACk-Ef$Y+g!)1#eD?DuWF~N!A*V1DRXg9EVLXyx
+zH2-Uo*oi!cTMZrSwfG#a{A%9L<b1n>o`kC^W4NZC3Pm8X4Ye;ucuk>9Q-K}tucW)=
+zQVqEs$oyRW{4|7l!^c-G#xTC$Q~bQ5v}m)9D`$+<nr+on!m{~Acr}p<v?(NIxj{6^
+zsg1M?ut+oyW*^4ujF_^LclLN1&zJj}Ra~3ZG-LqX*IfC9oQPzY=`@#PzGuxzdg`JA
+z#1YrNk)>Cm6FC%PN)Z*fe;2j?#QQLB_J>c3m#s1SqPVkw)A#n6kI375PxS6Qv<^+1
+zE;Nhw9ED2yeZdP26hy7!3|?<PdAwdTReUP4pTu&a{CIx+C8m`MoFOPIBEmIbJEuB6
+zJrBBSRa>p{)X;8hS*Z0w<tOC?b)m8?#4|s+MR3~DP}}YYS%l&_^`k2`(g(_w_4}rT
+z(?LmT`_5%<?%3Tw_un`jN^i!~vh+M-g*??hix;hY;}D(WH%jsq$UEs0CrSmv;RFtS
+z)B*#71gZZ!kGRyXUo5}p*vXk1#tSWw$)Lm=pX&^_=J)vUQn9?TKa4aIM-DNgf)6#|
+zE6^>F07zIYLXSx%WUl1F#IYjt(xj!i^zUU{2?NCI(|8*Kk9V%kdkxl?bLSpz1U)+`
+z&Waj?!%8V%LA9)ALK83F^fgF|OD@|E9EIZexK{Ttna?ST0f=KP`j`oGVdrp5U>*^U
+z=HzUflL@h`jo-3w;2E%q%3@v)XR>G!bN-#*czh@3cK+h6o1YDM-TTuTJ&9a|Y5i!M
+z7J647q*$0fviCAMVJYrOLJW!<lXeg!W;vkrem~ahX2Y<@R^Ox>Xgt0}%$n@|c0DL*
+zr^w;@W1lOI1<HQ9>oRuHb7k7-i}U`2QJaZi*Cav{&Z8Z5h9o(KtZ<h-xbl|#+A4}B
+zZL$UbNTOI6@<iBmpnX-zxi^swa}=*8g?Ub@&@{w=X5C@?B^5ZWB}!uZfY^x(hntP?
+zSk~2W1{FJ1@E3F66MNaU*rz_;GpB$Hubqbpx(IXau++w*>_rT^rA0F=2M(>wnPB75
+zL=0Yn3M9JLQGxR1aY~4gziQdz@}B2;qb@Op-E*JS;s_3M!Jssr8-;t|4X$01;QX2s
+zm{BWw2okR?YNuxlDG{h!PI!PDBX(IQhy6UL{?HjqUt}ic@ic@!Qt(Xwf*mbrI40-O
+z$Lu7KIH6>z0HFaV+0A#?%fby~k$o?IW<P`|Nn+?GMV9>gokg5N4j{P(0@;argoqAd
+zzH%aKsxuySe#UU<$uAFq+8>>XDUUTW4i0F@UjjL)fUZguY<szd3h*E#0v&c{<2qYn
+zt-;4WE$~6w6;vpPra=qQCt+f$7YvuOV6py_4uZF(?W(ujOS>>))`CJHl~vk)uG*Qa
+zSQY-4%Id7?0op9GirxjL|3$@{3h=kUht-0MBR5fjHStkwM_GW$W;%F%)B=<kKm~@3
+zN>YU=+c4cVk|9~0c1aNaRZE^69q5QfM5b*=mXRDYJ6Lm2N>h608o$Qd_5z+=`T_8%
+z$<F&kD_26Cb~rrR&FiKSTk<2<!ZwTF`hJ)<9S>a=rjsQ~)E&5G`y){cp&DLP;Oclp
+z3y$A^zWE~MN5(mV&O8$dUP4GU9LWs$w%K{6{2QjegYDUj{W4|{O)w&<PyrpX92GbL
+zzTw!CRm8OMogr_?WY?4ci+RtAPMM9op`*cl<?nqo5`yDJp+71trQ13DRVI3#XD3!H
+zwp1`ipB+LfyEF^bKSfWg`TkMpTD$K?AerUDUSgW6Pu=kry0Fq7G-ugqaw@)!x#u<|
+zbbN^?Jn(7}!MID!F>3#AVAIu`b;j=mG|pHYntVQ8gg@VMr;&D1Rssv@D3ktrtQb1w
+z!gf;EaV6?l!|hKgGdfRZJtoJ}>Ngd*lqFpPO%j&Ckq<*j&Lw`17BP8qAAHZ12FEzM
+zvN7Ss=mPj#aN87P#!xD-spLona)z2q$e)`bM)D@F)95QaWI3j-qviVsce_0aPh+>r
+z@k+Y|9nD&D1Pe-sGU8ZMda45}7TKX%wz<7w&%=6mg6u5><3xNwSFb{=k=1cWd*H%1
+zDB5D!O&DKU-Fg8|H=+zRo{pwOanCQIw_#!+H9hHwhZAax{RFUc=mq01_2RgdFHdVK
+zZN50T{Sk;<(MGOGFi*^fWMsmBmvze9+8B9wa(w5CHoxZiwnv{ytgg#-7rxN^!MB8D
+zkNfoD;i-E!OQu4nM;=-}L;)u;W5eIBbm!UmUcXevr|0rjr=}XFKoY^d(R9UkB`$;(
+z+uSN2UFCrttexT!)7q#&&08MZo;LDe))RE)zYum?8!%-6Xos3_69k0vF+@L-&A8|V
+z?8JAv8?dSOmXTDTMZftqA*!@@VLNp0+_>ySDc;(lbEkZr&;Fdr{8LxKuF~SsP>ocq
+zrFg;<0vw-1m<(9#kK{qJ40;G@$mia8@F-^9ZbqcTaALjqS+VA8Z;e3W$Kk6AEPY?!
+z*FTmJPaGMFK5o=x8pzM0dv^U^A9gtYy`Y-B6&+iT;n_Djbk9|{Z{~4-o=Dsmz*`Xp
+zeRl-fd4zd)lm^kA{uiW(SJ7#^6Szv1lA@zKhdmi9O^k~z!I^~DI2D@#Qt;uRu7?a%
+zFt1a)a*;gGjDCy>Z*iD)58}b+;s(OLy&?2IxV#z;kBx*L4rP&~_si#BW*qDs#X^g*
+z^;rcLl^^RDi*^y4s#qrpTxwJxR64A_`pZpy$$ksL*A;Q|-(cHW2<<>yTopx$AcFNc
+zZGC#yZo;r;am?~)04b9RZxueXlZ$3RxlEJoCKR0U)=jg?OY(6CDP{7ffdf<Sh=yqL
+zh4QBAQN`&X{XVSv2WRZvtTct)hD$x=__HDU4!3TX6c0{LlG+m+Uzl|7^2)<?E9Fj?
+zs#?rI^L){CElW!pr>MY#5)_%aNg7{H(35zjC0ZN%+|`5d*7dW(6`kFwS@ipXW5zb`
+z!#Q>4J(E`kuqxEcmQ58mDv$*qEZ)I{d5euIq<0M)l1;kw0?|7jc#|D?r%6oOub5H|
+z%bdH@E)W56&JJlcw<y!4H?Rn$gUAJit-E_0Q%ZTg)3fV%w(DqrRd@C~K{~43JA^>J
+z>l`b2^^=lCvL?}}h44nu#$IiSpaM8ymlfn$%6Ezs;RSBoawjDV+r+;+eJl2n-`Q|W
+z-<kE`6MmG72Z!Ax@i`$Xkcm&F0xvy5wq>~ttIDs>u|xK1U97Dd-IRD=hMgAlmHdH1
+zLA6<L`YS4ESQK&1Z9Uhw$P-Xl*`7dCjPd_Plk7mEA=;Ni1?)iX`kSGdiyTD-mRi=)
+zczW;-`rQcc4fL+eI^tkMjuPzR6?fQD_Z&&P3;1Y7h;1M&kUyzFRa}(fHuo9=66mPe
+z^*QfXPl^xxnb6^x1o?I;``+&940x>|yjN*55cJv-i1QdCi#2$wHiW_Jj^Pshd+T@u
+z4FU53@;xe$;(ZiBG^7IGM+n`N7I1aaJBQ4G*17IM@bTdKQM40BMoLhkuOE@(2)p}g
+z(of=sHDMH;Gw6e_uzhv}`d3XH>0=BOPY?Qi1Iw5JAs9s)-|~MH7JhG;+g@s~ZGFMh
+z(Goc)Nw8nM6R5WkF!sh&cgDJ2>*msn6;*hhW}Kx)G+CPvuxKlWg?6MXbn%Obj!|SO
+z79SfgvI;9x0p~kxL7o{0N8<kI4a8Gqd&BJ4?pJ{}3v1$!U-jSx>TZK!fR8b}NKabA
+zcwYL0vui}lhMB(5>Sa-KodzR)f9SqPWJ)=GL*+;3TKAmyB8lfOqh_BP4F2>+SHMUg
+zY`e)37hCpuH!8>lPaZatlNuk1o8GW0dYX%ux^RhNu=hzF4>F6yC;uTLFER#uFM0-v
+z$GW*h<OezvP=$de1chQhxf?At74?mNw(b`#-}5{wUKM$<B)5T(q5>T!35zXn0%2f8
+zXAeGesFE^fwWYb-c}chKM?#$*)ZDKaflKuBrG!i&DD>SFrQV3H@ho9$58b?5muCp6
+z6kd~Vp+>I-DnMe)XbvPK&#V6mM{yp&=+;&6hlk3-R>ard4*I`13@-^}&@SRIqr+Ga
+z)<s&op*<>q0ChMP`2;yKu6&59j*I@}<{0gV*!=P+s-pyz{dFKF#I6q>Q)X9t&LA&F
+zT30@HNW<st&=CJ&pQqHxpRyvnxhMV=1?29w_Wp0IqvRjf(ToE%8q-1+PiwsG{b_Z6
+z`*jvhq8oL}uXwq~dh(ZKy~m&S`EC&s_ji&snuq5CXY}Shq1?E!#`}==7O`d-eV)bc
+zn6?|J&Oh6)U~47t4gZGkfZv2#`8NkuI{y#^8e09UZ5G}E<=jS!uBANdUm&~aDE+AT
+zq?b3y`;_n-6WkWZC+_dKdfB=n%#lysR)~9aEaJxk9OjL>-~;>yNK%X*tG6&E72mEr
+z#}re6hnT1YXJL&m1joXDN=Qj~L-}dHH)}i>a|YB-Ad9vUQZdKyEE03&$aagf30+6-
+zSLvDjlGCgAB_28X8g`T4X0FtGj^tQ{=3M+b?33U`HW}HU7P1HZ^J?`+^_5@3<}>&h
+ztPCgEdXSlEq!x6WFBAfEeGO&2=l-C8kT56`-?E%5tKlJll<Xy}w3tVn?7mJw;onzO
+z*O2QP>3x9{t}UBmXrZ1tZgUi58KIJF>6w%@nE%|$M&XYjDVLZ=Iw0qh#IWcy$nl0I
+zba<e8(fY7vS=viS_aPuKel&OrBneq}deB9=Q#o2>*Tj>r{q8oz!xcZOCda))J?@{(
+z-d<SA&rsj#e@i*LJ1MjIz-{AU>7^e(2lLJ*FNV?W8hyi4fhdY57&auyjyBpBs!@S#
+zU1UGIM!zcdO6zt?_x#B%t3bCM+I9p)L-TwEcGi9RW{qiJ_1hJrxI_Dxz`mehQpsNJ
+zVt2Qu%_21Vt-<LOVZjP7ypU$xkM69rdru#U1*=KUJBnvCYVy~Id8>T^DZHpnjMyW8
+z*rp|x2NgFbS~DUc=UuXfd3rbQ^7TYUFT(cu=CPf8(3qc;>zMWG=#8BU3&j_kX!r90
+zlt=JobO(fgCQzMFpXJxX_NPWg<dc}ikGINJmd8ntyPKsCyl#v<sV?Imw;cYI(*Vws
+zV{L{)a)L6S72^!M^{Qg}h4tb|ic{L<Tgou#<C?n4hLoN^=cBQVP7bkM%nb>puoIBw
+z8{7v4TX%7crd2ya+nw7CYrFR*X3^^K&$YV!9&$Ukid7|NZJ^JW_B8^NAiyiuAnD)b
+zb?>lJMPH9U4#!ECubX-rO?_HZ(=Wofrc7zQE|@{A^V|{(ADca;5fcEw&^jYKwj9pV
+zm1diWN>q5kIA{QW3U7(pd*tdVXQ{tz4-Vtp^M%G^2G{r=#{KYNj=cQi7C`&SwHxJ#
+z3OR*~Xnl4u_u+?5|E#;-Cv!wnF40V$5MHlW)tpFNyG72|64SvE=Wk_~&s=ahZdXpf
+z|9<tNyg2%r?yaEf$K&1h#bht892S4E%8xHZy!L9p`WJ5?wZ@f_RBdK;vCAezIq6Ge
+zCJe|r?V(X|WrXvG3w=eZ0cBh#H}BTVx@^5d;}~IyFQ=M$x&T0sl|G1uD0p|>f-)38
+zd$(Jps%H2i%VMxkak*(GF?BjF3xm3x#S`XCPB#manlhL{u{S~<>~Jn*R4m9|lQjO#
+z{8fbSQjh8zoj;{q<jd;gt32%j>gjSIdGbjwy!N1>dWTMVPYgvDC1Qp6!A~|=PY-~v
+zV7fkZ;(WKz7+1AB0;NjtyxB@-+q<P9ol8iirAMRZBuBDl5i4$Y&pAW$P;CVGitm=j
+zJ90^*ZN2<^w|+57`XXjX6KYj4-l*zO=A0-q=39R5$7R~|Z|l6mnz4Z|i4OxsMn5SP
+zQlx&Lc{V#O;9Wbq80M>Z?lQ+SMs*)jX}|*`Y-Nv2SBmKH&@pSJyBZX_fNFqUxTMLr
+zY&`Plew^7)k#88x@|FHv&=R4J<faP9FVBHAzG8gVf0guFEspHp3-S+sg2i74IDrgO
+zi3tu9vVc&~_$So2>Ov|oUfOa@gL&Hro1++R<=~)ig-R+2MpWS3VH*O^UkzR>yKeB%
+zwUVIkwR6~p`gc?Frxsk^@4h>r|7Qn#I=%wg5&``M%SE|=#WRlmk!zSAa#IFzQzc!9
+z0|NS3N_yooY_WG>t*jDuQ;`ZB(N3Ypxxj^A4~arf!FHcrLQR|j<55>rTC|`4BL;`|
+zFFBGjrGXq`%jnRnS*0+_>fZokqLdrbfsB3KO+nK{R=>v^w+Oaa2<JWh@4{t)@ir-x
+zEA!@g5jBUN1pcFf`PEhro<QsI2Pp!su__%-i(A&6g_eelNfEFOajhBFTs&q7#p1*d
+z4-1rfu<(<0&`ohmi@vrt%>P2+_Ig0#OhUjo(mOUJq9WvrhlQHr?9uxbM744eYbx=A
+zU#a1|=91^#E``H1qqp|EGbrX|)Wc_x%}KA2Z{rt1)eh{ob0E3}8onal9%|-uu016&
+zG2_CY($W46&ej#wDzi#nE`v=tc3nCJ;q>FcntqP5u&mbCXkZgdh3ZzI3EZBg8ab)T
+z$5p*6b^{0Ksaa#>ccfT*0$ok$&OlJU8fo}KJuzn&GmeN9X8XKz*uLe_&a=y#JyOOG
+zQ9S()U3^6dUv5EwFB`-(3Ss4F2tC^!T9U&{pGRaTUX`+bhie$|QN%TMpjp^2m(>QB
+zlFuK^q^<qA?}qpj*YgVaEpKe-`pc#JQc`%zhmQlT|7$Mqf3D&*xB8r`vV*z2^R7I2
+zrErj&$3=4(x0yrKop5cSPwkN7TbE*}eVom5dEK|QITVs2+D);}oOj%o<Xz%Fu3VX$
+z!w(tT6pCh?yqz0={pIKg&hq7aoIN5Y`m3N?0-xc113LC^XU7K+tSwI<QIwOFuWyVs
+z|HS@OJIl?G{UcQ}r#$_c4TV8q1EKlm`?8c;lGb8=x`V4B5n@JuhooOm?f3P<;k%^n
+zEr;dq*<``~=r0&7+d+sHfvf~u-0FO6^WO{@i;C$#8L);7#B61~Lr1;fmf+aemaUD2
+znp&$b1n*J<DZx^e@&*cBFzWgqEDlwL58H`Yc%sEM+$dG-oM=#}=kM5%p>pHwefX(9
+zFbh`RzOYkKA{;P9?nx?|oWQrdLeU`E3DbBtFj$2(p}S+duA*#{|3yE6Ph89XbcH_O
+z723o#yUF>MFen5m)L7}K(w>G)R_v`bjvQ(H)EsVbu43yWya#p?<@$@sk9L0S<@~Hg
+zdm8y`*L$}m4gA(gBi5BCu|JrIvm3r}a+6|mt;2wp(63%OTuoMh;B~DmTF$%U?TZ&~
+zCm2oEj(C3LFc^oA<Ne(~cm|=oxT~uhAKxu_|0>ss!B}1s5Zc&t?P_7qBIFRA*0j!-
+zUwqy<_C%&s<uoUqS0UuhbkyT+;?<$@W=Z4#jGZFg^~C$9uCx#oxxJaLdgE!u=Dh@K
+z-77Hp)-KO`65-xXRZ#xl$4di^gKLKawpC_t`8uCTC(|8@c-p1V$|N)Oc#YjuvcHgg
+zyUJiwgcz~zI**#-S;TxrvyuXLR6@bC?VP7>=2nQaO?~CK%n-&)*>nF>8Ze#>@?l?s
+zNdf6B{~?90jiR)R`ikbC3e+QXml1}#+5>o%_{6+x)05McJ0qXL-xRy1%Ji=CmyLy|
+ztXo<~VZ1+%m6Wa@|H(g2sV%l!hsSl?v%576CgNVoi$flKHP2;8X-+=J{m6@z`vAJx
+zLDXxTZ-aF73(mgV=Xpy799=jvWcc3P@K|G)I14ff2@PQ_8-|qf&V{VVh|g$}ylLX=
+z2ADlIMd0<L1c|%$@mHm@=<l$<)e&TK?FKVT7fIqfP5TWoQ{oNESyD2GY8n~(_yZ@L
+zDLSZe{3{f6hn?agTTVTUyEW{QGpcx7!`V9CF&4Iw81$PGyqJ-^|0@CpI==uy`!z_?
+zUHuga0x`_Bo<TbFHc(5<yA0dt4&$_xW>?aiJgdty-UXYQxE1OC%X^)a^9>QIyN%!M
+zNh)+d0}O(jIS7mk=^ykKAP}3oJsUMP-REth3~~%7p9GwSxa@&$=M&hgr)?|e%ZmF@
+zs~@eOd}#hSkE~unUMAOzC=c2ALE0+cztNp@<p4_lh{hzK&T!=!KqC(w0$xNYDHR>?
+z#FBg$P!Y|Lx*ce=xA^DJp=>$ZMhbYt;S%|M=o@;ZGs%unR!XuVguo)Jxs}H}r9w=~
+zS?b*$^m%54eP8}iKmU~e0inM;<02spOIzmGVpBKrDOmIp;m$lG!Cq%K^BD5U^<y_f
+zQz^rp^11!$)Fpeh#xX;(bS3!%h1r##Aw9@<o<-9!VM@ZMHsKB}M{t7f6=<HnTxcU?
+z0d~S!E}vlBfmhS3iftO3(%=&qomi?kPDCiL!D?1t$vi)0ECrfRnDQK5<dz@Px!b2h
+z8vU)Tnuy*E)sJx99jlzsFUm#!%5elbdo=MkJW57bxn$XS`sZ)=0=ghL77W-r*)ic9
+zKpxz9)vu-@C`oTN4z3w*;A7uPTcmVkwg};vC3JTm_eXoAI&>AhI5(WBda}OGjPe^m
+za@X!~V#nV!OSwdOW4G@2pO&$n>!RN+%amy7-k=PAKl~(77VzHP_Q0wBCb1u<x<0Zx
+z2(>}>AfPge>V8_hgs~&HO;WpJtnTCXYj>8WznRR^eazB$W*`Wk`dM>LviGe%b9@G*
+z45|7SVumgYfOU9Gd0`P9C6ZNHzN}3-otILqvmBjLhg5ZDawe7_I``^G*_IMpPVUD%
+zx2mfgr}=+vZs6=Y)n2dj#|1xM@Dw}aTjeZU%Q+IyDT$FFY!P9B;y91ZBdiGr!K>ZX
+zp=k1|K-*I}iJ;J)=v!mYAgBGKe^!zk_VsHJThNHKk6zD3r;b%QVOGqj>&wkD$gvDz
+zFbL*#59fdmISAl8;2q?^I%6N{R!Z-3Es=+Z>IxrJ3>I;1KO&||>EzoZ!SviN;=qJ>
+z;yV~6wa0u>`gL?hN$&Un43TIn9p&Mm*k&{?1go?f<t;0^Z4n*7P{nTjt*|v!f5zA|
+zF7*JDxlIM!q0Dn@aOIFze=J|NUx&cEODZQ6#^-8(lzXpZU#xX)=$L=J{bX|I%5Ui^
+zg26w0>3@==y4Fk5UTtanT4xBcnS>PVluhLGX@dJ4Z{+C(UU^d!;G-`ltN3G4U0#WS
+znvXO3Q^cP%Qad>pwY1&{st5v%p8QV2<UqE@7jAgXv-pA$?My1bf259$i*ZAq4ZJ@_
+zvUjvsis6shxG>$f-uF(=BB2r5;17S9v><I(B6T~qN~PpVRcZfdIxL-kJchCi##`=v
+zs>T&897bt8$&lTFgjUVMtqc>m>Kd<JvNXRQ9OHw#v-jp;uM#;cEL1bR@aoqB9wXh&
+zU$8CrK>Mlu1pkUs|8&k*73M)gKx@Ozmm1Q)Y>l27G;^K(#N_a<*|kggC@sLy&1>s-
+z!ravC*>J^Z$#Iu#NlR^Y;L3?+AHpK>Ho>uVOvO$Zr#V_vkA0S}Aal*g?f$PhA3^mu
+z-xT`iy07js#!@s$Ry(B2)*BSr24f!Lm@@5VIs0!*)d!RvrIi`5o{Of7@kEp0MZ@fo
+zjW0)XBR!VK*FG1n^GwxXyo+6YpUuwAULWrFRB(S``^K1a{pJ%tp00-ej_pV_kJnXv
+zC+6;a|I+)+=T<~S)DB6eo)M>6lA$S8z1_o}u<Ux3Zfb<=KyciFwg2KGu|OgNReT^c
+z7fYAK`aY)$cAupf<gn^F5k9xtL3ZXorU=X7R?<tgLz8&S7@YcxRpt<_<I8fPBzr81
+z)-PJqx7~VlEExqAe!|j$IkYulZSLehc5O%3!XstMIDU26F@GMJ)n^&|@YL;nQ_m%b
+z{(<PD7=07#q@zN0Oy_#6Q?;}3@vlmBt2wC6?TozrdE{>(?@h)PY|$^=WNd?0IYu_h
+zFMOb}&zlnX-xEgrzep-^q4*^dY}^afC{t8yV9w6#ZXYxUMR7w*xnlT_%-Io*^qTS0
+zrE8U3F-sW1r2a))RWMz2q1GB-Ykr~UqSji6PySG%ksV0NKZ3kZN--%|*C|)iDU<0x
+z1zC<<z`B`{zNa=TSe^CX{tW!9t<_sHH|I(wqj~gou+Z$flw_YI%}6FTAsX=J0xQ5y
+ztfYJ}P6MnZvx9jQAA_y;2IGzNfQwG&!DGqnw;xSU3~{C@7-`e<edU^231&W-{dVAl
+znV!fMu)xgeAGvUqnc*!-8uh_{H}*;9Dwduw`)Fq94E!wwyQ;@!`nUQmJ6KQ+EZzb#
+zhX(ZkNyRENZDtl(F4Ges#(G=>e-ABabn>#J0aItE>|kaeFR-h5NHkb^_D@+HBUll~
+z;PjKrlqO99lsta*SN>0(nIkA+`CDdoG8a4>jB|n4H0Ml{{HFrWOq*uyW_C0j0IT85
+RuFrFYu7DjS!G6@q{{h44aTovq
+
+literal 0
+HcmV?d00001
+
+diff --git a/descontos-funcionarios/nucleo.js b/descontos-funcionarios/nucleo.js
+new file mode 100644
+index 0000000..f32ec8a
+--- /dev/null
++++ b/descontos-funcionarios/nucleo.js
+@@ -0,0 +1,241 @@
++/* Descontos de Funcionários — núcleo (leitura dos arquivos, cruzamento de nomes e regras de auditoria).
++ * Roda no navegador (window.DF) e no Node (module.exports), com o mesmo código, para conferir os números.
++ *
++ * Regras (Controladoria, 16/11/2026):
++ *  - Limite do desconto de funcionário: 10% do item. Desconto até R$ 0,50 acima do limite é tolerado (arredondamento).
++ *  - Desconto de centavos sem percentual (ex.: R$ 0,01 em produto de R$ 299,99) é arredondamento do caixa, não desconto.
++ *  - Venda com Meia Hoahi + calçado = Campanha Meias (não aponta): fica separada, não entra nas suspeitas.
++ *  - Funcionário = nome no cadastro de Funcionários Ativos, aceitando erro de digitação ("RODIGUES" × "RODRIGUES")
++ *    e nome abreviado ("MARIA DE FATIMA G DE OLIVEIRA"). Nome curto demais (2 palavras) não é confirmado.
++ */
++(function (raiz) {
++  'use strict';
++  const TOL = 0.5;          // tolerância em R$ acima do limite
++  const LIMITE = 10;        // % do desconto de funcionário
++  const PART = new Set(['DE', 'DA', 'DO', 'DOS', 'DAS', 'E', 'D']);
++  const SEM_NOME = /^(CONSUMIDOR|CLIENTE|CLIENTE BALCAO|NAO INFORMADO|NAO IDENTIFICADO|DIVERSOS|VENDA BALCAO)?$/;
++
++  const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
++  const toks = s => norm(s).replace(/[^A-Z ]/g, ' ').split(' ').filter(t => t && !PART.has(t));
++  const num = v => {
++    if (typeof v === 'number') return v;
++    let s = String(v == null ? '' : v).trim(); if (!s) return 0;
++    if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
++    const n = Number(s); return isFinite(n) ? n : 0;
++  };
++  const r2 = v => Math.round(v * 100) / 100;
++
++  // ---------- similaridade de nomes ----------
++  function lev(a, b) {
++    if (a === b) return 0; const m = a.length, n = b.length; if (!m) return n; if (!n) return m;
++    let p = new Array(n + 1), c = new Array(n + 1);
++    for (let j = 0; j <= n; j++) p[j] = j;
++    for (let i = 1; i <= m; i++) { c[0] = i; for (let j = 1; j <= n; j++) c[j] = Math.min(p[j] + 1, c[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); [p, c] = [c, p]; }
++    return p[n];
++  }
++  const sim = (a, b) => 1 - lev(a, b) / Math.max(a.length, b.length, 1);
++  const tokOk = (x, y) => x === y || (x.length === 1 ? y.startsWith(x) : x.length >= 4 && x[0] === y[0] && sim(x, y) >= 0.8);
++  function subseq(t, e) { let j = 0; for (const x of t) { while (j < e.length && !tokOk(x, e[j])) j++; if (j === e.length) return false; j++; } return true; }
++
++  // índice do cadastro: casa um nome de cliente com um funcionário
++  function indiceFuncionarios(func) {
++    const exato = new Map(), porPrimeiro = new Map();
++    func.forEach((f, i) => {
++      const t = toks(f[1]); if (!t.length) return; const k = t.join(' ');
++      if (!exato.has(k)) exato.set(k, i);
++      if (!porPrimeiro.has(t[0])) porPrimeiro.set(t[0], []); porPrimeiro.get(t[0]).push([i, t, k]);
++    });
++    const cache = new Map();
++    function casar(nome) {
++      if (cache.has(nome)) return cache.get(nome);
++      const t = toks(nome), k = t.join(' '); let r;
++      if (exato.has(k)) r = {i: exato.get(k), modo: 'exato'};
++      else if (t.length < 2) r = {i: -1, modo: 'incompleto'};
++      else {
++        const cand = [];
++        for (const [i, e, ek] of porPrimeiro.get(t[0]) || []) {
++          if (e.length < 2) continue;
++          const s = sim(k, ek);
++          if (s >= 0.9 && tokOk(t[t.length - 1], e[e.length - 1])) cand.push([s + 1, i, 'grafia']);
++          else if (t.length >= 3 && subseq(t, e) && tokOk(t[t.length - 1], e[e.length - 1])) cand.push([s, i, 'abreviado']);
++          else if (t.length === 2 && subseq(t, e)) cand.push([s - 1, i, 'incompleto']);
++        }
++        if (!cand.length) r = {i: -1, modo: 'nao'};
++        else {
++          cand.sort((a, b) => b[0] - a[0]); const top = cand[0];
++          if (top[2] === 'abreviado' && cand.filter(c => c[2] === 'abreviado').length > 1) r = {i: top[1], modo: 'ambiguo'};
++          else r = {i: top[1], modo: top[2]};
++        }
++      }
++      cache.set(nome, r); return r;
++    }
++    return casar;
++  }
++
++  // ---------- leitura de arquivos ----------
++  function splitCSV(linha, sep) {
++    const out = []; let cur = '', q = false;
++    for (let i = 0; i < linha.length; i++) {
++      const ch = linha[i];
++      if (q) { if (ch === '"') { if (linha[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
++      else if (ch === '"') q = true; else if (ch === sep) { out.push(cur); cur = ''; } else cur += ch;
++    }
++    out.push(cur); return out;
++  }
++  function csvParaLinhas(texto) {
++    const ls = texto.replace(/\r/g, '').split('\n').filter(l => l.trim());
++    if (!ls.length) return [];
++    const sep = (ls[0].match(/;/g) || []).length >= (ls[0].match(/,/g) || []).length ? ';' : ',';
++    return ls.map(l => splitCSV(l, sep));
++  }
++  const acharCab = (rows, nomes) => rows.findIndex(r => r && nomes.every(n => r.some(c => norm(c) === n)));
++  function dataISO(v, ordem) { // -> 'AAAA-MM-DD' ou ''
++    if (v == null || v === '') return '';
++    if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);
++    if (typeof v === 'number') { const d = new Date(Math.round((v - 25569) * 864e5)); return isNaN(d) ? '' : d.toISOString().slice(0, 10); }
++    const s = String(v).trim(); let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
++    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if (!m) return '';
++    let a = +m[1], b = +m[2], y = +m[3]; if (y < 100) y += 2000;
++    const [dd, mm] = ordem === 'md' ? [b, a] : [a, b];
++    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return '';
++    return `${y}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
++  }
++  function ordemDatas(vals) { // descobre se a coluna é dia/mês ou mês/dia
++    let md = 0, dm = 0;
++    for (const v of vals) { const m = String(v || '').match(/^(\d{1,2})\/(\d{1,2})\//); if (!m) continue; if (+m[1] > 12) dm++; if (+m[2] > 12) md++; }
++    return md > dm ? 'md' : 'dm';
++  }
++
++  // Base de descontos (CSV/XLSX do sistema): REPORTGROUP;CODIGO;DATA;...;VDESCITEM;...;PERCENTOX;AUTORIZADORX;VENDEDOR;OBS
++  function lerDescontos(rows) {
++    const h = acharCab(rows, ['CODIGO', 'VDESCITEM']);
++    if (h < 0) throw new Error('Base de Descontos: não achei as colunas CODIGO e VDESCITEM. Confira se é o relatório de descontos do sistema.');
++    const cab = rows[h].map(norm), ix = n => cab.indexOf(n);
++    const c = {loja: ix('REPORTGROUP'), cod: ix('CODIGO'), data: ix('DATA'), prod: ix('PRODUTOX'), cli: ix('NOMECLIENTE'), qtd: ix('QUANTIDADE'),
++      preco: ix('VPRECOITEM'), desc: ix('VDESCITEM'), pct: ix('PERCENTOX'), aut: ix('AUTORIZADORX'), vend: ix('VENDEDOR'), obs: ix('OBS')};
++    const falta = Object.entries(c).filter(([k, v]) => v < 0 && !['aut', 'obs', 'qtd'].includes(k)).map(([k]) => k);
++    if (falta.length) throw new Error('Base de Descontos: faltam colunas ' + falta.join(', '));
++    const corpo = rows.slice(h + 1).filter(r => r && r[c.cod] != null && String(r[c.cod]).trim());
++    const ordem = ordemDatas(corpo.slice(0, 3000).map(r => r[c.data]));
++    return corpo.map(r => ({
++      loja: norm(r[c.loja]), cod: String(r[c.cod]).trim(), data: dataISO(r[c.data], ordem), prod: norm(r[c.prod]), cli: norm(r[c.cli]),
++      qtd: c.qtd >= 0 ? num(r[c.qtd]) || 1 : 1, preco: num(r[c.preco]), desc: num(r[c.desc]), pct: num(r[c.pct]),
++      aut: c.aut >= 0 ? norm(r[c.aut]) : '', vend: norm(r[c.vend]), obs: c.obs >= 0 ? norm(r[c.obs]) : ''
++    })).filter(x => x.data);
++  }
++  // Funcionários Ativos: Codigo | Nome | Cpf | Data Nacimento | Estado Civel | Data Admissão
++  function lerFuncionarios(rows) {
++    let h = rows.findIndex(r => r && r.some(c => norm(c) === 'NOME') && r.some(c => /^CPF/.test(norm(c))));
++    if (h < 0) throw new Error('Cadastro de Funcionários: não achei as colunas Nome e CPF.');
++    const cab = rows[h].map(norm), ix = re => cab.findIndex(c => re.test(c));
++    const c = {cod: ix(/^COD/), nome: ix(/^NOME$/), cpf: ix(/^CPF/), nasc: ix(/NAS?CIM/), adm: ix(/ADMIS/), cargo: ix(/CARGO|FUNCAO/), loja: ix(/^LOJA|FILIAL/)};
++    const corpo = rows.slice(h + 1).filter(r => r && r[c.nome] && String(r[c.nome]).trim());
++    const oN = ordemDatas(corpo.map(r => r[c.nasc])), oA = ordemDatas(corpo.map(r => r[c.adm]));
++    return corpo.map(r => [String(r[c.cod] ?? '').trim(), norm(r[c.nome]), String(r[c.cpf] ?? '').replace(/\D/g, '').padStart(11, '0'),
++      c.nasc >= 0 ? dataISO(r[c.nasc], oN) : '', c.adm >= 0 ? dataISO(r[c.adm], oA) : '', c.cargo >= 0 ? norm(r[c.cargo]) : '', c.loja >= 0 ? norm(r[c.loja]) : '']);
++  }
++  // Regional: Filial | Verba | Regional | Tipo | CNPJ | E-mail | UF | ...
++  function lerRegional(rows) {
++    const h = rows.findIndex(r => r && r.some(c => norm(c) === 'FILIAL') && r.some(c => norm(c) === 'REGIONAL'));
++    if (h < 0) throw new Error('Regional: não achei as colunas Filial e Regional.');
++    const cab = rows[h].map(norm), ix = n => cab.indexOf(n);
++    return rows.slice(h + 1).filter(r => r && r[ix('FILIAL')]).map(r => [norm(r[ix('FILIAL')]), norm(r[ix('REGIONAL')]), norm(r[ix('TIPO')]), norm(r[ix('UF')]), num(r[ix('VERBA')])]);
++  }
++  // que arquivo é este? (pelo conteúdo, não pelo nome)
++  function tipoDoArquivo(rows) {
++    if (acharCab(rows, ['CODIGO', 'VDESCITEM']) >= 0) return 'descontos';
++    if (rows.findIndex(r => r && r.some(c => norm(c) === 'FILIAL') && r.some(c => norm(c) === 'REGIONAL')) >= 0) return 'regional';
++    if (rows.findIndex(r => r && r.some(c => norm(c) === 'NOME') && r.some(c => /^CPF/.test(norm(c)))) >= 0) return 'funcionarios';
++    return '';
++  }
++
++  // ---------- base compacta (é o que vai para a nuvem) ----------
++  function montarBase(desc, func, reg, arquivos) {
++    const dic = () => { const m = new Map(), a = []; return {id: v => { if (!m.has(v)) { m.set(v, a.length); a.push(v); } return m.get(v); }, a}; };
++    const D = {loja: dic(), cli: dic(), prod: dic(), vend: dic(), aut: dic(), obs: dic()};
++    const col = {loja: [], cod: [], data: [], prod: [], cli: [], qtd: [], preco: [], desc: [], pct: [], aut: [], vend: [], obs: []};
++    desc.sort((a, b) => a.data < b.data ? -1 : a.data > b.data ? 1 : a.cod < b.cod ? -1 : a.cod > b.cod ? 1 : 0);
++    for (const x of desc) {
++      col.loja.push(D.loja.id(x.loja)); col.cod.push(x.cod); col.data.push(+x.data.replace(/-/g, '')); col.prod.push(D.prod.id(x.prod));
++      col.cli.push(D.cli.id(x.cli)); col.qtd.push(x.qtd); col.preco.push(r2(x.preco)); col.desc.push(r2(x.desc)); col.pct.push(x.pct);
++      col.aut.push(D.aut.id(x.aut)); col.vend.push(D.vend.id(x.vend)); col.obs.push(D.obs.id(x.obs));
++    }
++    const dic2 = {}; for (const k in D) dic2[k] = D[k].a;
++    return {v: 1, geradoEm: new Date().toISOString(), arquivos: arquivos || {}, dic: dic2, col, func: func || [], reg: reg || []};
++  }
++
++  // ---------- auditoria ----------
++  const SIT = {
++    FUNC: 'Funcionário', FUNC_PROV: 'Funcionário (nome com grafia diferente)', COLAB: 'Colaborador fora do cadastro',
++    INCOMP: 'Nome incompleto (não confirmado)', TERC: 'Não é funcionário', SEMNOME: 'Cliente sem nome'
++  };
++  const CAT = {
++    ARRED: 'Arredondamento (centavos)', CAMP: 'Campanha Meias (não aponta)', FUNC_OK: 'Funcionário dentro do limite (10%)',
++    FUNC_ACIMA: 'Funcionário acima do limite', COLAB: 'Colaborador fora do cadastro', TERC: 'Desconto a não funcionário',
++    INCOMP: 'Nome incompleto', SEMNOME: 'Cliente sem nome', SEM_DESC: 'Sem desconto'
++  };
++
++  function analisar(B) {
++    const C = B.col, n = C.cod.length, dic = B.dic;
++    const casar = indiceFuncionarios(B.func);
++    // vendedores (nome curto do sistema) — para achar quem compra e também vende
++    const vendTok = dic.vend.map(v => toks(v));
++    const porPrim = new Map();
++    vendTok.forEach((t, i) => { if (t.length >= 2) { if (!porPrim.has(t[0])) porPrim.set(t[0], []); porPrim.get(t[0]).push(i); } });
++    const ehVendedor = t => { if (t.length < 2) return -1; for (const i of porPrim.get(t[0]) || []) { const vt = vendTok[i]; if (tokOk(vt[1], t[1]) && subseq(vt, t)) return i; } return -1; };
++    // situação de cada cliente
++    const cli = dic.cli.map(nome => {
++      const t = toks(nome);
++      if (SEM_NOME.test(nome) || !t.length) return {nome, sit: 'SEMNOME', f: -1, modo: ''};
++      const m = casar(nome);
++      if (m.modo === 'exato') return {nome, sit: 'FUNC', f: m.i, modo: m.modo};
++      if (m.modo === 'grafia' || m.modo === 'abreviado') return {nome, sit: 'FUNC_PROV', f: m.i, modo: m.modo};
++      const v = ehVendedor(t);
++      if (v >= 0) return {nome, sit: 'COLAB', f: m.i, modo: m.modo, vend: v};
++      if (m.modo === 'incompleto' || m.modo === 'ambiguo') return {nome, sit: 'INCOMP', f: m.i, modo: m.modo};
++      return {nome, sit: 'TERC', f: -1, modo: m.modo};
++    });
++    // campanha Meias: venda com Meia Hoahi e com algum item que não é meia
++    const prodMeia = dic.prod.map(p => /\bMEIAS?\b/.test(p)), prodHoahi = dic.prod.map(p => p.includes('HOAHI'));
++    const vendaH = new Set(), vendaNM = new Set();
++    for (let i = 0; i < n; i++) { if (prodHoahi[C.prod[i]]) vendaH.add(C.cod[i]); if (!prodMeia[C.prod[i]]) vendaNM.add(C.cod[i]); }
++    // auto-venda: o vendedor da venda é o próprio cliente
++    const autoCache = new Map();
++    const autoVenda = (c, v) => {
++      const k = c * 100000 + v; if (autoCache.has(k)) return autoCache.get(k);
++      const vt = vendTok[v], ct = toks(dic.cli[c]);
++      const r = vt.length >= 2 && ct.length >= 2 && tokOk(vt[0], ct[0]) && tokOk(vt[1], ct[1]) && subseq(vt, ct);
++      autoCache.set(k, r); return r;
++    };
++    const adm = B.func.map(f => f[4] ? +f[4].replace(/-/g, '') : 0);
++    const cat = new Array(n), excesso = new Float64Array(n), flags = new Uint8Array(n); // 1 auto-venda · 2 antes da admissão
++    for (let i = 0; i < n; i++) {
++      const p = C.preco[i], d = C.desc[i], s = cli[C.cli[i]];
++      if (autoVenda(C.cli[i], C.vend[i])) flags[i] |= 1;
++      if (s.f >= 0 && (s.sit === 'FUNC' || s.sit === 'FUNC_PROV') && adm[s.f] && C.data[i] < adm[s.f]) flags[i] |= 2;
++      if (d <= 0) { cat[i] = 'SEM_DESC'; continue; }
++      if (C.pct[i] < 1 && d <= TOL) { cat[i] = 'ARRED'; continue; }
++      if (vendaH.has(C.cod[i]) && vendaNM.has(C.cod[i])) { cat[i] = 'CAMP'; continue; }
++      const ex = d - p * LIMITE / 100;
++      if (s.sit === 'FUNC' || s.sit === 'FUNC_PROV') { if (ex > TOL) { cat[i] = 'FUNC_ACIMA'; excesso[i] = r2(ex); } else cat[i] = 'FUNC_OK'; }
++      else cat[i] = s.sit;
++      if (s.sit !== 'FUNC' && s.sit !== 'FUNC_PROV' && ex > TOL) excesso[i] = r2(ex);
++    }
++    return {B, n, cli, cat, excesso, flags, casar};
++  }
++
++  // linha legível (para tabela, relatório e Excel)
++  function linha(A, i) {
++    const C = A.B.col, d = A.B.dic, s = A.cli[C.cli[i]], dt = String(C.data[i]);
++    const f = s.f >= 0 ? A.B.func[s.f] : null;
++    return {i, data: `${dt.slice(6, 8)}/${dt.slice(4, 6)}/${dt.slice(0, 4)}`, dataN: C.data[i], venda: C.cod[i], loja: d.loja[C.loja[i]],
++      cliente: d.cli[C.cli[i]], sit: s.sit, sitTxt: SIT[s.sit] || s.sit, cadastro: f && (s.sit === 'FUNC' || s.sit === 'FUNC_PROV') ? f[1] : '',
++      cpf: f && (s.sit === 'FUNC' || s.sit === 'FUNC_PROV') ? f[2] : '', admissao: f ? f[4] : '',
++      vendedor: d.vend[C.vend[i]], produto: d.prod[C.prod[i]], qtd: C.qtd[i], preco: C.preco[i], pct: C.pct[i], desc: C.desc[i],
++      pago: r2(C.preco[i] - C.desc[i]), autorizador: d.aut[C.aut[i]] || '', obs: d.obs[C.obs[i]] || '', cat: A.cat[i], catTxt: CAT[A.cat[i]],
++      excesso: A.excesso[i], auto: !!(A.flags[i] & 1), antesAdm: !!(A.flags[i] & 2)};
++  }
++
++  const api = {TOL, LIMITE, SIT, CAT, norm, toks, num, r2, sim, csvParaLinhas, lerDescontos, lerFuncionarios, lerRegional, tipoDoArquivo, montarBase, analisar, linha, indiceFuncionarios};
++  if (typeof module !== 'undefined' && module.exports) module.exports = api; else raiz.DF = api;
++})(typeof window !== 'undefined' ? window : globalThis);
+diff --git a/index.html b/index.html
+index bff67c5..3d19d83 100644
+--- a/index.html
++++ b/index.html
+@@ -902,6 +902,8 @@ async function openPortal(){
+   // Módulos novos (Faltas e Atrasos, Auditoria Financeira, Segurança e CFTV, Patrimônio de Segurança, Consumo Loja):
+   // card com capa na Visão Geral + grupo "Novos Módulos" no menu + Voltar ao Portal confiável. Substitui financeiro-patch; Faltas e Atrasos segue no patch próprio (versão lida dele).
+   html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('modulos-novos-patch.js?v=20261116-3',location.href).href+'"></scr'+'ipt>');
++  // Descontos de Funcionários: nova versão (base compartilhada em cmpaud_cargas, pesquisa inteligente, suspeitas, relatórios com data e nº da venda).
++  html=inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('descontos-funcionarios-patch.js?v=20261116-1',location.href).href+'"></scr'+'ipt>');
+   var blob=new Blob([html],{type:'text/html;charset=utf-8'});
+   var blobUrl=URL.createObjectURL(blob);
+   var ifr=document.getElementById('portalFrame');
+-- 
+2.43.0
+

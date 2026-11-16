@@ -734,7 +734,7 @@ function excelPessoas(nome, lista) {
 }
 function excelGen(nome, cols, L) {
   const tira = s => String(s).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  const out = L.map(r => Object.fromEntries(cols.map(c => [c.t, typeof c.v(r) === 'number' ? c.v(r) : tira(c.h ? c.h(r) : c.v(r))])));
+  const out = L.map(r => Object.fromEntries(cols.map(c => [c.t, typeof c.v(r) === 'number' ? DF.r2(c.v(r)) : tira(c.h ? c.h(r) : c.v(r))])));
   out.push(Object.fromEntries(cols.map((c, k) => [c.t, k === 0 ? 'TOTAL' : c.tot ? tira(c.tot(L)) : ''])));
   baixarXLSX(nome, out);
 }
