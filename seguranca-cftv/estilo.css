@@ -103,7 +103,10 @@ tr.clic{cursor:pointer}
   body{background:#fff!important;color:#111;padding:0;max-width:none}.topo,.abas,.filtros,.noprint,.btn{display:none!important}
   .card,.pn-card,.tw,.mcaixa{background:#fff!important;box-shadow:none;break-inside:avoid;color:#111}.tw{max-height:none;overflow:visible;border:0}th{position:static}
   .modal{position:static;background:none;padding:0}.mcaixa{padding:0;border:0}
+  body:has(#modal:not(.hidden)) #vApp{display:none!important} /* Ctrl+P com uma lista aberta: sai só a lista */
 }
+.relg{grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr));margin-bottom:6px}
+.relc{display:flex;flex-direction:column;gap:6px}.relc h3{margin:0}.relc .sub{flex:1;margin:0}.relb{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
 /* Painel (padrão Faltas e Atrasos): grupos com pergunta; cartão = título exato + valor + explicação + base */
 .pn-alerta{background:var(--warnf);border:1px solid rgba(245,179,1,.32);color:#fde68a;border-radius:12px;padding:11px 14px;font-size:13px;margin:10px 0 4px;display:grid;gap:5px}
 .pn-alerta b{color:#fcd34d}.pn-alerta a{color:#93c5fd;font-weight:700;text-decoration:none}.pn-alerta a:hover{text-decoration:underline}

@@ -985,7 +985,7 @@ const RELATORIOS = {
     return {cols: COL_PAT, linhas: l, xls: l.map(xlsPat), fonte: 'Compras de 2026 pelo custo real das notas (conferidas e executadas) + parque anterior a 2026 a preço de reposição de hoje (cftv_patrimonio)',
       total: brl((S.pat || {}).total), obs: `Itens marcados "estimado" vêm da ocupação dos gravadores (planilha) ou de 1 HD por gravador. ${brl((S.pat || {}).sem_loja)} estão em notas sem loja definida.`}; }],
   investimentos: ['Investimentos de 2026', () => { const l = docsF(d => ['aquisicao', 'instalacao'].includes(d.natureza)); return {cols: COL_DOC, linhas: l, xls: l.map(xlsDoc), fonte: 'Notas fiscais importadas (cftv_documentos)', total: brl(soma(l, d => d.valor_total))}; }],
-  manutencao_mensal: ['Despesas mensais de manutenção', () => { const l = S.painel.manutencao_mensal; return {cols: [{t: 'Mês', f: x => esc(x.mes)}, {t: 'Ocorrências', n: 1, f: x => x.qtd}, {t: 'Valor', n: 1, f: x => brl(x.valor)}], linhas: l, xls: l, fonte: 'cftv_manutencoes', total: brl(soma(l, x => x.valor))}; }],
+  manutencao_mensal: ['Despesas mensais de manutenção', () => { const l = S.painel.manutencao_mensal; return {cols: [{t: 'Mês', f: x => { const [a, m] = String(x.mes || '').split('-'); return m ? ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][m - 1] + '/' + a : esc(x.mes); }}, {t: 'Ocorrências', n: 1, f: x => x.qtd}, {t: 'Valor', n: 1, f: x => brl(x.valor)}], linhas: l, xls: l, fonte: 'cftv_manutencoes', total: brl(soma(l, x => x.valor))}; }],
   ranking: ['Ranking de custos por loja', () => { const l = resumoLojas().filter(x => x.compras + x.instalacao + x.manutencao > 0).sort((a, b) => (b.compras + b.instalacao + b.manutencao) - (a.compras + a.instalacao + a.manutencao));
     return {cols: [{t: 'Loja', f: x => esc(x.nome)}, {t: 'Equipamentos', n: 1, f: x => brl(x.compras)}, {t: 'Instalação', n: 1, f: x => brl(x.instalacao)}, {t: 'Manutenção', n: 1, f: x => brl(x.manutencao)}, {t: 'Total', n: 1, f: x => brl(x.compras + x.instalacao + x.manutencao)}, {t: 'Câmeras', n: 1, f: x => nf(x.cameras)}],
       linhas: l, xls: l.map(x => ({Loja: x.nome, Equipamentos: x.compras, Instalacao: x.instalacao, Manutencao: x.manutencao, Total: x.compras + x.instalacao + x.manutencao, Cameras: x.cameras})), fonte: 'cftv_documentos e cftv_manutencoes'}; }],
@@ -1101,19 +1101,36 @@ async function rPagamentos() {
   </div></section>
   <h2>Divergências</h2>${tabela(COLS, linhas.filter(l => l.cls !== 'ok' && l.sit !== 'A pagar').sort((a, b) => (b.cls === 'bad') - (a.cls === 'bad') || Math.abs(b.dif) - Math.abs(a.dif)), {vazio: 'Nenhuma divergência: todas as notas casam com os títulos.'})}`;
 }
+const DESC_REL = {
+  inventario: 'Todos os equipamentos por loja: categoria, marca/modelo, quantidade, custo, origem, área e situação.',
+  patrimonio: 'Valor do parque: compras de 2026 pelo custo das notas + parque anterior a preço de reposição.',
+  investimentos: 'Notas de aquisição e instalação do período, com loja, fornecedor e valor.',
+  manutencao_mensal: 'Quantidade de ocorrências e valor gasto com manutenção, mês a mês.',
+  ranking: 'Lojas ordenadas pelo gasto total: equipamentos, instalação e manutenção.',
+  defeitos: 'Tipos de equipamento com mais manutenções, quantas lojas e o custo.',
+  estoque: 'Situação da câmera no estoque de cada loja ativa e quantas câmeras faltam.',
+  evitaveis: 'Manutenções por dano acidental ou possível mau uso (com evidência).',
+  plano: 'Orçamento por loja (planejado e aprovado): câmeras, gravadores, cabeamento e mão de obra.',
+};
 function rRelatorios() {
-  $('conteudo').innerHTML = `<div class="info">Cada relatório traz período, filtros, fonte dos dados e data de atualização. "PDF" abre a impressão — escolha "Salvar como PDF".</div>
-  <div class="card" style="margin-bottom:12px"><h3>Relatório executivo (Diretoria)</h3><div class="sub" style="margin-bottom:8px">2 páginas A4: números principais, o que eles mostram, gasto mês a mês, decisões, projeto em aberto, patrimônio por categoria e ocorrências em aberto. Usa os filtros da tela.</div><button class="btn pri peq" onclick="relatorioExecutivo()">PDF / imprimir</button></div>
-  <div class="card" style="margin-bottom:12px"><h3>Painel em PDF</h3><div class="sub" style="margin-bottom:8px">2 páginas A4 paisagem: os cards do Painel, gasto mês a mês, patrimônio e investimento por loja, lojas que mais gastam com manutenção e ocorrências em aberto. Usa os filtros da tela.</div><button class="btn pri peq" onclick="relatorioPainel()">PDF / imprimir</button></div>
-  <div class="grid">${Object.entries(RELATORIOS).map(([k, [t]]) => `<div class="card"><h3>${t}</h3><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn pri peq" onclick="abrirRel('${k}')">Ver</button><button class="btn peq" onclick="abrirRel('${k}',true)">PDF / imprimir</button><button class="btn peq" onclick="xlsRel('${k}')">Excel</button></div></div>`).join('')}</div>`;
+  const card = (t, d, b) => `<div class="card relc"><h3>${t}</h3><div class="sub">${d}</div><div class="relb">${b}</div></div>`;
+  $('conteudo').innerHTML = `<div class="info">Cada relatório traz período, filtros, fonte dos dados e data de atualização (filtros: ${esc(descFiltros())}). "PDF / imprimir" abre a impressão só do relatório — escolha "Salvar como PDF" ou a impressora.</div>
+  <div class="grid relg">
+    ${card('Relatório executivo (Diretoria)', '2 páginas A4: números principais, o que eles mostram, gasto mês a mês, decisões, projeto em aberto, patrimônio por categoria e ocorrências em aberto.', '<button class="btn pri peq" onclick="relatorioExecutivo()">PDF / imprimir</button>')}
+    ${card('Painel em PDF', '2 páginas A4 paisagem: os cards do Painel, gasto mês a mês, patrimônio e investimento por loja, lojas que mais gastam com manutenção e ocorrências em aberto.', '<button class="btn pri peq" onclick="relatorioPainel()">PDF / imprimir</button>')}
+  </div>
+  <h2>Relatórios detalhados</h2>
+  <div class="grid relg">${Object.entries(RELATORIOS).map(([k, [t]]) => card(t, DESC_REL[k] || '', `<button class="btn pri peq" onclick="abrirRel('${k}')">Ver</button><button class="btn peq" onclick="abrirRel('${k}',true)">PDF / imprimir</button><button class="btn peq" onclick="xlsRel('${k}')">Excel</button>`)).join('')}</div>`;
 }
 function abrirRel(k, imprimir) {
-  const [tit, fn] = RELATORIOS[k], r = fn();
+  const [tit, fn] = RELATORIOS[k];
+  let r; try { r = fn(); } catch (e) { toast('Não foi possível montar o relatório: ' + e.message, 7000); return; }
+  if (imprimir) return imprimirLista(tit, r); // documento próprio: não imprime a tela do módulo
   abrirModal(tit, `<div class="rel"><div class="relcab"><div class="t">${esc(tit)} · Rede Esposende</div>
     <div class="m">${esc(descFiltros())} · Fonte: ${esc(r.fonte)} · Dados atualizados em ${dBR(S.painel.atualizado_em)} · Emitido em ${new Date().toLocaleString('pt-BR')} por ${esc(S.email)}</div>
-    ${r.obs ? `<div class="m">${esc(r.obs)}</div>` : ''}${r.total ? `<div class="m"><b>Total: ${r.total}</b></div>` : ''}</div>${tabela(r.cols, r.linhas)}</div>`, {nome: tit, linhas: r.xls});
+    ${r.obs ? `<div class="m">${esc(r.obs)}</div>` : ''}${r.total ? `<div class="m"><b>Total: ${r.total}</b></div>` : ''}</div>
+    <div class="noprint" style="margin:0 0 10px"><button class="btn pri peq" onclick="abrirRel('${k}',true)">PDF / imprimir</button></div>${tabela(r.cols, r.linhas)}</div>`, {nome: tit, linhas: r.xls});
   sb.rpc('cftv_registrar', {p_acao: 'exportacao', p_tabela: 'relatorio', p_registro: tit}).then(() => {});
-  if (imprimir) setTimeout(() => window.print(), 300);
 }
 function xlsRel(k) { const [tit, fn] = RELATORIOS[k], r = fn(); exportarXls(tit, r.xls); }
 
