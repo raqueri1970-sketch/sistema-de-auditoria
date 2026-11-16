@@ -14,12 +14,14 @@
   function dados() {
     const p = S.painel, fi = p.financeiro, op = p.operacional, me = p.medias, pl = p.plano || {}, P = S.pat || {}, pb = P.por_base || {};
     const ult = S.docs.reduce((m, d) => d.emissao && d.emissao > m ? d.emissao : m, '');
-    const precoRef = Number(((P.precos || []).find(x => x.categoria === 'camera') || {}).preco) || null;
+    const precoRef = premissa('preco_camera') || Number(((P.precos || []).find(x => x.categoria === 'camera') || {}).preco) || null, pc = precoCameras();
+    const f = F(), plS = S.plano.filter(x => ['planejado', 'aprovado'].includes(x.situacao) && S.ativas.has(x.loja_codigo) && (f.loja === null || x.loja_codigo === f.loja));
+    const plMc = k => soma(plS, x => (x.memoria_calculo || {})[k]);
     const abertas = S.oc.filter(o => o.ativo && ['pendente', 'suspeita'].includes(o.situacao))
       .sort((a, b) => ({alta: 0, media: 1, baixa: 2}[a.gravidade] - {alta: 0, media: 1, baixa: 2}[b.gravidade]) || (Number(b.valor) || 0) - (Number(a.valor) || 0));
     const fechadas = (P.por_loja || []).filter(x => x.loja_codigo && Number(x.valor) > 0 &&
       (S.inativas.has(x.loja_codigo) || /fechad|desativ/i.test((S.lojas.get(x.loja_codigo) || {}).nome || '')));
-    return {p, fi, op, me, pl, P, pb, ult, precoRef, abertas, fechadas, anterior: Number(pb.anterior_2026 || 0) + Number(pb.estimativa || 0)};
+    return {p, fi, op, me, pl, P, pb, ult, precoRef, pc, plMc, abertas, fechadas, anterior: Number(pb.anterior_2026 || 0) + Number(pb.estimativa || 0)};
   }
 
   // ---------------- gráfico mês a mês (SVG) ----------------
@@ -83,11 +85,11 @@ tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:
 
   function html(logo, tipo = 'executivo') {
     const PAINEL = tipo === 'painel', TIT = PAINEL ? 'Painel · Segurança Patrimonial e CFTV' : 'Relatório Executivo · Segurança Patrimonial e CFTV';
-    const d = dados(), {p, fi, op, me, pl, P, pb, ult, precoRef, abertas, fechadas, anterior} = d;
+    const d = dados(), {p, fi, op, me, pl, P, pb, ult, precoRef, pc, plMc, abertas, fechadas, anterior} = d;
     const gerado = new Date().toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'});
     const pos = `posição de ${dBR(p.atualizado_em || hoje())}`, notas = `notas até ${dBR(ult)}`, filtros = descFiltros();
     const lojas = op.total_lojas || 0, cob = op.lojas_estoque_coberto || 0, inv = Number(fi.investimento_total) || 0;
-    const camPreco = Number(me.custo_medio_camera) || null, camVar = camPreco && precoRef ? (camPreco - precoRef) / precoRef * 100 : null;
+    const camPreco = pc.comum || null, camVar = camPreco && precoRef ? (camPreco - precoRef) / precoRef * 100 : null;
     const meses = (p.mensal || []).filter(m => Number(m.manutencao) > 0), manMed = meses.length ? soma(meses, m => m.manutencao) / meses.length : null;
     const manUlt = meses.length ? Number(meses[meses.length - 1].manutencao) : null, manVar = manMed ? (manUlt - manMed) / manMed * 100 : null;
     const invLoja = (p.por_loja || []).filter(x => x.loja_codigo !== null).sort((a, b) => b.investimento - a.investimento), top5 = invLoja.slice(0, 5), top5v = soma(top5, x => x.investimento);
@@ -114,13 +116,13 @@ tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:
       k('Investido em 2026 (notas fiscais)', R0(inv), notas, '', '', `equipamentos ${R0(fi.aquisicao_equipamentos)} + instalação ${R0(fi.servicos_instalacao)}`),
       k('Manutenção', R0(fi.manutencao_total), notas, 'warn', manVar === null ? '' : cmp(`${manVar > 0 ? '▲' : '▼'} ${PC(Math.abs(manVar))}`, manVar > 0 ? 'bad' : 'ok'), `${N0(soma(p.manutencao_mensal || [], m => m.qtd))} ocorrências · último mês × média`),
       k('Monitoramento', R0(fi.monitoramento), notas, 'neu', '', 'serviço mensal da central (fora do investimento)'),
-      k('Preço pago por câmera', R0(camPreco), notas, '', camVar === null ? '' : cmp(`${camVar > 0 ? '▲' : '▼'} ${PC(Math.abs(camVar))}`, camVar > 0 ? 'bad' : 'ok'), precoRef ? `referência da gestão: ${R0(precoRef)}` : 'média das notas de compra')];
+      k('Preço pago por câmera comum', R0(camPreco), notas, '', camVar === null ? '' : cmp(`${camVar > 0 ? '▲' : '▼'} ${PC(Math.abs(camVar))}`, camVar > 0 ? 'bad' : 'ok'), precoRef ? `${N0(pc.comumQtd)} câmeras × referência ${R0(precoRef)}${pc.espQtd ? ` · fora: ${N0(pc.espQtd)} speed dome/Wi-Fi/IP` : ''}` : 'média das notas de compra')];
 
     const fatos = [];
     if (top5.length && inv) fatos.push(`<b>Investimento concentrado.</b> As ${top5.length} maiores destinações (${top5.map(x => esc(nomeCurto(x.loja_codigo))).join(', ')}) somam ${R0(top5v)}, ${PC(top5v / inv * 100)} do investido. ${N0(me.lojas_com_investimento)} lojas receberam investimento; custo médio de ${R0(me.custo_medio_loja)} por loja.`);
     if (lojas) fatos.push(`<b>Estoque ${cob < lojas / 2 ? 'descoberto' : 'parcialmente coberto'}.</b> ${N0(cob)} de ${N0(lojas)} lojas filmam o estoque; ${N0(op.lojas_cobertura_incompleta)} das ${N0(op.lojas_estoque_avaliado)} lojas avaliadas têm alguma área sem câmera. ${op.lojas_cobertura_completa ? `${N0(op.lojas_cobertura_completa)} com cobertura completa.` : 'Nenhuma loja está com cobertura completa.'}`);
     if (cap.length) fatos.push(`<b>Câmeras sem gravação garantida.</b> ${cap.length} loja(s) com mais câmeras do que canais de gravação (${cap.slice(0, 2).map(o => esc(o.detalhe.replace(/\.$/, ''))).join('; ')}). A rede tem ${N0(op.canais_livres)} canais livres em outras lojas.`);
-    if (camVar !== null) fatos.push(`<b>Preço da câmera ${camVar > 0 ? 'acima' : 'dentro'} da referência.</b> Média de ${R0(camPreco)} por câmera nas notas, ${PC(Math.abs(camVar))} ${camVar > 0 ? 'acima' : 'abaixo'} dos ${R0(precoRef)} definidos pela gestão.`);
+    if (camVar !== null) fatos.push(`<b>Preço da câmera ${camVar > 0 ? 'acima' : 'dentro'} da referência.</b> A câmera comum saiu a ${R0(camPreco)} em média nas notas (${N0(pc.comumQtd)} un.), ${PC(Math.abs(camVar))} ${camVar > 0 ? 'acima' : 'abaixo'} dos ${R0(precoRef)} definidos pela gestão.${pc.espQtd ? ` Speed dome, Wi-Fi e IP (${N0(pc.espQtd)} un., ${R0(pc.esp)} em média) ficam fora da comparação; com elas a média geral é ${R0(pc.media)}.` : ''}`);
     if (Number(fi.manutencao_total)) { const r1 = (p.ranking_manutencao || [])[0];
       fatos.push(`<b>Manutenção.</b> ${R0(fi.manutencao_total)} no período (${inv ? PC(fi.manutencao_total / inv * 100, 1) : '—'} do investido), reincidência de ${R0(fi.reincidencia)}${r1 ? `; maior custo em ${esc(r1.nome)} (${R0(r1.valor)} em ${N0(r1.ocorrencias)} ocorrências)` : ''}.`); }
     if (fechadas.length) fatos.push(`<b>Lojas fechadas ou desativadas com patrimônio.</b> ${fechadas.map(x => `${esc(nomeCurto(x.loja_codigo))} (${R0(x.valor)})`).join('; ')}: confirmar destino dos equipamentos.`);
@@ -134,7 +136,7 @@ tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:
     if (fechadas.length || abertas.some(o => o.regra === 'loja_desativada')) dec.push(`<b>Confirmar o destino dos equipamentos</b> de lojas fechadas ou desativadas${fechadas.length ? `: ${fechadas.map(x => esc(nomeCurto(x.loja_codigo))).join(', ')}` : ''}.`);
     if (!dec.length) dec.push('Nenhuma decisão pendente no período.');
 
-    const planoL = [['Câmeras', `${N0(pl.cameras)} un.`, pl.cameras_valor], ['Gravadores 16 canais', `${N0(pl.gravadores)} un.`, pl.gravadores_valor], ['Conectores', '—', pl.conectores_valor], ['Cabeamento', '—', pl.cabeamento], ['Mão de obra', '—', pl.mao_obra]].filter(x => Number(x[2]));
+    const planoL = [['Câmeras', `${N0(pl.cameras)} un.`, pl.cameras_valor], ...(plMc('gravador_hd_valor') ? [['Gravador 16 canais com HD 2TB', `${N0(pl.gravadores)} un.`, plMc('gravador_hd_valor')], ['Power balun 16 canais', `${N0(pl.gravadores)} un.`, plMc('power_balun_valor')]] : [['Gravador + HD + power balun', `${N0(pl.gravadores)} un.`, pl.gravadores_valor]]), ['Conectores', '—', pl.conectores_valor], ['Cabeamento', '—', pl.cabeamento], ['Mão de obra', '—', pl.mao_obra]].filter(x => Number(x[2]));
     const tPlano = Number(pl.total) ? mk([['Lojas que precisam', N0(pl.lojas)], ['Câmeras', N0(pl.cameras)], ['Gravadores', N0(pl.gravadores)], ['Total do projeto', R0(pl.total), 't']])
       + `<table><tr><th>Item</th><th class="n">Qtd</th><th class="n">Valor</th><th class="n">%</th></tr>${planoL.map(x => `<tr><td>${x[0]}</td><td class="n">${x[1]}</td><td class="n">${R0(x[2])}</td><td class="n">${PC(x[2] / pl.total * 100)}</td></tr>`).join('')}<tr class="tot"><td>Total do projeto</td><td class="n">${N0(pl.lojas)} lojas</td><td class="n">${R0(pl.total)}</td><td class="n">100%</td></tr></table>`
       + `<div class="nota">Média de ${R0(pl.lojas ? pl.total / pl.lojas : 0)} e ${nf(pl.lojas ? pl.cameras / pl.lojas : 0, 1)} câmeras por loja.</div>` : '<div class="nota">Nenhum projeto em aberto.</div>';
@@ -177,7 +179,7 @@ tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:
       <h2>Gasto mês a mês (notas fiscais)</h2><div class="box">${grafico(p.mensal, 760, 150)}</div>${rod(1)}</div>`;
     const pg2 = `<div class="pg">${cab(`Decisões, projeto em aberto e pontos de auditoria · ${pos}`)}
       <h2>Decisões para a Diretoria</h2><ol class="dec">${dec.map(x => `<li>${x}</li>`).join('')}</ol>
-      <div class="grid g2"><div><h2>Projeto em aberto · câmeras do estoque</h2>${tPlano}<div class="nota">Orçamento por loja do Plano e orçamento · câmera a ${R0(precoRef)} (gestão).</div></div><div><h2>Patrimônio por categoria</h2>${tCat}</div></div>
+      <div class="grid g2"><div><h2>Projeto em aberto · câmeras do estoque</h2>${tPlano}<div class="nota">Base da gestão: câmera ${brl(precoRef)} · gravador com HD 2TB ${brl(premissa('preco_gravador_16_com_hd'))} · power balun ${brl(premissa('preco_power_balun_16'))}.</div></div><div><h2>Patrimônio por categoria</h2>${tCat}</div></div>
       <h2>Ocorrências de auditoria em aberto</h2>${tOc}
       <div class="nota">Fonte: módulo Segurança e CFTV · notas fiscais, inventário, manutenções, cobertura e cadastro oficial de lojas · ${notas}.</div>${rod(2)}</div>`;
     return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório Executivo CFTV ${dBR(hoje())}</title><style>${CSS(false)}</style></head><body>${pg1}${pg2}</body></html>`;
