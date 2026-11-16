@@ -202,8 +202,9 @@ tr.tot td{background:#dfe6f2!important;font-weight:800;color:#14284a;border-top:
 .cab{display:flex;align-items:center;gap:14px;border-bottom:3px solid #14284a;padding-bottom:8px;margin-bottom:10px}.cab img{height:38px}.cab .tt{flex:1}
 .cab h1{margin:0;font-size:16px;color:#14284a}.cab .st{color:#5b6576;font-size:10px;margin-top:2px}
 .selo{background:#14284a;color:#fff;border-radius:6px;padding:5px 10px;font-size:9.5px;font-weight:700;letter-spacing:.04em;text-align:center;line-height:1.35}
-.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin-bottom:8px}
-.k{border:1px solid #d6dce6;border-left:4px solid #1f5fbf;border-radius:7px;padding:6px 9px;background:#fbfcfe}.k .t{font-size:8.5px;color:#4a5466;font-weight:600;text-transform:uppercase;letter-spacing:.05em}.k .v{font-size:13px;font-weight:800;color:#14284a;margin-top:2px}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(${pais ? 120 : 110}px,1fr));gap:6px;margin-bottom:8px}
+.k{border:1px solid #d6dce6;border-left:4px solid #1f5fbf;border-radius:7px;padding:6px 9px;background:#fbfcfe}.k .t{font-size:8.5px;color:#4a5466;font-weight:600;text-transform:uppercase;letter-spacing:.05em}.k .v{font-size:14px;font-weight:800;color:#14284a;margin-top:2px;font-variant-numeric:tabular-nums}.k .d{font-size:8.5px;color:#4a5466;margin-top:1px}
+.k.dest{background:#14284a;border-color:#14284a;border-left-color:#ffd166}.k.dest .t{color:#c9d4e8}.k.dest .v{color:#fff;font-size:16px}.k.dest .d{color:#c9d4e8}
 .info{font-size:9px;color:#3b4558;line-height:1.5;border:1px solid #d6dce6;border-radius:7px;padding:6px 9px;margin-bottom:6px}.info b{color:#14284a}
 .obs{background:#fff4e0;border:1px solid #f0c36d;color:#7a3f04;border-radius:7px;padding:6px 9px;margin-bottom:8px;font-size:9px}
 table{width:100%;border-collapse:collapse;font-size:9px}thead{display:table-header-group}tfoot{display:table-row-group}
@@ -220,12 +221,13 @@ td{padding:4px 6px;border-bottom:1px solid #e3e7ee;vertical-align:top}tr{break-i
   function htmlLista(logo, tit, r) {
     const gerado = new Date().toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'});
     const n = (r.linhas || []).length, pais = r.cols.length > 6;
-    const meta = [['Registros', N0(n)], r.total ? ['Total', r.total] : null, ['Dados atualizados em', dBR((S.painel || {}).atualizado_em || hoje())], ['Emitido em', gerado]].filter(Boolean)
-      .map(([t, v]) => `<div class="k"><div class="t">${t}</div><div class="v">${v}</div></div>`).join('');
+    const k = ([t, v, d, x]) => `<div class="k${x ? ' dest' : ''}"><div class="t">${t}</div><div class="v">${v}</div>${d ? `<div class="d">${d}</div>` : ''}</div>`;
+    const cards = (r.cards || [['Registros', N0(n)], r.total ? ['Total', r.total, '', 1] : null].filter(Boolean)).map(k).join('');
+    const base = `Dados atualizados em ${dBR((S.painel || {}).atualizado_em || hoje())} · emitido em ${gerado}`;
     return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(tit)} ${dBR(hoje())}</title><style>${CSS_LISTA(pais)}</style></head><body><div class="folha">
       <div class="cab"><img src="${logo}" alt="Esposende"><div class="tt"><h1>${esc(tit)}</h1><div class="st">Segurança Patrimonial e CFTV · Rede Esposende</div></div><div class="selo">AUDITORIA<br>&amp; CONTROLE</div></div>
-      <div class="meta">${meta}</div>
-      <div class="info"><b>Filtros:</b> ${esc(descFiltros())}<br><b>Fonte:</b> ${esc(r.fonte)}</div>
+      <div class="meta">${cards}</div>
+      <div class="info"><b>Filtros:</b> ${esc(descFiltros())}<br><b>Fonte:</b> ${esc(r.fonte)}<br><b>Base:</b> ${base}</div>
       ${r.obs ? `<div class="obs">${esc(r.obs)}</div>` : ''}
       ${tabela(r.cols, r.linhas || [], {total: r.totalLinha, vazio: 'Nenhum registro com os filtros atuais.'})}
       <div class="fim">${N0(n)} registro(s) · emitido por ${esc(S.email)}.</div>
