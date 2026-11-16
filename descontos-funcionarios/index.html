@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Descontos de Funcionários</title>
+<meta name="theme-color" content="#070b16">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="nucleo.js?v=20261116-1"></script>
+<link rel="stylesheet" href="estilo.css?v=20261116-1">
+</head>
+<body>
+
+<div id="vLogin" class="hidden login">
+  <h1>🏷️ Descontos de Funcionários</h1>
+  <div class="sub" style="margin-bottom:14px">Entre com o seu usuário do Portal Esposende</div>
+  <div class="card">
+    <div><label for="lEmail">E-mail</label><input id="lEmail" type="email" autocomplete="username"></div>
+    <div><label for="lSenha">Senha</label><input id="lSenha" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')entrar()"></div>
+    <div id="lErr" class="err"></div>
+    <button class="btn pri" style="width:100%" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vSem" class="hidden card vazio" style="max-width:560px;margin:40px auto">
+  Este módulo é restrito à Controladoria, Administração e Compras.<br>Peça liberação ao administrador do Portal.
+</div>
+
+<div id="vApp" class="hidden">
+  <header class="card">
+    <div class="df-topo">
+      <div>
+        <h1>🏷️ Descontos de Funcionários</h1>
+        <div class="sub">Auditoria de alçadas · quem recebeu desconto, quem concedeu e o que foge da regra</div>
+      </div>
+      <div class="df-acoes">
+        <button class="btn pri" onclick="abrirAba('carregar')">📂 Carregar arquivos</button>
+        <button class="btn" onclick="relatorioExecutivo()">🖨 Relatório executivo</button>
+        <button class="btn" onclick="excelLancamentos()">⬇ Excel</button>
+        <button class="btn" onclick="recarregarNuvem(true)">↻ Atualizar</button>
+      </div>
+    </div>
+    <div class="df-status" id="status"></div>
+    <div id="avisos"></div>
+    <div class="df-busca">
+      <input id="busca" type="search" autocomplete="off" placeholder="Pesquisa inteligente: nome do funcionário ou cliente, vendedor, nº da venda, loja, regional ou produto…" aria-label="Pesquisa inteligente">
+      <div id="sug" class="df-sug hidden"></div>
+    </div>
+    <div class="df-filtros">
+      <div><label for="fDe">De</label><input type="date" id="fDe"></div>
+      <div><label for="fAte">Até</label><input type="date" id="fAte"></div>
+      <div><label for="fReg">Regional</label><select id="fReg"><option value="">Todas</option></select></div>
+      <div><label for="fLoja">Loja</label><select id="fLoja"><option value="">Todas</option></select></div>
+      <div><label for="fSit">Quem recebeu</label><select id="fSit"><option value="">Todos</option></select></div>
+      <div><label for="fCat">Classificação</label><select id="fCat"><option value="">Todas (sem arredondamento)</option></select></div>
+      <div class="fbtn"><button class="btn" onclick="limparFiltros()">Limpar filtros</button></div>
+    </div>
+    <div class="df-ativo" id="ativos"></div>
+  </header>
+
+  <nav class="df-abas" id="abas">
+    <button data-a="painel" class="on">Painel</button>
+    <button data-a="suspeitas">Suspeitas <span class="cont" id="cSusp"></span></button>
+    <button data-a="pessoas">Por pessoa</button>
+    <button data-a="vendedores">Por vendedor</button>
+    <button data-a="lojas">Por loja / regional</button>
+    <button data-a="lanc">Lançamentos</button>
+    <button data-a="relatorios">Relatórios</button>
+    <button data-a="carregar">Carregar arquivos</button>
+  </nav>
+
+  <main id="conteudo"><div class="vazio">Carregando a base da nuvem…</div></main>
+</div>
+
+<div id="modal" class="df-modal hidden" role="dialog" aria-modal="true" aria-labelledby="mTit" onclick="if(event.target===this)fecharModal()">
+  <div class="df-mcx">
+    <div class="df-mtopo">
+      <div><h3 id="mTit"></h3><div class="sub" id="mSub"></div></div>
+      <div class="df-acoes" id="mAcoes"></div>
+    </div>
+    <div class="df-mcorpo" id="mCorpo"></div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="app.js?v=20261116-1"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Dados de auditoria (planilhas, CPFs, vendas) nunca vão para o repositório público: ficam no Supabase.
+*.json
+*.xlsx
+*.xls
+*.csv
+*.CSV
+*.pdf
+*.png
+*.jpg
+*.jpeg
+# exceção: logo oficial dos relatórios (arte pública)
+!logo-esposende.jpg
