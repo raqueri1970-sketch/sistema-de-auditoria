@@ -153,6 +153,17 @@ function manF(extra = () => true) {
     && (!f.forn || (m.fornecedor || '').toLowerCase().includes(f.forn.toLowerCase())) && (!f.cat || m.categoria === f.cat) && extra(m));
 }
 function eqF(extra = () => true) { const f = F(); return S.eq.filter(e => (f.loja === null || e.loja_codigo === f.loja) && (!f.cat || e.categoria === f.cat) && extra(e)); }
+// Preço pago por câmera (notas fiscais de compra, valores reais). "Câmera comum" = mesmo tipo da referência da gestão (R$ 180):
+// fora speed dome / PTZ, Wi-Fi e IP, que têm outro preço e distorcem a média geral.
+const CAM_ESPECIAL = /speed|ptz|wi-?fi|\bip\b|vipc|\bvip\b|\bim\d/i;
+function precoCameras() {
+  const ids = new Set(docsF(d => d.natureza === 'aquisicao' && d.status === 'ok').map(d => d.id));
+  const it = S.itens.filter(i => ids.has(i.documento_id) && i.categoria === 'camera'), esp = i => CAM_ESPECIAL.test(i.descricao || '');
+  const q = l => soma(l, i => i.quantidade), v = l => soma(l, i => i.valor_total), m = l => q(l) ? v(l) / q(l) : null;
+  const com = it.filter(i => !esp(i)), ex = it.filter(esp);
+  return {qtd: q(it), media: m(it), comumQtd: q(com), comum: m(com), espQtd: q(ex), esp: m(ex)};
+}
+const premissa = k => { const p = S.prem.find(x => x.chave === k); return p ? Number(p.valor) : null; };
 function pendentes() {
   const ids = new Set(docsF(d => d.natureza === 'aquisicao').map(d => d.id)), f = F();
   return S.itens.filter(i => ids.has(i.documento_id) && ['camera', 'dvr_nvr', 'hd', 'alarme_sensor', 'perimetro', 'incendio', 'rede_rack'].includes(i.categoria) && (!f.cat || i.categoria === f.cat))
@@ -371,7 +382,7 @@ function rPainel() {
   const meses = (p.mensal || []).filter(m => tot(m) > 0), mU = meses[meses.length - 1], ant = meses.slice(0, -1);
   const mediaAnt = ant.length ? soma(ant, tot) / ant.length : null;
   const manMes = meses.filter(m => Number(m.manutencao) > 0), manMed = manMes.length ? soma(manMes, m => m.manutencao) / manMes.length : null;
-  const precoCam = Number(((P.precos || []).find(x => x.categoria === 'camera') || {}).preco) || null;
+  const precoCam = premissa('preco_camera') || Number(((P.precos || []).find(x => x.categoria === 'camera') || {}).preco) || null, pc = precoCameras();
   const investido = Number(fi.investimento_total) || 0, previsto = investido + (Number(pl.total) || 0);
   const lojas = op.total_lojas || 0, cob = op.lojas_estoque_coberto || 0;
   const semLoja = soma((P.por_loja || []).filter(x => x.loja_codigo === null), x => x.valor), cd = soma((P.por_loja || []).filter(x => x.loja_codigo === 0), x => x.valor);
@@ -398,7 +409,7 @@ function rPainel() {
     card({t: 'Investido em 2026 (notas fiscais)', v: r0(investido), e: `Equipamentos ${r0(fi.aquisicao_equipamentos)} + instalação ${r0(fi.servicos_instalacao)}. Custo médio de ${r0(me.custo_medio_loja)} por loja que recebeu.`, b: baseNotas, acao: "listaDocs('Investido em 2026', d => ['aquisicao','instalacao'].includes(d.natureza))"}),
     card({t: 'Manutenção', v: r0(fi.manutencao_total), c: mU && manMed ? var_(Number(mU.manutencao) || 0, manMed) : '', cls: 'warn', e: `${fi.evitavel_pct === null ? 'Sem manutenção no período.' : `${r0(fi.evitavel)} (${nf(fi.evitavel_pct, 0)}%) potencialmente evitável`} · reincidência ${r0(fi.reincidencia)}.${manMed ? ` Média de ${r0(manMed)} por mês com manutenção.` : ''}`, b: baseNotas, acao: "listaMan('Manutenção', () => true)"}),
     card({t: 'Monitoramento', v: r0(fi.monitoramento), e: 'Serviço mensal da central. Não é investimento nem manutenção — fica separado para não distorcer.', b: baseNotas, acao: "listaDocs('Monitoramento', d => d.natureza === 'monitoramento')", cls: 'neu'}),
-    card({t: 'Preço pago por câmera', v: r0(me.custo_medio_camera), c: precoCam && me.custo_medio_camera ? var_(Number(me.custo_medio_camera), precoCam) : '', e: precoCam ? `Média das notas de compra × preço de hoje definido pela gestão (${r0(precoCam)}). Vermelho = pagamos acima.` : 'Média das notas de compra de câmeras.', b: baseNotas, acao: "listaItens('Câmeras compradas', i => i.categoria === 'camera')"})
+    card({t: 'Preço pago por câmera comum', v: r0(pc.comum), c: precoCam && pc.comum ? var_(pc.comum, precoCam) : '', e: `${nf(pc.comumQtd)} câmeras comuns nas notas × referência da gestão (${r0(precoCam)}), mesmo tipo de câmera. Vermelho = pagamos acima.${pc.espQtd ? ` Fora da comparação: ${nf(pc.espQtd)} speed dome / Wi-Fi / IP a ${r0(pc.esp)} em média (média geral ${r0(pc.media)}).` : ''}`, b: baseNotas, acao: "listaItens('Câmeras compradas', i => i.categoria === 'camera')"})
   ])}
   <div class="pn-duo">
   ${grupo('O QUE FALTA INVESTIR', `único projeto em aberto · orçamento KGMlan · câmera a ${r0(precoCam)}`, [
@@ -947,13 +958,13 @@ function rPlano() {
   $('conteudo').innerHTML = `
   <div class="grid">
     ${kpi('Total previsto para novos investimentos', brl(soma(ativos, p => p.valor_estimado)), `${nf(soma(ativos, p => p.cameras))} câmeras · ${ativos.length} lojas`, 'warn', '')}
-    ${kpi('Equipamento pelo orçamento', brl(t('equipamento_orcamento')), `câmeras ${brl(t('cameras_valor'))} · gravadores ${brl(t('gravadores_valor'))} · conectores ${brl(t('conectores_valor'))}`, '', '')}
+    ${kpi('Equipamento pelo orçamento', brl(t('equipamento_orcamento')), `câmeras ${brl(t('cameras_valor'))} · gravador com HD 2TB ${brl(t('gravador_hd_valor'))} · power balun ${brl(t('power_balun_valor'))} · conectores ${brl(t('conectores_valor'))}`, '', '')}
     ${kpi('Cabeamento', brl(t('cabeamento')), 'metragem por câmera = premissa a validar', 'neu', '')}
     ${kpi('Mão de obra', brl(t('mao_obra')), 'valor por ponto pago nas NFS-e de 2026', 'neu', '')}
     ${kpi('Gravadores novos', nf(soma(ativos, p => p.gravadores)), `${ativos.filter(p => !mc(p).canais_livres_informados).length} lojas sem canais livres informados (considerado gravador novo)`, 'neu', '')}
   </div>
   <div class="info">Valores pelo <b>orçamento KGMlan nº 1011040400 de 26/10/2026</b>. Quantidade de câmeras = levantamento de necessidades por loja.
-    Gravador novo (16 canais + HD 2TB + power balun) só quando a necessidade passa dos canais livres do gravador atual. Mude uma premissa e o plano é recalculado.</div>
+    Câmera a ${brl(premissa('preco_camera'))}. Gravador novo = gravador 16 canais com HD 2TB (${brl(premissa('preco_gravador_16_com_hd'))}) + power balun (${brl(premissa('preco_power_balun_16'))}), só quando a necessidade passa dos canais livres do gravador atual. Mude uma premissa e o plano é recalculado.</div>
   <h2>Premissas e preços</h2>
   ${tabela([{t: 'Item', f: p => esc(p.descricao)}, {t: 'Valor', n: 1, f: p => ehAdmin ? `<span class="premissa"><input type="number" step="0.01" id="pr_${p.chave}" value="${p.valor}"></span>` : nf(p.valor, 2)},
     {t: 'Unidade', f: p => esc(p.unidade || '')}, {t: 'Fonte', f: p => esc(p.fonte) + (p.validada ? '' : ' ' + chip('a validar', 'warn'))}], S.prem)}
@@ -1029,8 +1040,10 @@ const RELATORIOS = {
     const t = k => soma(l, p => mc(p)[k]), cam = soma(l, p => p.cameras), grav = soma(l, p => p.gravadores), tot = soma(l, p => p.valor_estimado);
     return {cols: [{t: 'Loja', f: p => esc(nomeLoja(p.loja_codigo))}, {t: 'Câmeras', n: 1, f: p => p.cameras}, {t: 'Gravadores', n: 1, f: p => p.gravadores}, {t: 'Equipamento', n: 1, f: p => brl(mc(p).equipamento_orcamento)}, {t: 'Cabeamento', n: 1, f: p => brl(mc(p).cabeamento)}, {t: 'Mão de obra', n: 1, f: p => brl(mc(p).mao_obra)}, {t: 'Total', n: 1, f: p => brl(p.valor_estimado)}],
       linhas: l, xls: l.map(p => ({Loja: nomeLoja(p.loja_codigo), Cameras: p.cameras, Gravadores: p.gravadores, Equipamento: mc(p).equipamento_orcamento, Cabeamento: mc(p).cabeamento, MaoObra: mc(p).mao_obra, Total: Number(p.valor_estimado)})),
-      fonte: 'cftv_plano · preços da proposta KGMlan 1011040400 (26/10/2026) e premissas', total: brl(tot),
+      fonte: 'cftv_plano · proposta KGMlan 1011040400 (26/10/2026) e base da gestão de 16/11/2026 (câmera R$ 180,00; gravador com HD 2TB R$ 2.341,85; power balun R$ 1.549,90)', total: brl(tot),
       cards: [['Lojas que precisam', nf(qLojas(l, p => p.loja_codigo)), `de ${nf(S.ativas.size)} lojas ativas`], ['Câmeras', nf(cam), l.length ? `média de ${nf(cam / l.length, 1)} por loja` : ''], ['Gravadores', nf(grav)],
+        ['Câmeras (R$)', R0(t('cameras_valor')), `${nf(cam)} × ${brl(premissa('preco_camera'))}`], ['Gravador com HD 2TB', R0(t('gravador_hd_valor')), `${nf(grav)} × ${brl(premissa('preco_gravador_16_com_hd'))}`],
+        ['Power balun', R0(t('power_balun_valor')), `${nf(grav)} × ${brl(premissa('preco_power_balun_16'))}`],
         ['Equipamento', R0(t('equipamento_orcamento')), tot ? `${nf(t('equipamento_orcamento') / tot * 100)}% do total` : ''], ['Cabeamento', R0(t('cabeamento')), tot ? `${nf(t('cabeamento') / tot * 100)}% do total` : ''],
         ['Mão de obra', R0(t('mao_obra')), tot ? `${nf(t('mao_obra') / tot * 100)}% do total` : ''], ['Total geral', R0(tot), l.length ? `média de ${R0(tot / l.length)} por loja` : '', 1]],
       totalLinha: [`Total · ${nf(qLojas(l, p => p.loja_codigo))} lojas`, nf(cam), nf(grav), brl(t('equipamento_orcamento')), brl(t('cabeamento')), brl(t('mao_obra')), brl(tot)]}; }],
