@@ -1,7 +1,8 @@
-"""Injeta o importador de folhas (rh-auditoria/folhas.js) e a base embutida no módulo
-"Central de Auditoria RH" do portal (index.html, MENC["rh"], HTML em base64).
+"""Injeta o importador de folhas (rh-auditoria/folhas.js) no módulo "Central de Auditoria RH"
+do portal (index.html, MENC["rh"], HTML em base64). As folhas ficam no Supabase
+(tabela rh_folhas_competencias, só usuários com acesso de RH) — nada de dado pessoal no HTML.
 
-Uso:  python3 embutir_no_portal.py index.html rh-auditoria/folhas.js base_folhas.b64
+Uso:  python3 embutir_no_portal.py index.html rh-auditoria/folhas.js
 
 Idempotente: cada trecho fica entre marcadores RHF:<nome> e é substituído numa nova execução.
 """
@@ -37,14 +38,15 @@ PAGES = """<section class="page" id="pg-importar">
     <p class="sub">Carregue um ou vários arquivos de folha de uma vez (FOLHA MM-AAAA.xlsx, exportação com uma linha por rubrica). Cada arquivo vira uma competência; se a competência já existir, a versão nova substitui a anterior.</p>
     <div id="imp-drop" class="imp-drop" tabindex="0" role="button" aria-label="Selecionar arquivos de folha">
       <div class="big">📂 Arraste os arquivos de folha aqui ou clique para selecionar</div>
-      <div class="sm">Pode selecionar vários .xlsx juntos (Ctrl/Shift + clique). A leitura é feita no seu navegador — nenhum arquivo é enviado para fora.</div>
+      <div class="sm">Pode selecionar vários .xlsx juntos (Ctrl/Shift + clique). A planilha é lida no seu navegador; só o resumo por funcionário (CPF mascarado) vai para a nuvem do Portal.</div>
       <input id="imp-file" type="file" accept=".xlsx,.xlsm,.xls" multiple hidden>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="imp-btn" class="dash-btn primary-imp" onclick="document.getElementById('imp-file').click()">📥 Selecionar arquivos de folha</button>
       <button class="dash-btn" onclick="gotoPage('pg-historico')">📈 Ver histórico</button><button class="dash-btn" onclick="gotoPage('pg-comparativo')">📅 Comparativo</button></div>
+    <div id="imp-nuvem" style="margin-top:12px"></div>
     <div id="imp-log"></div>
     <div class="card" style="margin-top:16px"><h2>Competências carregadas</h2><div id="imp-lista"></div>
-      <p class="footnote">Formato esperado (aba Sheet1): Mês_Ano Folha, Estab, Código, Nome, Situação_Usual, Verba_Código, Verba_Título, Verba_Tipo, Verba_Valor, CCusto, CCusto_Titulo, Cargo_Título, Data de Admissão, Data Desligament, CPF. Totais: 2001 = bruto, 2002 = descontos, 2004 = salário; líquido = 2001 − 2002. Folhas "embutidas" valem para todos os usuários do portal; folhas importadas aqui ficam salvas neste navegador.</p></div>
+      <p class="footnote">Formato esperado (aba Sheet1): Mês_Ano Folha, Estab, Código, Nome, Situação_Usual, Verba_Código, Verba_Título, Verba_Tipo, Verba_Valor, CCusto, CCusto_Titulo, Cargo_Título, Data de Admissão, Data Desligament, CPF. Totais: 2001 = bruto, 2002 = descontos, 2004 = salário; líquido = 2001 − 2002. As folhas ficam na nuvem do Portal (Supabase, acesso só para usuários de RH) e valem para todos; o CPF é gravado mascarado. Sem conexão, a folha fica pendente neste navegador e é enviada na próxima abertura.</p></div>
   </section>
   <section class="page" id="pg-folhas">
     <h1>Folhas por Competência</h1>
@@ -61,12 +63,12 @@ def troca(html, nome, ancora, bloco, antes=True, ultima=False):
     if not antes: pos += len(ancora)
     return html[:pos] + ini + bloco + fim + html[pos:]
 
-def main(index_path, js_path, b64_path):
+def main(index_path, js_path):
     idx = open(index_path, encoding='utf-8').read()
     m = re.search(r'("rh":")([A-Za-z0-9+/=]+)(")', idx)
     if not m: sys.exit('MENC["rh"] não encontrado')
     rh = base64.b64decode(m.group(2)).decode('utf-8')
-    js = open(js_path, encoding='utf-8').read().replace('__FOLHAS_EMB_GZ__', open(b64_path).read().strip())
+    js = open(js_path, encoding='utf-8').read()
     rh = troca(rh, 'css', '</head>', '<style>' + CSS + '</style>\n')
     rh = troca(rh, 'nav', '<div class="group-label">Dados</div>', NAV, antes=False)
     rh = troca(rh, 'pages', '<!-- ============ CENTRAL DE BASES ============ -->', PAGES)
@@ -81,5 +83,5 @@ def main(index_path, js_path, b64_path):
     print(f'módulo rh: {len(rh):,} bytes · index.html: {len(idx):,} bytes')
 
 if __name__ == '__main__':
-    if len(sys.argv) != 4: sys.exit(__doc__)
+    if len(sys.argv) != 3: sys.exit(__doc__)
     main(*sys.argv[1:])
