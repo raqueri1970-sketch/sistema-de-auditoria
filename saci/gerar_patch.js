@@ -33,4 +33,4 @@ const js = fonte
 const out = path.join(__dirname, '..', 'saci-rede-patch.js');
 fs.writeFileSync(out, js);
 console.log('ok:', out, js.length, 'bytes');
-console.log(`Direito ${R.D.q} + Esquerdo ${R.E.q} + Enviados ${R.ENV.q} = Rede ${K.rede.q} − Casados ${R.C.q} = Saldo ${K.saldo.q} (${K.taxa.toFixed(1)}%)`);
+console.log(`Direito ${R.D.q} + Esquerdo ${R.E.q} + Enviados ${R.ENV.q} = Saci na Rede ${K.rede.q} pés · Casados ${R.C.q} pares (${K.casadosPes} pés) · taxa ${K.taxa.toFixed(1)}%`);

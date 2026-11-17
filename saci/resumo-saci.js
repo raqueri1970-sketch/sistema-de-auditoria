@@ -1,7 +1,7 @@
 /* Casamento de Saci — cálculo oficial "Saci na Rede" a partir do D1.xlsx.
  *
- *   Pé Direito + Pé Esquerdo + Enviados 2026  =  Saci na Rede
- *   Saci na Rede − Casados                    =  Saldo (pés ainda aguardando par)
+ *   Pé Direito + Pé Esquerdo + Enviados 2026  =  Saci na Rede (pés reais aguardando par)
+ *   Casados = pares já resolvidos (histórico) — mostrado à parte, não sai da conta.
  *
  * Abas lidas pelo NOME (sem acento/maiúscula): "Direito", "Esquerdo", "Enviados 2026", "Casados";
  * "Descarte" e "Código Reaproveitado" aparecem como informação, fora da conta.
@@ -140,11 +140,15 @@
     return temRede && tipos.indexOf('C') >= 0 ? R : null;
   }
 
-  /* Conta oficial derivada do resumo. */
+  /* Conta oficial derivada do resumo.
+   * Saci na Rede (Direito + Esquerdo + Enviados 2026) = pés REAIS aguardando par.
+   * Casados NÃO sai da conta: a aba Casados traz PARES já resolvidos (10.217 pares = 20.434 pés),
+   * é histórico. Total recebido = Saci na Rede + pés casados; taxa = pés casados ÷ total recebido. */
   function conta(R) {
     var rede = { q: R.D.q + R.E.q + R.ENV.q, c: r2(R.D.c + R.E.c + R.ENV.c), v: r2(R.D.v + R.E.v + R.ENV.v) };
-    var saldo = { q: rede.q - R.C.q, c: r2(rede.c - R.C.c), v: r2(rede.v - R.C.v) };
-    return { rede: rede, saldo: saldo, taxa: rede.q > 0 ? R.C.q / rede.q * 100 : 0 };
+    var casadosPes = R.C.q * 2;
+    var recebido = rede.q + casadosPes;
+    return { rede: rede, casadosPares: R.C.q, casadosPes: casadosPes, recebido: recebido, taxa: recebido > 0 ? casadosPes / recebido * 100 : 0 };
   }
 
   root.SaciRede = { resumirAoA: resumirAoA, resumirWorkbook: resumirWorkbook, conta: conta, extractMarca: extractMarca, tipoAba: tipoAba };
