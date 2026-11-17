@@ -1,0 +1,151 @@
+/* Casamento de Saci — cálculo oficial "Saci na Rede" a partir do D1.xlsx.
+ *
+ *   Pé Direito + Pé Esquerdo + Enviados 2026  =  Saci na Rede
+ *   Saci na Rede − Casados                    =  Saldo (pés ainda aguardando par)
+ *
+ * Abas lidas pelo NOME (sem acento/maiúscula): "Direito", "Esquerdo", "Enviados 2026", "Casados";
+ * "Descarte" e "Código Reaproveitado" aparecem como informação, fora da conta.
+ *
+ * Regras de valor (conferidas no D1.xlsx de 17/11/2026):
+ *  - Direito / Esquerdo / Código Reaproveitado: "Custo" = total da linha; venda = Pdv_Unitario × Qtd.
+ *  - Casados / Descarte: "Custo" e "Venda" = total da linha (Qtde 2 → Venda 9,98).
+ *  - Enviados 2026: "Custo" e "Venda" = UNITÁRIOS (mesmo produto com Qtde 1 e 2 tem o mesmo custo) → × Qtde.
+ *  - Linha de "Total" no rodapé (sem Descrição) é ignorada — senão a quantidade dobra.
+ *
+ * Usado no navegador (patch do módulo) e no Node (ferramenta que gera a base inicial).
+ */
+(function (root) {
+  function norm(v) {
+    if (v == null) return '';
+    var s = String(v).trim();
+    if (!s) return '';
+    s = s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return s.toUpperCase().replace(/\s+/g, ' ');
+  }
+  function num(v) {
+    if (v == null || v === '') return NaN;
+    if (typeof v === 'number') return v;
+    var s = String(v).trim().replace(/R\$\s*/i, '');
+    if (/^-?[\d.]+,\d+$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
+    else s = s.replace(',', '.');
+    return parseFloat(s);
+  }
+
+  /* Mesma regra de marca do módulo (primeira palavra da descrição, com marcas compostas). */
+  var MARCA_3W = ['FIO DE OURO'];
+  var MARCA_2W = ['VIA SCARPA', 'VIA MARTE', 'VIA UNO', 'VIA VIP', 'BEIRA RIO', 'SUA CIA', 'WEST COAST', 'STAR WHITE'];
+  var SKIP = ['TENIS FEMININO', 'TENIS MASCULINO', 'TENIS INFANTIL', 'TENIS'];
+  function extractMarca(desc) {
+    var s = norm(desc);
+    if (!s) return '(Sem marca)';
+    for (var i = 0; i < SKIP.length; i++) { if (s.indexOf(SKIP[i] + ' ') === 0) { s = s.slice(SKIP[i].length).trim(); break; } }
+    for (var j = 0; j < MARCA_3W.length; j++) if (s.indexOf(MARCA_3W[j]) === 0) return MARCA_3W[j];
+    for (var k = 0; k < MARCA_2W.length; k++) if (s.indexOf(MARCA_2W[k]) === 0) return MARCA_2W[k];
+    return s.split(' ')[0] || '(Sem marca)';
+  }
+
+  function tipoAba(nome) {
+    var n = norm(nome);
+    if (/REAPROV/.test(n)) return 'REAP';
+    if (/DESCART/.test(n)) return 'DESC';
+    if (/ENVIAD/.test(n)) return 'ENV';
+    if (/CASAD/.test(n)) return 'C';
+    if (/ESQ/.test(n)) return 'E';
+    if (/DIR/.test(n)) return 'D';
+    return null;
+  }
+
+  function colunas(header) {
+    var m = {};
+    header.forEach(function (h, i) {
+      var n = norm(h);
+      if (!n) return;
+      if (m.qtd == null && /^(QTD|QTDE|QUANT)/.test(n)) m.qtd = i;
+      else if (m.desc == null && /DESCRI/.test(n)) m.desc = i;
+      else if (m.custoUnit == null && /CUSTO.*UNIT/.test(n)) m.custoUnit = i;
+      else if (m.custo == null && /^CUSTO/.test(n)) m.custo = i;
+      else if (m.vendaUnit == null && /(PDV|VENDA|PRECO).*UNIT/.test(n)) m.vendaUnit = i;
+      else if (m.venda == null && /^(VENDA|PDV|PRECO)/.test(n)) m.venda = i;
+      else if (m.marca == null && /^MARCA/.test(n)) m.marca = i;
+      else if (m.origem == null && /(ORIGEM|LOJA|FILIAL)/.test(n)) m.origem = i;
+    });
+    return m;
+  }
+
+  function vazio() { return { q: 0, c: 0, v: 0, linhas: 0 }; }
+  function soma(a, q, c, v) { a.q += q; a.c += c; a.v += v; a.linhas++; }
+  function r2(x) { return Math.round(x * 100) / 100; }
+
+  /* aoaPorAba: { "Nome da aba": [[cabeçalho...], [linha...], ...] } */
+  function resumirAoA(aoaPorAba, meta) {
+    var R = { versao: 1, geradoEm: (meta && meta.geradoEm) || new Date().toISOString(), arquivo: (meta && meta.arquivo) || '',
+      E: vazio(), D: vazio(), ENV: vazio(), C: vazio(), DESC: vazio(), REAP: vazio(),
+      cNeg: vazio(), envSemLoja: vazio(), marcas: {}, lojas: {}, abas: [] };
+    Object.keys(aoaPorAba).forEach(function (nome) {
+      var t = tipoAba(nome);
+      var aoa = aoaPorAba[nome] || [];
+      if (!t || !aoa.length) return;
+      var hi = -1, col = null;
+      for (var i = 0; i < Math.min(10, aoa.length); i++) {
+        var c = colunas(aoa[i] || []);
+        if (c.qtd != null && c.desc != null) { hi = i; col = c; break; }
+      }
+      if (hi < 0) return;
+      R.abas.push({ nome: nome, tipo: t });
+      for (var r = hi + 1; r < aoa.length; r++) {
+        var row = aoa[r] || [];
+        var desc = row[col.desc];
+        if (desc == null || String(desc).trim() === '') continue; // linha de Total / vazia
+        var q = num(row[col.qtd]);
+        if (isNaN(q)) continue;
+        var custo, venda;
+        if (t === 'ENV') {
+          custo = q * (num(row[col.custoUnit != null ? col.custoUnit : col.custo]) || 0);
+          venda = q * (num(row[col.vendaUnit != null ? col.vendaUnit : col.venda]) || 0);
+        } else {
+          custo = col.custo != null ? (num(row[col.custo]) || 0) : q * (num(row[col.custoUnit]) || 0);
+          venda = col.venda != null ? (num(row[col.venda]) || 0) : q * (num(row[col.vendaUnit]) || 0);
+        }
+        soma(R[t], q, custo, venda);
+        if (t === 'C' && (custo < 0 || venda < 0 || q < 0)) soma(R.cNeg, q, custo, venda);
+        if (t === 'DESC' || t === 'REAP') continue;
+        var marca = extractMarca(desc);
+        var mk = R.marcas[marca] || (R.marcas[marca] = { E: 0, D: 0, ENV: 0, C: 0, cRede: 0, cC: 0 });
+        mk[t] += q;
+        if (t === 'C') mk.cC += custo; else mk.cRede += custo;
+        if (t === 'ENV') {
+          var lj = col.origem != null ? row[col.origem] : '';
+          lj = (lj == null || String(lj).trim() === '') ? '' : String(lj).trim().replace(/\.0+$/, '');
+          if (!lj) soma(R.envSemLoja, q, custo, venda);
+          else { var L = R.lojas[lj] || (R.lojas[lj] = vazio()); soma(L, q, custo, venda); }
+        }
+      }
+    });
+    ['E', 'D', 'ENV', 'C', 'DESC', 'REAP', 'cNeg', 'envSemLoja'].forEach(function (k) { R[k].c = r2(R[k].c); R[k].v = r2(R[k].v); });
+    Object.keys(R.lojas).forEach(function (k) { R.lojas[k].c = r2(R.lojas[k].c); R.lojas[k].v = r2(R.lojas[k].v); });
+    Object.keys(R.marcas).forEach(function (k) { R.marcas[k].cRede = r2(R.marcas[k].cRede); R.marcas[k].cC = r2(R.marcas[k].cC); });
+    return R;
+  }
+
+  /* Workbook do SheetJS → resumo. Retorna null se não tiver as abas da conta. */
+  function resumirWorkbook(XLSX, wb, meta) {
+    var aoa = {};
+    wb.SheetNames.forEach(function (sn) {
+      if (!tipoAba(sn)) return;
+      aoa[sn] = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '', raw: true, blankrows: false });
+    });
+    var R = resumirAoA(aoa, meta);
+    var tipos = R.abas.map(function (a) { return a.tipo; });
+    var temRede = tipos.indexOf('E') >= 0 || tipos.indexOf('D') >= 0 || tipos.indexOf('ENV') >= 0;
+    return temRede && tipos.indexOf('C') >= 0 ? R : null;
+  }
+
+  /* Conta oficial derivada do resumo. */
+  function conta(R) {
+    var rede = { q: R.D.q + R.E.q + R.ENV.q, c: r2(R.D.c + R.E.c + R.ENV.c), v: r2(R.D.v + R.E.v + R.ENV.v) };
+    var saldo = { q: rede.q - R.C.q, c: r2(rede.c - R.C.c), v: r2(rede.v - R.C.v) };
+    return { rede: rede, saldo: saldo, taxa: rede.q > 0 ? R.C.q / rede.q * 100 : 0 };
+  }
+
+  root.SaciRede = { resumirAoA: resumirAoA, resumirWorkbook: resumirWorkbook, conta: conta, extractMarca: extractMarca, tipoAba: tipoAba };
+})(typeof module !== 'undefined' && module.exports ? module.exports : (typeof window !== 'undefined' ? window : this));
