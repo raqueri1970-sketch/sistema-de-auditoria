@@ -571,4 +571,10 @@ function renderFolhasTudo(){
   };
 })();
 
+// Botões do menu adicionados depois do carregamento (patch do Portal) não recebem o clique do menu original.
+document.querySelectorAll('#nav button[data-page="pg-importar"],#nav button[data-page="pg-folhas"]').forEach(b=>{
+  if(b.dataset.rhf) return; b.dataset.rhf = '1';
+  b.addEventListener('click', ()=>{ if(!b.classList.contains('active')) gotoPage(b.dataset.page); });
+});
+
 if(D){ try{ initImportDrop(); }catch(e){} renderFolhasTudo(); carregarFolhas(); }
