@@ -1,11 +1,11 @@
 """Gera os arquivos do Portal (repositório portal-esposende-login) para as folhas multi-competência.
 
-Uso:  python3 gerar_patch_portal.py PASTA_DO_PORTAL rh-auditoria/folhas.js base_folhas.b64 VERSAO
+Uso:  python3 gerar_patch_portal.py PASTA_DO_PORTAL rh-auditoria/folhas.js VERSAO
 
 No Portal, o módulo "Central de Auditoria RH" vem do arquivo guardado no Supabase Storage. Como os
 outros módulos, a mudança entra por patch: rh-folhas-patch.js encontra o iframe do módulo RH e injeta
-as telas novas (mesmo CSS, menu e páginas do embutir_no_portal.py) e o código rh-folhas/folhas.js com a
-base rh-folhas/base-folhas.b64. Se o módulo já tiver as telas (arquivo do Storage atualizado), não faz nada.
+as telas novas (mesmo CSS, menu e páginas do embutir_no_portal.py) e o código rh-folhas/folhas.js.
+As folhas vêm do Supabase (rh_folhas_competencias). Se o módulo já tiver as telas, não faz nada.
 """
 import json, os, shutil, sys
 
@@ -15,8 +15,8 @@ from embutir_no_portal import CSS, NAV, PAGES  # noqa: E402
 PATCH = r"""/* Central de Auditoria RH — importar várias folhas de uma vez + histórico multi-competência (__VER__).
    O módulo RH (iframe ifr-rh, arquivo do Portal no Supabase Storage) ganha: Dados → Importar Folhas,
    Folhas por Competência, Histórico/Comparativo/Anomalias/Previsões com a série de folhas e o histórico
-   mês a mês no dossiê do funcionário. Folhas 01/2026 a 10/2026 embutidas em rh-folhas/base-folhas.b64;
-   folhas importadas pela tela ficam salvas no navegador (IndexedDB).
+   mês a mês no dossiê do funcionário. Folhas gravadas no Supabase (rh_folhas_competencias, RLS portal_pode('rh'),
+   CPF mascarado) e compartilhadas entre todos os usuários de RH.
    Fonte: repositório sistema-de-auditoria, pasta rh-auditoria/ (gerado por ferramentas/gerar_patch_portal.py).
    Uso no index.html do Portal: inserirAntesDoFimDoBody(html,'<scr'+'ipt src="'+new URL('rh-folhas-patch.js?v=__VER__',location.href).href+'"></scr'+'ipt>'); */
 (function(){
@@ -27,9 +27,7 @@ PATCH = r"""/* Central de Auditoria RH — importar várias folhas de uma vez + 
   var pedido=null;
   function texto(url){return fetch(url,{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error(url.split('?')[0].split('/').pop()+': HTTP '+r.status);return r.text()})}
   function codigo(){
-    if(!pedido)pedido=Promise.all([texto(BASE+'rh-folhas/folhas.js?v='+VER),texto(BASE+'rh-folhas/base-folhas.b64?v='+VER)])
-      .then(function(x){return x[0].replace('__FOLHAS_EMB_GZ__',function(){return x[1].trim()})})
-      .catch(function(e){pedido=null;throw e});
+    if(!pedido)pedido=texto(BASE+'rh-folhas/folhas.js?v='+VER).catch(function(e){pedido=null;throw e});
     return pedido;
   }
   function docs(w,a,p){if(p>4)return a;try{if(w.document)a.push(w.document)}catch(e){return a}for(var i=0;i<w.frames.length;i++)try{docs(w.frames[i],a,p+1)}catch(e){}return a}
@@ -69,10 +67,11 @@ PATCH = r"""/* Central de Auditoria RH — importar várias folhas de uma vez + 
 """
 
 
-def main(pasta, js_path, b64_path, ver):
+def main(pasta, js_path, ver):
     os.makedirs(os.path.join(pasta, 'rh-folhas'), exist_ok=True)
     shutil.copyfile(js_path, os.path.join(pasta, 'rh-folhas', 'folhas.js'))
-    shutil.copyfile(b64_path, os.path.join(pasta, 'rh-folhas', 'base-folhas.b64'))
+    velho = os.path.join(pasta, 'rh-folhas', 'base-folhas.b64')
+    if os.path.exists(velho): os.remove(velho)  # base com dados pessoais não fica mais em arquivo público
     js = (PATCH.replace('__VER__', ver).replace('__CSS__', json.dumps(CSS, ensure_ascii=False))
           .replace('__NAV__', json.dumps(NAV, ensure_ascii=False)).replace('__PAGES__', json.dumps(PAGES, ensure_ascii=False)))
     open(os.path.join(pasta, 'rh-folhas-patch.js'), 'w', encoding='utf-8').write(js)
@@ -80,5 +79,5 @@ def main(pasta, js_path, b64_path, ver):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 5: sys.exit(__doc__)
+    if len(sys.argv) != 4: sys.exit(__doc__)
     main(*sys.argv[1:])

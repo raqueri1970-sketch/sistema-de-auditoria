@@ -5,12 +5,14 @@
 // rubrica por funcionário). Totais: 2001 = Total Proventos (bruto),
 // 2002 = Total Descontos, 2004 = Salário Contratual; líquido = 2001 − 2002
 // (mesma regra usada na auditoria completa da competência 06/2026).
-// Folhas embutidas valem para todos; folhas importadas ficam salvas
-// neste navegador (IndexedDB) e substituem a embutida da mesma competência.
+// Armazenamento: tabela rh_folhas_competencias no Supabase (RLS portal_pode('rh')),
+// compartilhada entre todos os usuários com acesso de RH. CPF vai mascarado
+// (•••.•••.XXX-YY#código, mesmo formato do módulo Faltas e Atrasos).
+// Se a gravação na nuvem falhar (sem internet/sem acesso), a folha fica
+// pendente neste navegador (IndexedDB) e é enviada na próxima abertura.
 // ===================================================================
-const FOLHAS_EMB_GZ = "__FOLHAS_EMB_GZ__";
-const FOLHAS_EMB = {}, FOLHAS_IMP = {};
-let FOLHAS = {}, FOLHAS_RESUMO = {}, FOLHAS_READY = false, FOLHAS_ERRO = '';
+const FOLHAS_NUVEM = {}, FOLHAS_LOCAL = {};
+let FOLHAS = {}, FOLHAS_RESUMO = {}, FOLHAS_READY = false, FOLHAS_ERRO = '', NUVEM_OK = false;
 let FOLHA_SEL = null, FOLHA_BUSCA = '';
 const FX = {nome:0,cpf:1,sit:2,cc:3,cct:4,cargo:5,adm:6,desl:7,b:8,ds:9,sal:10,rub:11};
 
@@ -33,13 +35,19 @@ function folhaAnterior(comp){
   return i > 0 ? L[i-1] : null;
 }
 function mesclarFolhas(){
-  FOLHAS = Object.assign({}, FOLHAS_EMB, FOLHAS_IMP);
+  FOLHAS = Object.assign({}, FOLHAS_NUVEM, FOLHAS_LOCAL);
   FOLHAS_RESUMO = {};
   const L = folhasOrdenadas();
   if(!FOLHA_SEL || !FOLHAS[FOLHA_SEL]) FOLHA_SEL = L.length ? L[L.length-1].comp : null;
 }
 
-// ---------- descompactação da base embutida ----------
+// ---------- gzip + base64 ----------
+async function gzipB64(obj){
+  if(typeof CompressionStream === 'undefined') throw new Error('Navegador sem suporte a CompressionStream — atualize o navegador.');
+  const buf = new Uint8Array(await new Response(new Blob([JSON.stringify(obj)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+  let s = ''; for(let i=0;i<buf.length;i+=0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i+0x8000));
+  return btoa(s);
+}
 async function gunzipB64(b64){
   const bin = atob(b64), u = new Uint8Array(bin.length);
   for(let i=0;i<bin.length;i++) u[i] = bin.charCodeAt(i);
@@ -48,7 +56,7 @@ async function gunzipB64(b64){
   return JSON.parse(txt);
 }
 
-// ---------- IndexedDB (folhas importadas neste navegador) ----------
+// ---------- IndexedDB (folhas pendentes de envio para a nuvem) ----------
 const FDB_NAME = 'esposende_rh_folhas', FDB_STORE = 'competencias';
 function fdbOpen(){
   return new Promise((res,rej)=>{
@@ -75,14 +83,73 @@ const fdbAll = ()=>fdbTx('readonly', st=>st.getAll());
 const fdbPut = obj=>fdbTx('readwrite', st=>st.put(obj));
 const fdbDel = comp=>fdbTx('readwrite', st=>st.delete(comp));
 
+// ---------- nuvem (Supabase: rh_folhas_competencias) ----------
+function faHash53(str){let h1=0xdeadbeef,h2=0x41c6ce57;for(let i=0;i<str.length;i++){const c=str.charCodeAt(i);h1=Math.imul(h1^c,2654435761);h2=Math.imul(h2^c,1597334677)}h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);return (4294967296*(2097151&h2)+(h1>>>0)).toString(36)}
+function cpfMascarado(v){ const s=String(v||''); if(!s || s.includes('#')) return s; const d=s.replace(/\D/g,''); if(!d) return ''; const c=d.padStart(11,'0').slice(-11); return '•••.•••.'+c.slice(6,9)+'-'+c.slice(9)+'#'+faHash53('esp:'+c); }
+function cpfTela(v){ return String(v||'').split('#')[0] || '—'; }
+function msgErroNuvem(e){
+  const m = String(e && (e.message||e.msg||e.code) || e || '');
+  if(/42501|permission|JWT|401|403|row-level/i.test(m + ' ' + (e&&e.code||''))) return 'sem acesso de RH na nuvem — entre no Portal com um usuário que tenha acesso de RH';
+  if(/Failed to fetch|NetworkError|network/i.test(m)) return 'sem conexão com a nuvem';
+  return m || 'erro desconhecido';
+}
+async function nuvemListar(){
+  if(typeof sb === 'undefined' || !sb) throw new Error('Supabase indisponível');
+  const {data, error} = await sb.from('rh_folhas_competencias')
+    .select('competencia,arquivo,linhas,enviado_em,enviado_por_email,dados_gz').order('ordem');
+  if(error) throw error;
+  const out = [];
+  for(const r of data||[]){
+    const d = await gunzipB64(r.dados_gz);
+    out.push({comp:r.competencia, arquivo:r.arquivo, linhas:r.linhas, origem:'nuvem', importado_em:r.enviado_em, enviado_por:r.enviado_por_email||'', cat:d.cat||{}, f:d.f||{}});
+  }
+  return out;
+}
+async function nuvemGravar(C){
+  if(typeof sb === 'undefined' || !sb) throw new Error('Supabase indisponível');
+  const f = {}; let b = 0, ds = 0;
+  for(const [m,e] of Object.entries(C.f)){ const x = e.slice(); x[FX.cpf] = cpfMascarado(x[FX.cpf]); f[m] = x; b += +x[FX.b]||0; ds += +x[FX.ds]||0; }
+  const row = {tenant_id:'esposende', competencia:C.comp, ordem:compKey(C.comp), arquivo:C.arquivo, linhas:C.linhas,
+    funcionarios:Object.keys(f).length, bruto:Math.round(b*100)/100, descontos:Math.round(ds*100)/100,
+    dados_gz: await gzipB64({comp:C.comp, arquivo:C.arquivo, linhas:C.linhas, cat:C.cat, f})};
+  const {data, error} = await sb.from('rh_folhas_competencias').upsert(row, {onConflict:'tenant_id,competencia'}).select('enviado_em,enviado_por_email').single();
+  if(error) throw error;
+  return {comp:C.comp, arquivo:C.arquivo, linhas:C.linhas, origem:'nuvem', importado_em:data&&data.enviado_em||new Date().toISOString(), enviado_por:data&&data.enviado_por_email||'', cat:C.cat, f};
+}
+async function nuvemApagar(comp){
+  const {error} = await sb.from('rh_folhas_competencias').delete().eq('tenant_id','esposende').eq('competencia', comp);
+  if(error) throw error;
+}
+async function enviarPendentes(silencioso){
+  const pend = Object.values(FOLHAS_LOCAL); if(!pend.length) return 0;
+  let ok = 0;
+  for(const C of pend){
+    try{
+      const N = await nuvemGravar(C);
+      FOLHAS_NUVEM[C.comp] = N; delete FOLHAS_LOCAL[C.comp]; ok++;
+      try{ await fdbDel(C.comp); }catch(e){}
+      logImport(`☁️ ${esc(compLabel(C.comp))} enviada para a nuvem (estava pendente neste navegador) — agora todos com acesso de RH veem.`, 'ok');
+    }catch(e){ if(!silencioso) logImport(`⚠️ ${esc(compLabel(C.comp))} continua só neste navegador: ${esc(msgErroNuvem(e))}.`, 'warn'); }
+  }
+  if(ok){ mesclarFolhas(); renderFolhasTudo(); }
+  return ok;
+}
 async function carregarFolhas(){
-  try{ (await gunzipB64(FOLHAS_EMB_GZ)).forEach(c=>{ FOLHAS_EMB[c.comp] = c; }); }
-  catch(e){ FOLHAS_ERRO = 'Falha ao abrir as folhas embutidas: ' + e.message; console.warn(e); }
-  try{ (await fdbAll() || []).forEach(c=>{ FOLHAS_IMP[c.comp] = c; }); }
+  FOLHAS_ERRO = '';
+  try{ (await nuvemListar()).forEach(c=>{ FOLHAS_NUVEM[c.comp] = c; }); NUVEM_OK = true; }
+  catch(e){ NUVEM_OK = false; FOLHAS_ERRO = 'Não foi possível ler as folhas da nuvem: ' + msgErroNuvem(e) + '.'; console.warn(e); }
+  try{ (await fdbAll() || []).forEach(c=>{ c.origem = 'local'; FOLHAS_LOCAL[c.comp] = c; }); }
   catch(e){ console.warn('IndexedDB:', e); }
   mesclarFolhas();
   FOLHAS_READY = true;
   renderFolhasTudo();
+  if(NUVEM_OK && Object.keys(FOLHAS_LOCAL).length) enviarPendentes(false);
+}
+async function recarregarDaNuvem(){
+  for(const k of Object.keys(FOLHAS_NUVEM)) delete FOLHAS_NUVEM[k];
+  FOLHAS_READY = false; renderFolhasTudo();
+  await carregarFolhas();
+  logImport(NUVEM_OK ? `↻ ${Object.keys(FOLHAS_NUVEM).length} competência(s) lidas da nuvem.` : '❌ ' + esc(FOLHAS_ERRO), NUVEM_OK ? 'ok' : 'err');
 }
 
 // ---------- resumo por competência (memoizado) ----------
@@ -177,7 +244,7 @@ async function lerArquivoFolha(file){
     const mat = txt(g(r,'mat')); if(!mat) continue;
     const comp = txt(g(r,'comp')) || compArq;
     if(!comp) throw new Error('Linha '+(i+1)+': competência vazia (coluna Mês_Ano Folha) e o nome do arquivo não tem MM-AAAA.');
-    const C = out[comp] || (out[comp] = {comp, arquivo:file.name, linhas:0, origem:'importada', importado_em:new Date().toISOString(), cat:{}, f:{}});
+    const C = out[comp] || (out[comp] = {comp, arquivo:file.name, linhas:0, origem:'local', importado_em:new Date().toISOString(), cat:{}, f:{}});
     C.linhas++;
     let e = C.f[mat];
     if(!e){
@@ -221,12 +288,23 @@ async function importarArquivosFolha(fileList){
       const res = await lerArquivoFolha(f);
       if(!res.competencias.length) throw new Error('Nenhuma linha de funcionário encontrada.');
       for(const C of res.competencias){
-        const substitui = FOLHAS[C.comp] ? ` (substituiu a versão ${FOLHAS[C.comp].origem==='embutida'?'embutida':'importada antes'})` : '';
-        try{ await fdbPut(C); }catch(e){ logImport(`⚠️ ${esc(compLabel(C.comp))}: não foi possível salvar no navegador (${esc(e.message||e)}). Os dados valem só até fechar a página.`, 'warn'); }
-        FOLHAS_IMP[C.comp] = C;
+        const substitui = FOLHAS[C.comp] ? ' (substituiu a versão anterior)' : '';
+        let onde;
+        try{
+          const N = await nuvemGravar(C);
+          FOLHAS_NUVEM[C.comp] = N; delete FOLHAS_LOCAL[C.comp]; NUVEM_OK = true;
+          try{ await fdbDel(C.comp); }catch(e){}
+          onde = '☁️ gravada na nuvem — todos com acesso de RH já veem';
+        }catch(e){
+          console.warn(e);
+          FOLHAS_LOCAL[C.comp] = C;
+          try{ await fdbPut(C); onde = `⚠️ NÃO foi para a nuvem (${esc(msgErroNuvem(e))}) — ficou pendente neste navegador e será enviada na próxima abertura`; }
+          catch(e2){ onde = `⚠️ NÃO foi para a nuvem (${esc(msgErroNuvem(e))}) nem pôde ser salva no navegador — vale só até fechar a página`; }
+        }
         const nf = Object.keys(C.f).length;
         let b=0, ds=0; Object.values(C.f).forEach(e=>{b+=e[FX.b]; ds+=e[FX.ds];});
-        logImport(`✅ <b>${esc(compLabel(C.comp))}</b> — ${esc(f.name)} · aba "${esc(res.aba)}" · ${fmtN(C.linhas)} linhas · ${fmtN(nf)} funcionários · bruto ${fmtR(b)} · líquido ${fmtR(b-ds)}${substitui} · ${((performance.now()-t0)/1000).toFixed(1)}s`, 'ok');
+        const naNuvem = !!FOLHAS_NUVEM[C.comp] && !FOLHAS_LOCAL[C.comp];
+        logImport(`${naNuvem?'✅':'⚠️'} <b>${esc(compLabel(C.comp))}</b> — ${esc(f.name)} · aba "${esc(res.aba)}" · ${fmtN(C.linhas)} linhas · ${fmtN(nf)} funcionários · bruto ${fmtR(b)} · líquido ${fmtR(b-ds)}${substitui} · ${((performance.now()-t0)/1000).toFixed(1)}s<br>${onde}`, naNuvem?'ok':'warn');
         try{ appendAuditLog('IMPORTAÇÃO DE FOLHA', `${compLabel(C.comp)} — ${f.name}: ${C.linhas} linhas, ${nf} funcionários, bruto ${fmtR(b)}`); }catch(e){}
         FOLHA_SEL = C.comp; ok++;
       }
@@ -242,10 +320,15 @@ async function importarArquivosFolha(fileList){
   if(ok) logImport(`🎯 ${ok} competência(s) atualizada(s). Histórico, Comparativo, Anomalias e Previsões já foram recalculados.`, 'ok');
 }
 async function removerFolhaImportada(comp){
-  if(!confirm(`Remover a folha importada ${compLabel(comp)} deste navegador?` + (FOLHAS_EMB[comp]?' A versão embutida no sistema volta a valer.':''))) return;
-  try{ await fdbDel(comp); }catch(e){}
-  delete FOLHAS_IMP[comp];
-  try{ appendAuditLog('REMOÇÃO DE FOLHA IMPORTADA', compLabel(comp)); }catch(e){}
+  const local = !!FOLHAS_LOCAL[comp];
+  if(!confirm(local ? `Descartar a folha ${compLabel(comp)} que está pendente neste navegador (não foi para a nuvem)?`
+                    : `Apagar a folha ${compLabel(comp)} da nuvem? Ela some para TODOS os usuários (dá para importar de novo depois).`)) return;
+  try{
+    if(local){ try{ await fdbDel(comp); }catch(e){} delete FOLHAS_LOCAL[comp]; }
+    else { await nuvemApagar(comp); delete FOLHAS_NUVEM[comp]; }
+    try{ appendAuditLog(local?'DESCARTE DE FOLHA PENDENTE':'EXCLUSÃO DE FOLHA DA NUVEM', compLabel(comp)); }catch(e){}
+    logImport(`🗑 ${esc(compLabel(comp))} ${local?'descartada deste navegador':'apagada da nuvem'}.`, 'ok');
+  }catch(e){ logImport(`❌ Não foi possível apagar ${esc(compLabel(comp))}: ${esc(msgErroNuvem(e))}.`, 'err'); }
   mesclarFolhas(); renderFolhasTudo();
 }
 function initImportDrop(){
@@ -267,10 +350,10 @@ function deltaCell(a, b, fmt, pior){ // pior: 'alta' (aumento é ruim), 'baixa' 
   return `<td class="num" style="color:${cor}">${d>0?'+':''}${fmt(d)}</td><td class="num" style="color:${cor}">${d>0?'+':''}${pct.toFixed(1)}%</td>`;
 }
 function selectComp(id, valor, onchange){
-  return `<select id="${id}" class="dash-btn" onchange="${onchange}">${folhasOrdenadas().slice().reverse().map(c=>`<option value="${esc(c.comp)}" ${c.comp===valor?'selected':''}>${esc(compLabel(c.comp))}${c.origem==='importada'?' · importada':''}</option>`).join('')}</select>`;
+  return `<select id="${id}" class="dash-btn" onchange="${onchange}">${folhasOrdenadas().slice().reverse().map(c=>`<option value="${esc(c.comp)}" ${c.comp===valor?'selected':''}>${esc(compLabel(c.comp))}${c.origem==='local'?' · só neste navegador':''}</option>`).join('')}</select>`;
 }
 function semFolhas(el, msg){
-  el.innerHTML = `<div class="muted-box"><b>${FOLHAS_READY ? 'Nenhuma folha carregada' : 'Carregando folhas…'}</b><br>${FOLHAS_ERRO?esc(FOLHAS_ERRO)+'<br>':''}${msg||''}
+  el.innerHTML = `<div class="muted-box"><b>${FOLHAS_READY ? 'Nenhuma folha carregada' : 'Lendo as folhas da nuvem…'}</b><br>${FOLHAS_ERRO?esc(FOLHAS_ERRO)+'<br>':''}${msg||''}
     <div style="margin-top:10px"><button class="dash-btn" onclick="gotoPage('pg-importar')">📥 Importar folhas</button></div></div>`;
 }
 function svgBarras(series, campos){ // series: [{label, valores:{campo:valor}}], campos: [{k, lbl, cor}]
@@ -289,20 +372,34 @@ function svgBarras(series, campos){ // series: [{label, valores:{campo:valor}}],
   return `<div style="margin-bottom:6px">${leg}</div><svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="Evolução por competência">${g}</svg>`;
 }
 
+function etiquetaOrigem(c){
+  const quando = c.importado_em ? new Date(c.importado_em).toLocaleString('pt-BR') : '';
+  return c.origem === 'local'
+    ? `<span class="badge atencao">Só neste navegador · pendente de envio</span>`
+    : `<span class="badge ok">☁️ Nuvem · ${esc(quando)}${c.enviado_por?' · '+esc(c.enviado_por):''}</span>`;
+}
+function renderStatusNuvem(){
+  const el = document.getElementById('imp-nuvem'); if(!el) return;
+  const pend = Object.keys(FOLHAS_LOCAL).length;
+  el.innerHTML = !FOLHAS_READY ? '<div class="muted-box">☁️ Lendo as folhas da nuvem…</div>'
+    : NUVEM_OK ? `<div class="resultado-banner ok" style="font-size:13.5px">☁️ Conectado à nuvem — ${Object.keys(FOLHAS_NUVEM).length} competência(s) compartilhadas com todos os usuários de RH. Folha importada aqui é gravada na nuvem (CPF mascarado).${pend?` · ${pend} pendente(s) neste navegador <button class="dash-btn" style="padding:4px 10px;margin-left:6px" onclick="enviarPendentes(false)">Enviar agora</button>`:''} <button class="dash-btn" style="padding:4px 10px;margin-left:6px" onclick="recarregarDaNuvem()">↻ Buscar atualização</button></div>`
+    : `<div class="resultado-banner crit" style="font-size:13.5px">⚠️ ${esc(FOLHAS_ERRO||'Sem conexão com a nuvem.')} Folhas importadas agora ficam só neste navegador até a conexão voltar. <button class="dash-btn" style="padding:4px 10px;margin-left:6px" onclick="recarregarDaNuvem()">↻ Tentar de novo</button></div>`;
+}
+
 // ---------- página: Importar Folhas ----------
 function renderImportar(){
   const el = document.getElementById('imp-lista'); if(!el) return;
-  initImportDrop();
+  initImportDrop(); renderStatusNuvem();
   const L = folhasOrdenadas();
   if(!L.length){ semFolhas(el); return; }
   el.innerHTML = `<div class="tablewrap"><table>
     <thead><tr><th>Competência</th><th>Arquivo</th><th>Origem</th><th class="num">Linhas</th><th class="num">Funcionários</th><th class="num">Folha bruta</th><th class="num">Folha líquida</th><th></th></tr></thead>
     <tbody>${L.slice().reverse().map(c=>{ const r=resumoFolha(c.comp); return `<tr>
       <td class="mono"><b>${esc(compLabel(c.comp))}</b></td><td>${esc(c.arquivo)}</td>
-      <td>${c.origem==='importada'?`<span class="badge atencao">Importada neste navegador · ${esc(new Date(c.importado_em).toLocaleString('pt-BR'))}</span>`:'<span class="badge ok">Embutida no sistema</span>'}</td>
+      <td>${etiquetaOrigem(c)}</td>
       <td class="num">${fmtN(c.linhas)}</td><td class="num">${fmtN(r.n)}</td><td class="num">${fmtR(r.bruto)}</td><td class="num">${fmtR(r.liq)}</td>
       <td style="white-space:nowrap"><button class="dash-btn" style="padding:6px 10px" onclick="FOLHA_SEL='${esc(c.comp)}';renderFolhaComp();gotoPage('pg-folhas')">Abrir</button>
-      ${c.origem==='importada'?`<button class="dash-btn" style="padding:6px 10px" onclick="removerFolhaImportada('${esc(c.comp)}')" title="Remover do navegador">🗑</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`;
+      <button class="dash-btn" style="padding:6px 10px" onclick="removerFolhaImportada('${esc(c.comp)}')" title="${c.origem==='local'?'Descartar deste navegador':'Apagar da nuvem (para todos)'}">🗑</button></td></tr>`; }).join('')}</tbody></table></div>`;
 }
 
 // ---------- página: Folhas por Competência ----------
@@ -352,7 +449,7 @@ function renderFolhaComp(){
     <div class="toolbar">${selectComp('folha-sel', FOLHA_SEL, "FOLHA_SEL=this.value;renderFolhaComp()")}
       <button class="dash-btn" onclick="exportarFolhaCSV()">⬇️ Exportar funcionários (CSV)</button>
       <button class="dash-btn" onclick="gotoPage('pg-importar')">📥 Importar mais folhas</button>
-      <span class="count-pill">Arquivo: ${esc(c.arquivo)} · ${fmtN(c.linhas)} linhas · ${c.origem==='importada'?'importada neste navegador':'embutida no sistema'}</span></div>
+      <span class="count-pill">Arquivo: ${esc(c.arquivo)} · ${fmtN(c.linhas)} linhas · ${c.origem==='local'?'só neste navegador (pendente de envio)':'na nuvem'+(c.enviado_por?' · enviada por '+esc(c.enviado_por):'')}</span></div>
     ${aud?`<div class="resultado-banner ok" style="cursor:pointer" onclick="gotoPage('pg-dashboard')">🧾 Esta competência tem auditoria completa (comissões, CNAB, descontos): Confiança Global ${aud.score_confianca_global}/100 · ${fmtN(aud.casos_criticos)} caso(s) crítico(s) → ver Dashboard</div>`
          :`<div class="muted-box" style="margin-bottom:14px">Visão da <b>folha</b> desta competência (proventos, descontos, líquido, headcount, lojas e rubricas). As regras que dependem de outras bases — comissão × vendas, CNAB/banco, adiantamento, campanhas — só rodam quando essas bases da competência forem processadas.</div>`}
     <div class="gov-grid">
@@ -386,7 +483,7 @@ function exportarFolhaCSV(){
   const c = FOLHAS[FOLHA_SEL]; if(!c) return;
   const sep = ';', q = v=>'"'+String(v??'').replace(/"/g,'""')+'"', n2 = v=>(+v||0).toFixed(2).replace('.',',');
   const linhas = [['Competencia','Matricula','Nome','CPF','Situacao','CCusto','Loja','Cargo','Admissao','Desligamento','Salario','Bruto','Descontos','Liquido'].join(sep)];
-  for(const [m,e] of Object.entries(c.f)) linhas.push([q(compLabel(c.comp)),q(m),q(e[FX.nome]),q(e[FX.cpf]),q(e[FX.sit]),q(e[FX.cc]),q(e[FX.cct]),q(e[FX.cargo]),q(e[FX.adm]||''),q(e[FX.desl]||''),n2(e[FX.sal]),n2(e[FX.b]),n2(e[FX.ds]),n2(e[FX.b]-e[FX.ds])].join(sep));
+  for(const [m,e] of Object.entries(c.f)) linhas.push([q(compLabel(c.comp)),q(m),q(e[FX.nome]),q(cpfTela(cpfMascarado(e[FX.cpf]))),q(e[FX.sit]),q(e[FX.cc]),q(e[FX.cct]),q(e[FX.cargo]),q(e[FX.adm]||''),q(e[FX.desl]||''),n2(e[FX.sal]),n2(e[FX.b]),n2(e[FX.ds]),n2(e[FX.b]-e[FX.ds])].join(sep));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['﻿'+linhas.join('\r\n')], {type:'text/csv;charset=utf-8'}));
   a.download = 'folha_' + compLabel(c.comp).replace(/\D+/g,'-') + '.csv';
@@ -410,7 +507,7 @@ function abrirHistoricoFunc(mat){
   const es = cs.f[mat], cat = cs.cat||{};
   const rubs = Object.entries(es[FX.rub]||{}).map(([cod,v])=>({cod, t:(cat[cod]||[])[0]||cod, tp:(cat[cod]||[])[1]||'', v})).sort((a,b)=>a.tp.localeCompare(b.tp)||b.v-a.v);
   document.getElementById('drill-title').textContent = e[FX.nome];
-  document.getElementById('drill-summary').innerHTML = `Matrícula ${esc(mat)} · CPF ${esc(e[FX.cpf]||'—')} · ${esc(e[FX.cargo])} · ${esc(e[FX.cct])} · admissão ${esc(e[FX.adm]||'—')}${e[FX.desl]?' · desligamento '+esc(e[FX.desl]):''} · presente em ${L.length} de ${folhasOrdenadas().length} folha(s)
+  document.getElementById('drill-summary').innerHTML = `Matrícula ${esc(mat)} · CPF ${esc(cpfTela(cpfMascarado(e[FX.cpf])))} · ${esc(e[FX.cargo])} · ${esc(e[FX.cct])} · admissão ${esc(e[FX.adm]||'—')}${e[FX.desl]?' · desligamento '+esc(e[FX.desl]):''} · presente em ${L.length} de ${folhasOrdenadas().length} folha(s)
     ${D && D.employees && D.employees[mat] ? ` · <a href="#" onclick="closeDrill();openDossie('${esc(mat)}');return false" style="color:var(--neon-blue)">abrir dossiê de auditoria ${esc(D.meta.competencia_folha)} →</a>`:''}`;
   document.getElementById('drill-content').innerHTML = `<h3 style="margin:6px 0">Histórico de folha</h3>${historicoFuncHtml(mat)}
     <h3 style="margin:16px 0 6px">Rubricas — ${esc(compLabel(cs.comp))}</h3>
@@ -540,21 +637,21 @@ function renderFolhasBanner(){
   const el = document.getElementById('folhas-banner'); if(!el) return;
   const L = folhasOrdenadas();
   if(!L.length){ el.innerHTML = `<div class="folhas-banner"><div><b>📥 Nenhuma folha mensal carregada</b><div class="sub">Importe os arquivos FOLHA MM-AAAA.xlsx para ativar histórico, comparativo e previsões.</div></div><button class="dash-btn" onclick="gotoPage('pg-importar')">📥 Importar folhas</button></div>`; return; }
-  const u = resumoFolha(L[L.length-1].comp), imp = L.filter(c=>c.origem==='importada').length;
+  const u = resumoFolha(L[L.length-1].comp), imp = L.filter(c=>c.origem==='local').length;
   el.innerHTML = `<div class="folhas-banner">
     <div><b>🗓️ Folhas carregadas: ${L.length} competência(s) — ${esc(compLabel(L[0].comp))} a ${esc(compLabel(L[L.length-1].comp))}</b>
-    <div class="sub">Última folha (${esc(compLabel(u.comp))}): bruto ${fmtR(u.bruto)} · líquido ${fmtR(u.liq)} · ${fmtN(u.ativos)} ativos · ${fmtN(u.desligados)} desligados${imp?` · ${imp} importada(s) neste navegador`:''}. O parecer abaixo é da auditoria completa ${esc(compLabel(D.meta.competencia_folha))}.</div></div>
+    <div class="sub">Última folha (${esc(compLabel(u.comp))}): bruto ${fmtR(u.bruto)} · líquido ${fmtR(u.liq)} · ${fmtN(u.ativos)} ativos · ${fmtN(u.desligados)} desligados${imp?` · ⚠️ ${imp} só neste navegador (pendente de envio à nuvem)`:''}. O parecer abaixo é da auditoria completa ${esc(compLabel(D.meta.competencia_folha))}.</div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="dash-btn" onclick="FOLHA_SEL='${esc(u.comp)}';renderFolhaComp();gotoPage('pg-folhas')">Ver folha ${esc(compLabel(u.comp))}</button><button class="dash-btn" onclick="gotoPage('pg-historico')">📈 Histórico</button><button class="dash-btn primary-imp" onclick="gotoPage('pg-importar')">📥 Importar folhas</button></div></div>`;
 }
 function renderBasesFolhas(){
   const el = document.getElementById('bases-folhas-card'); if(!el) return;
   const L = folhasOrdenadas();
   el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-    <div><b>Folhas mensais (FOLHA MM-AAAA.xlsx): ${L.length} competência(s)</b><div class="sub" style="margin:2px 0 0">${L.map(c=>esc(compLabel(c.comp))+(c.origem==='importada'?'*':'')).join(' · ')||'nenhuma'}${L.some(c=>c.origem==='importada')?' &nbsp;(* importada neste navegador)':''}</div></div>
+    <div><b>Folhas mensais (FOLHA MM-AAAA.xlsx): ${L.length} competência(s)</b><div class="sub" style="margin:2px 0 0">${L.map(c=>esc(compLabel(c.comp))+(c.origem==='local'?'*':'')).join(' · ')||'nenhuma'}${L.some(c=>c.origem==='local')?' &nbsp;(* só neste navegador, pendente de envio)':''} · ${NUVEM_OK?'☁️ nuvem compartilhada':'⚠️ '+esc(FOLHAS_ERRO||'nuvem indisponível')}</div></div>
     <button class="dash-btn primary-imp" onclick="gotoPage('pg-importar')">📥 Importar folhas</button></div>`;
 }
 function renderFolhasTudo(){
-  const fns = [renderFolhasBanner, renderBasesFolhas, renderImportar, renderFolhaComp, renderHistoricoFolhas, renderComparativoFolhas, renderAnomaliasFolhas, renderPrevisoesFolhas, renderImportLog];
+  const fns = [renderStatusNuvem, renderFolhasBanner, renderBasesFolhas, renderImportar, renderFolhaComp, renderHistoricoFolhas, renderComparativoFolhas, renderAnomaliasFolhas, renderPrevisoesFolhas, renderImportLog];
   for(const f of fns){ try{ f(); }catch(e){ console.error(f.name, e); } }
   const nb = document.getElementById('nav-folhas-n'); if(nb) nb.textContent = folhasOrdenadas().length || '';
 }
