@@ -26,6 +26,8 @@ __RESUMO__
 
   function fInt(v) { return Math.round(v || 0).toLocaleString('pt-BR'); }
   function fMoney(v) { return 'R$ ' + (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function fMoney0(v) { return 'R$ ' + Math.round(v || 0).toLocaleString('pt-BR'); }
+  function dataBase(R) { try { return new Date(R.geradoEm).toLocaleDateString('pt-BR'); } catch (e) { return ''; } }
   function fPct(v) { return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%'; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function quando(iso) { try { return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) { return iso || ''; } }
@@ -81,16 +83,20 @@ __RESUMO__
     try { var s = d.createElement('script'); s.textContent = 'try{window.__saciRedeSb=(typeof sb!=="undefined"&&sb)?sb:null}catch(e){window.__saciRedeSb=null}'; d.body.appendChild(s); s.remove(); } catch (e) { w.__saciRedeSb = null; }
     return w.__saciRedeSb || null;
   }
+  /* Na nuvem, marcas/lojas vão como listas: o gatilho portal_sync_preserva_cargas mescla chaves de
+     objetos (uma marca que sumiu no D1 novo ficaria presa), mas lista nova com dados substitui a antiga. */
+  function paraNuvem(R) { var o = JSON.parse(JSON.stringify(R)); o.marcas = Object.keys(R.marcas).map(function (k) { return [k, R.marcas[k]]; }); o.lojas = Object.keys(R.lojas).map(function (k) { return [k, R.lojas[k]]; }); return o; }
+  function deNuvem(P) { var o = JSON.parse(JSON.stringify(P)); ['marcas', 'lojas'].forEach(function (k) { if (Array.isArray(o[k])) { var m = {}; o[k].forEach(function (e) { m[e[0]] = e[1]; }); o[k] = m; } }); return o; }
   function puxarNuvem(d) {
     var c = clienteSb(d);
     if (!c) return Promise.resolve(null);
     return c.from('portal_sync').select('payload,updated_at').eq('module_id', MOD_ID).maybeSingle()
-      .then(function (r) { return r && !r.error && r.data && r.data.payload && r.data.payload.versao ? r.data.payload : null; }, function () { return null; });
+      .then(function (r) { return r && !r.error && r.data && r.data.payload && r.data.payload.versao ? deNuvem(r.data.payload) : null; }, function () { return null; });
   }
   function enviarNuvem(d, R) {
     var c = clienteSb(d);
     if (!c) return;
-    c.from('portal_sync').upsert({ module_id: MOD_ID, payload: R, updated_at: new Date().toISOString() }).then(function () { }, function () { });
+    c.from('portal_sync').upsert({ module_id: MOD_ID, payload: paraNuvem(R), updated_at: new Date().toISOString() }).then(function () { }, function () { });
   }
   function toast(d, msg, tipo) { var w = d.defaultView; if (typeof w.toast === 'function') try { w.toast(msg, tipo || 'g'); } catch (e) { } }
 
@@ -104,30 +110,30 @@ __RESUMO__
   }
   function aplicarCards(d) {
     var R = d.__saciRedeR; if (!R) return;
-    var K = SR.conta(R);
+    var K = SR.conta(R), pos = ' · posição de ' + dataBase(R);
     setLbl(d, 'gTotalSaci', '🧦 Saci na Rede — aguardando par');
     setTxt(d, 'gTotalSaci', fInt(K.rede.q));
-    setTxt(d, 'gTotalSaciBrk', 'Direito ' + fInt(R.D.q) + ' + Esquerdo ' + fInt(R.E.q) + ' + Enviados 2026 ' + fInt(R.ENV.q));
+    setTxt(d, 'gTotalSaciBrk', 'Direito ' + fInt(R.D.q) + ' + Esquerdo ' + fInt(R.E.q) + ' + Enviados 2026 ' + fInt(R.ENV.q) + pos);
     setLbl(d, 'gTotalCasados', '✅ Pés Casados — Total');
     setTxt(d, 'gTotalCasados', fInt(K.casadosPes));
-    setTxt(d, 'gTotalCasadosBrk', fInt(K.casadosPares) + ' pares já casados (aba Casados) · histórico, fora da conta');
+    setTxt(d, 'gTotalCasadosBrk', fInt(K.casadosPares) + ' pares já casados (aba Casados) · histórico, fora da conta' + pos);
     setLbl(d, 'gTotalRecebido', '📦 Total de Saci Recebido');
     setTxt(d, 'gTotalRecebido', fInt(K.recebido));
-    setTxt(d, 'gTotalRecebidoBrk', 'Saci na Rede ' + fInt(K.rede.q) + ' + Pés Casados ' + fInt(K.casadosPes));
+    setTxt(d, 'gTotalRecebidoBrk', 'Saci na Rede ' + fInt(K.rede.q) + ' + Pés Casados ' + fInt(K.casadosPes) + pos);
     // ordem: Saci na Rede → Casados → Total recebido
     var a = d.getElementById('gTotalSaci'), b = d.getElementById('gTotalCasados'), c = d.getElementById('gTotalRecebido');
     a = a && a.closest('.hc'); b = b && b.closest('.hc'); c = c && c.closest('.hc');
     if (a && b && c && a.parentNode === b.parentNode && b.parentNode === c.parentNode && (a.nextElementSibling !== b || b.nextElementSibling !== c)) {
       a.parentNode.insertBefore(a, a.parentNode.firstChild); a.parentNode.insertBefore(b, a.nextSibling); a.parentNode.insertBefore(c, b.nextSibling);
     }
-    setLbl(d, 'd1kCusto', 'Custo Total Casado'); setTxt(d, 'd1kCusto', fMoney(R.C.c));
-    setLbl(d, 'd1kVenda', 'Venda Total Casado'); setTxt(d, 'd1kVenda', fMoney(R.C.v));
-    setLbl(d, 'd1kCustoSaci', 'Custo Total Saci na Rede'); setTxt(d, 'd1kCustoSaci', fMoney(K.rede.c));
-    setLbl(d, 'd1kVendaSaci', 'Venda Total Saci na Rede'); setTxt(d, 'd1kVendaSaci', fMoney(K.rede.v));
+    setLbl(d, 'd1kCusto', 'Custo Total Casado'); setTxt(d, 'd1kCusto', fMoney0(R.C.c));
+    setLbl(d, 'd1kVenda', 'Venda Total Casado'); setTxt(d, 'd1kVenda', fMoney0(R.C.v));
+    setLbl(d, 'd1kCustoSaci', 'Custo Total Saci na Rede'); setTxt(d, 'd1kCustoSaci', fMoney0(K.rede.c));
+    setLbl(d, 'd1kVendaSaci', 'Venda Total Saci na Rede'); setTxt(d, 'd1kVendaSaci', fMoney0(K.rede.v));
     setLbl(d, 'd1kTaxa', 'Taxa de Casamento (pés casados ÷ total recebido)'); setTxt(d, 'd1kTaxa', fPct(K.taxa));
     setLbl(d, 'd1kDescarte', 'Descarte (fora da conta)'); setTxt(d, 'd1kDescarte', fInt(R.DESC.q));
-    setTxt(d, 'd1kCustoDescarte', fMoney(R.DESC.c));
-    setTxt(d, 'd1kVendaDescarte', fMoney(R.DESC.v));
+    setTxt(d, 'd1kCustoDescarte', fMoney0(R.DESC.c));
+    setTxt(d, 'd1kVendaDescarte', fMoney0(R.DESC.v));
   }
 
   /* ---------- tabelas ---------- */
@@ -153,7 +159,7 @@ __RESUMO__
     var K = SR.conta(R);
     function card(cls, lbl, o, un) {
       return '<div class="src ' + cls + '"><div class="l">' + lbl + '</div><div class="q">' + fInt(o.q) + '</div><div class="u">' + (un || 'pés') + '</div>' +
-        '<div class="m">Custo ' + fMoney(o.c) + '<br>Venda ' + fMoney(o.v) + '</div></div>';
+        '<div class="m">Custo ' + fMoney0(o.c) + '<br>Venda ' + fMoney0(o.v) + '</div></div>';
     }
     var tot = Math.max(K.rede.q, 1);
     function seg(q, cor, txt, base) { var p = q / (base || tot) * 100; return '<div style="width:' + p.toFixed(3) + '%;background:' + cor + '" title="' + esc(txt) + '">' + (p > 9 ? esc(txt) : '') + '</div>'; }
@@ -170,7 +176,7 @@ __RESUMO__
     var neg = R.cNeg && R.cNeg.linhas ? '<div class="srchip warn">⚠️ Casados: <b>' + fInt(R.cNeg.linhas) + '</b> linha(s) com valor negativo (custo ' + fMoney(R.cNeg.c) + ') — conferir estorno/devolução</div>' : '';
 
     sec.innerHTML =
-      '<div class="sechd"><div><h2>🧮 Saci na Rede — Conta Oficial</h2>' +
+      '<div class="sechd"><div><h2>🧮 Saci na Rede — Conta Oficial · posição de ' + esc(dataBase(R)) + '</h2>' +
       '<div class="shsub">Pé Direito + Pé Esquerdo + Enviados 2026 = <b>Saci na Rede</b> (pés reais que precisamos casar) · Casados é histórico, fica fora da conta</div></div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap" class="no-print">' +
       '<button class="btn" data-sr="up">📤 Atualizar com novo D1.xlsx</button>' +
