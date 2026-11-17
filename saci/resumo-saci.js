@@ -15,6 +15,20 @@
  * Usado no navegador (patch do módulo) e no Node (ferramenta que gera a base inicial).
  */
 (function (root) {
+  /* Acento quebrado (UTF-8 lido como Windows-1252, ex.: "RECUPERAÃ‡ÃƒO" → "RECUPERAÇÃO").
+     Só troca se a sequência inteira for UTF-8 válido — "LIMÃO" legítimo fica como está. */
+  var CP1252 = { 0x20AC: 0x80, 0x201A: 0x82, 0x0192: 0x83, 0x201E: 0x84, 0x2026: 0x85, 0x2020: 0x86, 0x2021: 0x87, 0x02C6: 0x88, 0x2030: 0x89, 0x0160: 0x8A, 0x2039: 0x8B, 0x0152: 0x8C, 0x017D: 0x8E,
+    0x2018: 0x91, 0x2019: 0x92, 0x201C: 0x93, 0x201D: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97, 0x02DC: 0x98, 0x2122: 0x99, 0x0161: 0x9A, 0x203A: 0x9B, 0x0153: 0x9C, 0x017E: 0x9E, 0x0178: 0x9F };
+  function consertaAcento(v) {
+    var s = String(v == null ? '' : v);
+    if (!/[\u00C2\u00C3]/.test(s)) return s;
+    return s.replace(/[\u00C2-\u00C3][\u0080-\u00BF\u0152\u0153\u0160\u0161\u0178\u017D\u017E\u0192\u02C6\u02DC\u2013-\u2122]/g, function (par) {
+      var b = []; for (var i = 0; i < par.length; i++) { var c = par.charCodeAt(i); b.push(c < 256 ? c : CP1252[c]); }
+      if (b.some(function (x) { return x == null; })) return par;
+      try { return decodeURIComponent(b.map(function (x) { return '%' + ('0' + x.toString(16)).slice(-2); }).join('')); } catch (e) { return par; }
+    });
+  }
+
   function norm(v) {
     if (v == null) return '';
     var s = String(v).trim();
@@ -36,7 +50,7 @@
   var MARCA_2W = ['VIA SCARPA', 'VIA MARTE', 'VIA UNO', 'VIA VIP', 'BEIRA RIO', 'SUA CIA', 'WEST COAST', 'STAR WHITE'];
   var SKIP = ['TENIS FEMININO', 'TENIS MASCULINO', 'TENIS INFANTIL', 'TENIS'];
   function extractMarca(desc) {
-    var s = norm(desc);
+    var s = norm(consertaAcento(desc));
     if (!s) return '(Sem marca)';
     for (var i = 0; i < SKIP.length; i++) { if (s.indexOf(SKIP[i] + ' ') === 0) { s = s.slice(SKIP[i].length).trim(); break; } }
     for (var j = 0; j < MARCA_3W.length; j++) if (s.indexOf(MARCA_3W[j]) === 0) return MARCA_3W[j];
@@ -81,6 +95,7 @@
     var R = { versao: 1, geradoEm: (meta && meta.geradoEm) || new Date().toISOString(), arquivo: (meta && meta.arquivo) || '',
       E: vazio(), D: vazio(), ENV: vazio(), C: vazio(), DESC: vazio(), REAP: vazio(),
       cNeg: vazio(), envSemLoja: vazio(), marcas: {}, lojas: {}, abas: [] };
+    var mkLoja = {};
     Object.keys(aoaPorAba).forEach(function (nome) {
       var t = tipoAba(nome);
       var aoa = aoaPorAba[nome] || [];
@@ -117,12 +132,15 @@
           var lj = col.origem != null ? row[col.origem] : '';
           lj = (lj == null || String(lj).trim() === '') ? '' : String(lj).trim().replace(/\.0+$/, '');
           if (!lj) soma(R.envSemLoja, q, custo, venda);
-          else { var L = R.lojas[lj] || (R.lojas[lj] = vazio()); soma(L, q, custo, venda); }
+          else { var L = R.lojas[lj] || (R.lojas[lj] = vazio()); soma(L, q, custo, venda); var MK = mkLoja[lj] || (mkLoja[lj] = {}); MK[marca] = (MK[marca] || 0) + q; }
         }
       }
     });
     ['E', 'D', 'ENV', 'C', 'DESC', 'REAP', 'cNeg', 'envSemLoja'].forEach(function (k) { R[k].c = r2(R[k].c); R[k].v = r2(R[k].v); });
-    Object.keys(R.lojas).forEach(function (k) { R.lojas[k].c = r2(R.lojas[k].c); R.lojas[k].v = r2(R.lojas[k].v); });
+    Object.keys(R.lojas).forEach(function (k) {
+      var L = R.lojas[k]; L.c = r2(L.c); L.v = r2(L.v);
+      var MK = mkLoja[k] || {}; L.marca = Object.keys(MK).sort(function (a, b) { return MK[b] - MK[a]; })[0] || ''; L.marcaQ = L.marca ? MK[L.marca] : 0;
+    });
     Object.keys(R.marcas).forEach(function (k) { R.marcas[k].cRede = r2(R.marcas[k].cRede); R.marcas[k].cC = r2(R.marcas[k].cC); });
     return R;
   }
@@ -151,5 +169,5 @@
     return { rede: rede, casadosPares: R.C.q, casadosPes: casadosPes, recebido: recebido, taxa: recebido > 0 ? casadosPes / recebido * 100 : 0 };
   }
 
-  root.SaciRede = { resumirAoA: resumirAoA, resumirWorkbook: resumirWorkbook, conta: conta, extractMarca: extractMarca, tipoAba: tipoAba };
+  root.SaciRede = { resumirAoA: resumirAoA, resumirWorkbook: resumirWorkbook, conta: conta, extractMarca: extractMarca, consertaAcento: consertaAcento, tipoAba: tipoAba };
 })(typeof module !== 'undefined' && module.exports ? module.exports : (typeof window !== 'undefined' ? window : this));

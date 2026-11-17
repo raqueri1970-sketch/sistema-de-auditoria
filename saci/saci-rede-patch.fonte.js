@@ -134,6 +134,7 @@ __RESUMO__
     setLbl(d, 'd1kDescarte', 'Descarte (fora da conta)'); setTxt(d, 'd1kDescarte', fInt(R.DESC.q));
     setTxt(d, 'd1kCustoDescarte', fMoney0(R.DESC.c));
     setTxt(d, 'd1kVendaDescarte', fMoney0(R.DESC.v));
+    try { aplicarRankings(d); } catch (e) { console.warn('[Portal] Saci na Rede (rankings):', e); }
   }
 
   /* ---------- tabelas ---------- */
@@ -264,6 +265,141 @@ __RESUMO__
     X.writeFile(wb, 'Saci_na_Rede_' + new Date().toISOString().slice(0, 10) + '.xlsx');
   }
 
+  /* ---------- Ranking por Regional e Ranking de Lojas ----------
+     O módulo monta esses rankings pela coluna "Loja Origem" de Direito/Esquerdo, que vem vazia no D1.xlsx.
+     A loja de origem está na aba Enviados 2026 (coluna Origem): os rankings passam a usar ela, e o regional
+     de cada loja vem do mapa de regionais já carregado no módulo (REGIONAL_MAP). */
+  var CORES = ['#8b5cf6', '#ff3355', '#3b82f6', '#10b981', '#f59e0b', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#94a3b8', '#a855f7', '#14b8a6'];
+  function regionalDe(w, loja) {
+    var m = null; try { m = w.REGIONAL_MAP; } catch (e) { }
+    if (!m) return '';
+    var ks = [String(loja)];
+    try { if (typeof w.normCode === 'function') ks.unshift(w.normCode(loja)); } catch (e) { }
+    ks.push(String(parseInt(loja, 10)), String(loja).padStart(2, '0'), String(loja).padStart(3, '0'));
+    for (var i = 0; i < ks.length; i++) {
+      var v = m[ks[i]]; if (v == null || v === '') continue;
+      if (typeof v === 'object') v = v.regional || v.nome || '';
+      if (v) return String(v).trim();
+    }
+    return '';
+  }
+  function secaoPorTitulo(d, id, re) {
+    var e = d.getElementById(id); if (e) return e;
+    var hs = d.querySelectorAll('h2'); for (var i = 0; i < hs.length; i++) if (re.test(hs[i].textContent || '')) return hs[i].closest('.section') || hs[i].parentNode;
+    return null;
+  }
+  function kpiPorRotulo(sec, re) {
+    var ks = sec.querySelectorAll('.kc'); for (var i = 0; i < ks.length; i++) { var l = ks[i].querySelector('.kl'); if (l && re.test(l.textContent || '')) return ks[i]; }
+    return null;
+  }
+  function setKpi(sec, re, rot, val, tit) {
+    var k = kpiPorRotulo(sec, re); if (!k) return;
+    var l = k.querySelector('.kl'), v = k.querySelector('.kv');
+    if (rot && l && l.textContent !== rot) l.textContent = rot;
+    if (v && v.textContent !== val) v.textContent = val;
+    if (tit) k.title = tit;
+  }
+  function donut(rows, tot) {
+    if (!rows.length || tot <= 0) return '';
+    var a0 = -Math.PI / 2, out = '';
+    rows.forEach(function (r, i) {
+      var f = r.q / tot; if (f <= 0) return;
+      var a1 = a0 + f * Math.PI * 2, big = f > 0.5 ? 1 : 0;
+      if (f >= 0.9999) { out += '<circle cx="100" cy="100" r="70" fill="none" stroke="' + CORES[i % CORES.length] + '" stroke-width="34"/>'; return; }
+      var x0 = 100 + 70 * Math.cos(a0), y0 = 100 + 70 * Math.sin(a0), x1 = 100 + 70 * Math.cos(a1), y1 = 100 + 70 * Math.sin(a1);
+      out += '<path d="M' + x0.toFixed(2) + ' ' + y0.toFixed(2) + ' A70 70 0 ' + big + ' 1 ' + x1.toFixed(2) + ' ' + y1.toFixed(2) + '" fill="none" stroke="' + CORES[i % CORES.length] + '" stroke-width="34"><title>' + esc(r.regional) + ': ' + fInt(r.q) + '</title></path>';
+      a0 = a1;
+    });
+    return out + '<text x="100" y="96" text-anchor="middle" fill="#fff" font-size="20" font-weight="800" font-family="JetBrains Mono,monospace">' + fInt(tot) + '</text><text x="100" y="116" text-anchor="middle" fill="#6b88a8" font-size="10">pés enviados</text>';
+  }
+  function dadosRanking(d) {
+    var w = d.defaultView, R = d.__saciRedeR;
+    var lojas = linhasLojas(R).map(function (r) { var x = R.lojas[r.loja]; r.regional = regionalDe(w, r.loja); r.marca = x.marca || ''; r.marcaQ = x.marcaQ || 0; return r; });
+    var G = {};
+    lojas.forEach(function (r) {
+      var k = r.regional || '(Sem regional)';
+      var g = G[k] || (G[k] = { regional: k, n: 0, q: 0, c: 0, v: 0, top: '' });
+      g.n++; g.q += r.q; g.c += r.c; g.v += r.v; if (!g.top) g.top = 'Loja ' + r.loja;
+    });
+    var regs = Object.keys(G).map(function (k) { return G[k]; }).sort(function (a, b) { return b.q - a.q; });
+    return { lojas: lojas, regs: regs, semReg: lojas.filter(function (r) { return !r.regional; }).length };
+  }
+  function aplicarRankings(d) {
+    var R = d.__saciRedeR; if (!R) return;
+    var w = d.defaultView, X = dadosRanking(d), pos = 'posição de ' + dataBase(R);
+    var nMap = 0; try { nMap = w.REGIONAL_MAP ? Object.keys(w.REGIONAL_MAP).length : 0; } catch (e) { }
+
+    /* Regional */
+    var rs = secaoPorTitulo(d, 'regionalWrapSection', /Ranking por Regional/i);
+    if (rs) {
+      if (rs.style.display === 'none') rs.style.display = '';
+      var qReg = ((d.getElementById('regionalSearch') || {}).value || '').toLowerCase();
+      var chave = R.geradoEm + '|' + nMap + '|' + qReg;
+      var tb = d.getElementById('regionalTb') || rs.querySelector('tbody');
+      if (tb && (tb.getAttribute('data-sr') !== chave || !tb.querySelector('tr[data-srr]'))) {
+        var th = tb.parentNode.querySelector('thead');
+        if (th) th.innerHTML = '<tr><th>Regional</th><th style="text-align:right">Nº Lojas</th><th style="text-align:right">Pés de saci enviados</th><th style="text-align:right">Custo saci</th><th style="text-align:right">% dos enviados</th><th>Loja que mais envia</th></tr>';
+        var rows = X.regs.filter(function (g) { return !qReg || g.regional.toLowerCase().indexOf(qReg) >= 0; });
+        tb.innerHTML = rows.map(function (g) {
+          return '<tr data-srr><td><b>' + esc(g.regional) + '</b></td><td style="text-align:right">' + fInt(g.n) + '</td><td style="text-align:right;font-weight:800;color:var(--red)">' + fInt(g.q) +
+            '</td><td style="text-align:right">' + fMoney0(g.c) + '</td><td style="text-align:right">' + fPct(g.q / Math.max(R.ENV.q, 1) * 100) + '</td><td>' + esc(g.top) + '</td></tr>';
+        }).join('') + '<tr data-srr style="border-top:1px solid var(--b3)"><td><b>Total</b></td><td style="text-align:right"><b>' + fInt(X.lojas.length) + '</b></td><td style="text-align:right"><b>' + fInt(R.ENV.q) + '</b></td><td style="text-align:right"><b>' + fMoney0(R.ENV.c) + '</b></td><td style="text-align:right"><b>100%</b></td><td>' + esc(pos) + '</td></tr>';
+        tb.setAttribute('data-sr', chave);
+        var sv = d.getElementById('chartRegionalDonut') || rs.querySelector('svg');
+        if (sv) { sv.setAttribute('viewBox', '0 0 200 200'); sv.innerHTML = donut(X.regs, R.ENV.q); }
+        var lg = d.getElementById('regionalLegend');
+        if (!lg && sv) { lg = d.createElement('div'); lg.id = 'regionalLegend'; sv.parentNode.insertBefore(lg, sv.nextSibling); }
+        if (lg) lg.innerHTML = X.regs.map(function (g, i) {
+          return '<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin:3px 0"><span style="width:9px;height:9px;border-radius:50%;background:' + CORES[i % CORES.length] + ';flex-shrink:0"></span><span style="color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(g.regional) + '</span><b style="margin-left:auto;color:var(--tx1)">' + fInt(g.q) + ' (' + fPct(g.q / Math.max(R.ENV.q, 1) * 100) + ')</b></div>';
+        }).join('');
+        // esconde textos de "sem dados" do módulo dentro do card do donut
+        [].forEach.call(rs.querySelectorAll('.chartcard *'), function (e) { if (!e.children.length && /Sem saci suficiente/i.test(e.textContent || '')) e.style.display = 'none'; });
+        var sub = rs.querySelector('.chartsub'); if (sub) sub.textContent = 'Pés de saci enviados ao D1 em 2026 (aba Enviados 2026) · ' + pos;
+        var sh = rs.querySelector('.shsub'); if (sh) sh.textContent = 'Lojas agrupadas por regional — pés de saci que cada loja enviou ao D1 em 2026 · ' + pos;
+        var sel = d.getElementById('regionalPrintSelect');
+        if (sel && sel.options.length <= 1) X.regs.forEach(function (g) { var o = d.createElement('option'); o.value = g.regional; o.textContent = g.regional; sel.appendChild(o); });
+      }
+      var wn = d.getElementById('regionalWarn'), avs = d.getElementById('srRegAviso');
+      var msg = !nMap ? '⚠️ Mapa de regionais não carregado no módulo — todas as lojas aparecem como "(Sem regional)". Carregue a planilha de regionais (REGIONAL.xlsx) no upload do módulo.'
+        : (X.semReg ? '⚠️ ' + X.semReg + ' loja(s) dos Enviados 2026 sem regional no mapa carregado — aparecem em "(Sem regional)".' : '');
+      if (wn) wn.style.display = 'none';
+      if (msg) {
+        if (!avs) { avs = d.createElement('div'); avs.id = 'srRegAviso'; avs.className = 'banner'; avs.style.cssText = 'margin-top:14px;display:flex;gap:8px;padding:10px 14px;border-radius:8px;border:1px solid var(--abdr);background:var(--abg);color:var(--amb);font-size:12px'; rs.appendChild(avs); }
+        if (avs.textContent !== msg) avs.textContent = msg;
+      } else if (avs) avs.remove();
+    }
+
+    /* Ranking de lojas */
+    var ls = secaoPorTitulo(d, 'lojaSection', /Ranking de Lojas/i);
+    if (ls) {
+      if (ls.style.display === 'none') ls.style.display = '';
+      var sh2 = ls.querySelector('.shsub'); var t2 = 'Pés de saci que cada loja enviou ao D1 em 2026 (aba Enviados 2026, coluna Origem) · ' + pos;
+      if (sh2 && sh2.textContent !== t2) sh2.textContent = t2;
+      var top = X.lojas[0];
+      setKpi(ls, /Esquerdo/i, 'Pé Esquerdo no D1 (sem loja na planilha)', fInt(R.E.q));
+      setKpi(ls, /Direito/i, 'Pé Direito no D1 (sem loja na planilha)', fInt(R.D.q));
+      setKpi(ls, /Pares casados/i, 'Pares casados na loja', '—', 'A aba Casados do D1.xlsx não traz a loja — não dá para separar por loja');
+      setKpi(ls, /P[ée]s casados/i, 'Pés casados na loja', '—', 'A aba Casados do D1.xlsx não traz a loja — não dá para separar por loja');
+      setKpi(ls, /Casado pela Auditoria/i, null, '—', 'A aba Casados do D1.xlsx não traz a loja');
+      setKpi(ls, /campe/i, 'Loja campeã de saci enviado', top ? 'Loja ' + top.loja + ' · ' + fInt(top.q) : '—');
+      var qL = ((d.getElementById('ljSearch') || ls.querySelector('input[type=text]') || {}).value || '').toLowerCase();
+      var tbl = d.getElementById('ljtb') || ls.querySelector('tbody');
+      var ch = R.geradoEm + '|' + nMap + '|' + qL;
+      if (tbl && (tbl.getAttribute('data-sr') !== ch || !tbl.querySelector('tr[data-srr]'))) {
+        var th2 = tbl.parentNode.querySelector('thead');
+        if (th2) th2.innerHTML = '<tr><th>#</th><th>Loja</th><th>Regional</th><th style="text-align:right">Pés de saci enviados</th><th style="text-align:right">Custo saci</th><th style="text-align:right">Venda</th><th style="text-align:right">% dos enviados</th><th>Marca principal</th></tr>';
+        var lr = X.lojas.map(function (r, i) { r.pos = i + 1; return r; }).filter(function (r) { return !qL || ('loja ' + r.loja + ' ' + r.regional + ' ' + r.marca).toLowerCase().indexOf(qL) >= 0; });
+        tbl.innerHTML = lr.map(function (r) {
+          return '<tr data-srr><td>' + r.pos + '</td><td><b>Loja ' + esc(r.loja) + '</b></td><td>' + esc(r.regional || '(Sem regional)') + '</td><td style="text-align:right;font-weight:800;color:var(--red)">' + fInt(r.q) +
+            '</td><td style="text-align:right">' + fMoney(r.c) + '</td><td style="text-align:right">' + fMoney(r.v) + '</td><td style="text-align:right">' + fPct(r.pct) + '</td><td>' + esc(r.marca) + (r.marcaQ ? ' (' + fInt(r.marcaQ) + ')' : '') + '</td></tr>';
+        }).join('') || '<tr data-srr><td colspan="8" style="text-align:center;color:var(--tx3)">Nenhuma loja encontrada</td></tr>';
+        tbl.setAttribute('data-sr', ch);
+        var cnt = d.getElementById('ljcnt') || (function () { var c = null; [].forEach.call(ls.querySelectorAll('div,span'), function (e) { if (!c && !e.children.length && /^\d+ loja\(s\)/.test((e.textContent || '').trim())) c = e; }); return c; })();
+        if (cnt) cnt.textContent = fInt(lr.length) + ' loja(s) · ' + fInt(lr.reduce(function (s, r) { return s + r.q; }, 0)) + ' pés enviados';
+      }
+    }
+  }
+
   /* ---------- instalação no módulo ---------- */
   function ehSaci(d) {
     return d.readyState !== 'loading' && d.getElementById('gTotalSaci') && d.getElementById('gTotalRecebido') && d.getElementById('finpUnified') && d.defaultView && d.defaultView.XLSX;
@@ -282,6 +418,13 @@ __RESUMO__
       w.recomputeGrandTotals = function () { var r = orig.apply(this, arguments); try { aplicarCards(d); } catch (e) { } return r; };
       w.recomputeGrandTotals.__sr = 1;
     }
+    // módulo redesenha os rankings (busca, regional carregado, sincronização) → refaz os nossos por cima
+    ['renderRegional', 'renderLoja', 'recomputeLoja', 'renderRegionalFilesList', 'loadRegionalState'].forEach(function (nome) {
+      if (typeof w[nome] !== 'function' || w[nome].__sr) return;
+      var f = w[nome];
+      w[nome] = function () { var r = f.apply(this, arguments); try { [d.getElementById('regionalTb'), d.getElementById('ljtb')].forEach(function (t) { if (t) t.removeAttribute('data-sr'); }); aplicarRankings(d); } catch (e) { } return r; };
+      w[nome].__sr = 1;
+    });
     // upload normal do módulo → também refaz a conta se o arquivo tiver as abas
     if (typeof w.handleFilesUnified === 'function' && !w.handleFilesUnified.__sr) {
       var origUp = w.handleFilesUnified;
