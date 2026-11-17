@@ -437,13 +437,16 @@ function livroCaixa(prestador, desp, pags, adis, saldo, periodo = {}, itens = nu
   const mov = itens ? movPorRecarga(prestador, desp, pags, adis, itens) : movPorData(prestador, desp, pags, adis);
   const noPer = m => (!de || m.data >= de) && (!ate || m.data <= ate);
   const prim = mov.findIndex(noPer);
+  // No modo por recarga a ordem não é por data (recibos em aberto de antes do período vêm depois do PIX). Entre a primeira e a
+  // última linha do período mostra TUDO, senão o saldo pula (17/11/2026: 10.000 → 6.623,53 escondia R$ 3.313,76 de 06 a 10/11).
+  let ult = -1; mov.forEach((m, k) => { if (noPer(m)) ult = k; });
   const saldoInicial = r2(mov.slice(0, prim < 0 ? mov.length : prim).reduce((t, m) => t + m.ent - m.sai, 0));
   const linhas = [{data: de, hist: 'Saldo inicial', ent: 0, sai: 0, saldo: saldoInicial}];
   const tot = {adi: 0, dep: 0, desp: 0};
   let corr = 0;
   mov.forEach((m, k) => {
     corr = r2(corr + m.ent - m.sai);
-    if (k < prim || prim < 0 || !noPer(m)) return;
+    if (prim < 0 || k < prim || k > ult) return;
     tot[m.tipo] += m.ent + m.sai; linhas.push({...m, saldo: corr});
   });
   corr = linhas[linhas.length - 1].saldo;
