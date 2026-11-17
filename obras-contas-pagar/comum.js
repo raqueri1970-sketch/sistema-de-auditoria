@@ -525,12 +525,14 @@ function ccBuscadorHTML() {
 // Fundo = adiantamento ainda não descontado (sem glosa e sem crédito de PIX); gastou = despesas ainda não reembolsadas.
 // O fundo é sempre R$ 10 mil (Jhony e Josemar). Se ele recebeu menos (ex.: Josemar R$ 9.999,74), a diferença entra no reembolso.
 const FUNDO_FIXO = 10000;
+// Fundo por prestador (17/11/2026): vem da view (obras_fundo_prestador; Jhony 12 mil). É o ALVO da recarga, não dinheiro entregue.
+const fundoDe = s => Number(s && s.fundo) > 0 ? Number(s.fundo) : FUNDO_FIXO;
 function fundoPrestador(s, adis) {
   const ad = adis.filter(a => a.prestador === s.prestador && !a.cancelado);
   const glosa = r2(ad.filter(a => a.tipo === 'glosa').reduce((t, a) => t + Number(a.valor), 0));
   const credito = r2(ad.filter(a => a.tipo === 'credito_pix').reduce((t, a) => t + Number(a.valor), 0));
   const recebido = r2(Math.max(Number(s.adiantamento_disponivel || 0) - glosa - credito, 0));
-  const fundo = recebido > 0 ? Math.max(FUNDO_FIXO, recebido) : 0;
+  const fundo = recebido > 0 ? Math.max(fundoDe(s), recebido) : 0;
   const gasto = r2(Number(s.em_aberto || 0) + Number(s.com_financeiro || 0)), saldo = r2(recebido - gasto);
   return {fundo, recebido, falta: r2(fundo - recebido), gasto, glosa, credito, saldo,
     reembolso: r2(Math.max(fundo - saldo - glosa - credito, 0)), n: Number(s.itens_abertos || 0)};
@@ -589,7 +591,7 @@ function blocoFundoHTML(s, adis, lc, desp, pags) {
       ${lc ? contaCorrenteHTML(lc) : '<div class="small mut">Carregando o extrato…</div>'}</details>`;
 }
 // Conta corrente por semana (segunda a domingo): o saldo final de uma semana é o saldo inicial da seguinte
-const recargaDe = saldoFim => r2(Math.max(FUNDO_FIXO - saldoFim, 0));
+const recargaDe = (saldoFim, alvo = FUNDO_FIXO) => r2(Math.max(alvo - saldoFim, 0));
 function contaSemanal(prestador, desp, pags, adis, saldo, periodo = {}) {
   const lc = livroCaixa(prestador, desp, pags, adis, saldo), m = new Map();
   const inicioFundo = adis.filter(a => a.prestador === prestador && !a.cancelado && a.tipo !== 'glosa').map(a => String(a.data || '')).sort()[0] || null;
@@ -601,8 +603,8 @@ function contaSemanal(prestador, desp, pags, adis, saldo, periodo = {}) {
   const sem = [...m.values()].sort((a, b) => a.sem.localeCompare(b.sem)).map(w => {
     const ini = corr, fim = somaDias(w.sem, 6); corr = r2(corr + w.ent - w.sai);
     // recarga devida = o que faltava no começo da semana para ele ter os R$ 10 mil (só a partir da semana em que o fundo começou)
-    const temFundo = inicioFundo && inicioFundo <= fim, devida = temFundo ? recargaDe(ini) : 0;
-    return {sem: w.sem, fim, ini, devida, ent: r2(w.ent), dif: r2(w.ent - devida), sai: r2(w.sai), saldo: corr, recarga: recargaDe(corr)};
+    const temFundo = inicioFundo && inicioFundo <= fim, devida = temFundo ? recargaDe(ini, fundoDe(saldo)) : 0;
+    return {sem: w.sem, fim, ini, devida, ent: r2(w.ent), dif: r2(w.ent - devida), sai: r2(w.sai), saldo: corr, recarga: recargaDe(corr, fundoDe(saldo))};
   });
   return sem.filter(w => (!periodo.de || w.fim >= periodo.de) && (!periodo.ate || w.sem <= periodo.ate));
 }
@@ -630,13 +632,13 @@ function cicloAtual(prestador, desp, pags, adis, saldo) {
   const fora = desp.filter(d => d.prestador === prestador && d.status === 'lancado' && Number(d.saldo) > 0 && d.data_despesa && quando(d) < t0)
     .sort((a, b) => quando(a).localeCompare(quando(b)));
   const faltou = r2(fora.reduce((t, d) => t + Number(d.saldo), 0));
-  return {pix: ult.pix || {valor_pago: ult.valor}, deposito: ult.valor, desde: t0, ini, entrada, glosa, saida, saldo: saldoFim, recarga: recargaDe(saldoFim),
+  return {pix: ult.pix || {valor_pago: ult.valor}, deposito: ult.valor, desde: t0, ini, entrada, glosa, saida, saldo: saldoFim, recarga: recargaDe(saldoFim, fundoDe(saldo)),
     n: Number(saldo.itens_abertos || 0), fora, faltou, quando};
 }
 // Semana a semana: saldo inicial + depositado − gastos = saldo final; recarga devida × depositado mostra se completou os 10 mil
 function secaoSemanas(sem) {
   return {titulo: 'Conta corrente por semana',
-    nota: 'Recarga devida = 10 mil − saldo inicial. Diferença positiva = depositou mais (já pagou gastos da própria semana); negativa = depositou menos.',
+    nota: 'Recarga devida = fundo do prestador − saldo inicial. Diferença positiva = depositou mais (já pagou gastos da própria semana); negativa = depositou menos.',
     cab: ['Semana', 'Saldo inicial', 'Recarga devida', 'Depositado', 'Diferença', 'Gastos', 'Saldo final'], direita: [1, 2, 3, 4, 5, 6],
     linhas: sem.map(w => [`${dBR(w.sem)} a ${dBR(w.fim)}`, V(w.ini), V(w.devida), V(w.ent), V(w.dif), V(w.sai), V(w.saldo)]),
     rodape: sem.length ? ['Próxima recarga', '', '', '', '', '', V(sem[sem.length - 1].recarga)] : undefined};
@@ -877,7 +879,7 @@ function modeloExtrato(prestador, desp, pags, adis, saldo, periodo = {}, itens =
     resumo: ci
       ? [['Saldo inicial', brl(ci.ini)], ['Entrada', brl(ci.entrada)], ['Saída', brl(ci.saida)], ['Saldo', brl(ci.saldo)], ['Recarga', brl(ci.recarga)],
         ...(Math.abs(ci.glosa) > 0.004 ? [['Divergência', brl(ci.glosa)]] : [])]
-      : [['Saldo inicial', brl(lc.saldoInicial)], ['Entrada', brl(lc.entradas)], ['Saída', brl(lc.saidas)], ['Saldo', brl(lc.saldoFinal)], ['Recarga', brl(recargaDe(lc.saldoFinal))]],
+      : [['Saldo inicial', brl(lc.saldoInicial)], ['Entrada', brl(lc.entradas)], ['Saída', brl(lc.saidas)], ['Saldo', brl(lc.saldoFinal)], ['Recarga', brl(recargaDe(lc.saldoFinal, fundoDe(saldo)))]],
     // Um relatório só (25/10/2026, pedido do Ricardo): a conta corrente por recarga já traz os recibos pagos e os em aberto
     secoes: [secaoLivroCaixa(lc), ...(diretos.length ? [secaoPagoDireto(diretos)] : [])],
     assinaturas: ['Presidente', `Prestador: ${prestador}`], arquivo: `extrato_${prestador}_${hojeISO()}`, paisagem: false};

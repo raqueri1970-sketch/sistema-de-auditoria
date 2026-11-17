@@ -284,7 +284,7 @@ const MODELOS = {
         ['Recarga a pagar', brl(soma(D.saldos.filter(f.doPrest), 'saldo_devedor'))]],
       graficos: [{titulo: 'Maiores fornecedores (10)', tipo: 'barras', itens: porFornecedor(ds).sort((a, b) => b.valor - a.valor).map(x => ({rotulo: x.nome, a: x.valor}))},
         {titulo: 'Gasto no período por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador)}],
-      secoes: [{titulo: 'Resumo por prestador', nota: 'Gasto em aberto = despesas das fotos ainda não acertadas (hoje). Crédito = adiantamento que ainda está com o prestador. Recarga = quanto pagar para ele voltar a ter R$ 10 mil; Saldo = crédito − gasto em aberto.',
+      secoes: [{titulo: 'Resumo por prestador', nota: 'Gasto em aberto = despesas das fotos ainda não acertadas (hoje). Crédito = adiantamento que ainda está com o prestador. Recarga = quanto pagar para ele voltar ao fundo dele (Jhony 12 mil, demais 10 mil); Saldo = crédito − gasto em aberto.',
           cab: ['Prestador', 'Despesas', 'Gasto no período', 'Gasto em aberto', 'Crédito adiant.', 'Recarga', 'Saldo com ele'], direita: [1, 2, 3, 4, 5, 6],
           linhas: prests.map(linhaRes), rodape: ['Total', ds.length, V(soma(ds, 'valor')), V(prests.reduce((t, p) => t + Number(sal(p).em_aberto || 0), 0)),
             V(prests.reduce((t, p) => t + Number(sal(p).adiantamento_disponivel || 0), 0)), V(prests.reduce((t, p) => t + Number(sal(p).saldo_devedor || 0), 0)), V(prests.reduce((t, p) => t + res(sal(p)), 0))]},

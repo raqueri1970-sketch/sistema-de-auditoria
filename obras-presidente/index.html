@@ -110,7 +110,7 @@ function renderMain() {
         ${k('k-azul', 'Crédito de adiantamento', brl(credito), 'adiantado e ainda não usado', "irPara('cards')")}<div class="op">−</div>
         ${k('k-lar', 'Gasto em aberto', brl(gasto), `${soma(SALDOS, 'itens_abertos')} despesa(s) ainda não reembolsada(s)`, "irPara('cards')")}<div class="op">=</div>
         ${k(caixa >= 0 ? 'k-ok' : 'k-bad', 'Saldo com os prestadores', brl(caixa), comCaixa.map(s => `${esc(s.prestador.split(' ')[0])} ${brl(caixaPrestador(s))}`).join(' · ') || 'nenhum adiantamento', "irPara('cards')")}
-        ${k((aPagar > 0.005 ? 'k-pagar' : 'k-ok') + ' destaque', 'Recarga a pagar', brl(aPagar), aPagar > 0.005 ? '<b>para cada um voltar a R$ 10 mil · toque no prestador</b>' : 'fundos completos', "irPara('cards')")}
+        ${k((aPagar > 0.005 ? 'k-pagar' : 'k-ok') + ' destaque', 'Recarga a pagar', brl(aPagar), aPagar > 0.005 ? '<b>para cada um voltar ao fundo dele · toque no prestador</b>' : 'fundos completos', "irPara('cards')")}
       </div>
       <div class="pend">${pendLista.length ? '<span class="small mut" style="align-self:center">Para decidir:</span>' + pendLista.join('') : '<span class="ok">✔ Nada pendente para decidir</span>'}</div>
     </section>
@@ -571,7 +571,7 @@ async function pdfResumoPresidente() {
     const gasto = soma(SALDOS, 'em_aberto'), credUsado = SALDOS.reduce((t, s) => t + Math.min(Number(s.adiantamento_disponivel), Number(s.em_aberto)), 0);
     const caixa = SALDOS.reduce((t, s) => t + caixaPrestador(s), 0);
     const lista = SALDOS.filter(prestVisivel).sort((a, b) => b.saldo_devedor - a.saldo_devedor || a.prestador.localeCompare(b.prestador));
-    const secoes = [{titulo: 'Situação de cada prestador', nota: 'Recarga = quanto pagar para ele voltar a ter R$ 10 mil (10 mil − saldo).',
+    const secoes = [{titulo: 'Situação de cada prestador', nota: 'Recarga = quanto pagar para ele voltar ao fundo dele (fundo − saldo; Jhony 12 mil, demais 10 mil).',
       cab: ['Prestador', 'Gasto em aberto', 'Despesas', 'Crédito adiant.', 'Recarga', 'Saldo com ele', 'Já pago', 'Gasto no total'], direita: [1, 2, 3, 4, 5, 6, 7],
       linhas: lista.map(s => [s.prestador, brl(s.em_aberto), String(s.itens_abertos || 0), brl(s.adiantamento_disponivel), brl(s.saldo_devedor),
         (caixaPrestador(s) < 0 ? '−' : '') + brl(Math.abs(caixaPrestador(s))), brl(s.total_pago), brl(s.total_despesas)]),
