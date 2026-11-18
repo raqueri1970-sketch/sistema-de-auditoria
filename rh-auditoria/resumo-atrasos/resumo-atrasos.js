@@ -134,20 +134,20 @@ function faEspPonto(m){
   const ros=new Map(((faInputs.roster&&faInputs.roster.people)||[]).map(x=>[faCode(x.code),x]));
   const rows=[];
   M.rows.forEach(x=>{const dd=faMirrorDays.get(x.code);if(!dd)return;const ro=ros.get(x.code),store=(ro&&ro.store)||x.store||x.lot;
-    const ev=[];let prev=0;
+    const ev=[];let prev=0,cred=0,ates=0;
     dd.forEach(d=>{const ob=String(d[2]||'').trim(),deb=vOf(d,'DEBT'),fal=vOf(d,'FALT'),pv=vOf(d,'HRPV'),date=iso(String(d[0]).slice(0,5)),dt=faFromISO(date);
-      if(!ob||/FALT|ATRA/.test(ob))prev+=pv;
+      if(!ob||/FALT|ATRA/.test(ob))prev+=pv;cred+=vOf(d,'CRED');ates+=vOf(d,'ATES')+vOf(d,'ATEH');
       const add=(min,kind)=>ev.push({date,wd:dt.getDay(),holiday:faHoliday(dt),minutes:min,time:faClock(min),kind});
       if(fal>0)add(fal,/ATRA/.test(ob)?'atraso':'falta');
       if(deb>0&&!ob)add(deb,'atraso')});
     const fa=ev.filter(e=>e.kind==='falta'),at=ev.filter(e=>e.kind==='atraso'),sm=l=>l.reduce((s,e)=>s+e.minutes,0);
-    rows.push({key:x.code,code:x.code,name:x.name,store,role:x.cargo||'—',regional:faRegionalOf(store),events:ev,prevMin:prev,
+    rows.push({key:x.code,code:x.code,name:x.name,store,role:x.cargo||'—',regional:faRegionalOf(store),events:ev,prevMin:prev,credMin:cred,atesMin:ates,
       faltaDays:new Set(fa.map(e=>e.date)).size,faltaMin:sm(fa),atrasoCount:new Set(at.map(e=>e.date)).size,atrasoMin:sm(at),minutes:sm(ev)})});
   if(!rows.length)return null;
   const pr=rows.filter(r=>r.events.length),evs=pr.flatMap(r=>r.events);
   const T={events:evs.length,people:pr.length,faltaEvents:pr.reduce((s,r)=>s+r.faltaDays,0),faltaPeople:pr.filter(r=>r.faltaDays).length,
     atrasoEvents:pr.reduce((s,r)=>s+r.atrasoCount,0),atrasoPeople:pr.filter(r=>r.atrasoCount).length,minutes:evs.reduce((s,e)=>s+e.minutes,0),
-    faltaMin:pr.reduce((s,r)=>s+r.faltaMin,0),expectedMin:rows.reduce((s,r)=>s+r.prevMin,0)};
+    faltaMin:pr.reduce((s,r)=>s+r.faltaMin,0),expectedMin:rows.reduce((s,r)=>s+r.prevMin,0),credMin:rows.reduce((s,r)=>s+r.credMin,0),atesMin:rows.reduce((s,r)=>s+r.atesMin,0)};
   T.rate=T.expectedMin?T.minutes/T.expectedMin*100:null;
   const grp=(key,init)=>{const g=new Map();rows.forEach(r=>{const k=key(r);let o=g.get(k);if(!o){o=init(r);g.set(k,o)}o.headcount++;o.prev+=r.prevMin;o.lojas&&o.lojas.add(faNorm(r.store));
     if(r.events.length){o.people++;o.faltas+=r.faltaDays;o.atrasos+=r.atrasoCount;o.minutes+=r.minutes}});return [...g.values()]};
@@ -175,7 +175,7 @@ function faEspComp(k,m){
   case 'people':return {title:'Colaboradores com ocorrência = '+T.people,base:per,formula:'Pessoas com pelo menos uma falta ou atraso no espelho. '+T.people+' ÷ '+faInt(q)+' com ponto = <b>'+faPct(T.people,q,1)+'</b>.'+nota,sections:[{cols:['Colaborador','Faltas (dias)','Atrasos (dias)','Horas'],rows:pr.slice().sort((a,b)=>b.minutes-a.minutes).map(r=>[who(r),r.faltaDays||'—',r.atrasoCount||'—',faClock(r.minutes)]),total:['Total: '+pr.length,faInt(T.faltaEvents),faInt(T.atrasoEvents),faClock(T.minutes)]}]};
   case 'abs':return {title:'Faltas = '+T.faltaEvents+' dias',base:per,formula:'Cada dia com FALT no espelho (inclui FALT ADV; o atraso injustificado ATRA INJ conta como atraso). '+T.faltaPeople+' pessoa(s) · '+faPct(T.faltaPeople,q,2)+' de quem tem ponto.'+nota,sections:[evTable('falta')]};
   case 'late':return {title:'Atrasos e saídas antecipadas = '+T.atrasoEvents+' dias',base:per,formula:'Cada dia com débito no banco (DEBT) sem observação ou com atraso injustificado (ATRA INJ). Débito em dia de curso, atestado, acompanhamento e folga compensada (COMP BCO) não conta. '+T.atrasoPeople+' pessoa(s) · '+faPct(T.atrasoPeople,q,2)+' de quem tem ponto.'+nota,sections:[evTable('atraso')]};
-  case 'rate':return {title:'Taxa de absenteísmo = '+(T.rate!=null?faDec(T.rate,2)+'%':'—'),base:per,formula:'Horas perdidas (faltas + atrasos) ÷ horas previstas no espelho (HRPV dos dias de trabalho)<br><b>'+faClock(T.minutes)+'</b> ÷ <b>'+faInt(Math.round(T.expectedMin/60))+'h</b> = <b>'+(T.rate!=null?faDec(T.rate,2)+'%':'—')+'</b>.'+nota,
-    sections:[{title:'Por loja',cols:['Loja','Com ponto','Horas perdidas','Absenteísmo'],rows:m.byStore.map(s=>[faEsc(s.store),s.headcount,faClock(s.minutes),s.rate!=null?faDec(s.rate,2)+'%':'—']),total:['Lojas com ocorrência: '+m.byStore.length,'',faClock(m.byStore.reduce((s,x)=>s+x.minutes,0)),'']}]};
-  case 'hours':return {title:'Horas perdidas = '+faClock(T.minutes),base:per,formula:'Faltas '+faClock(T.faltaMin)+' + atrasos '+faClock(T.minutes-T.faltaMin)+'.'+nota,sections:[{cols:['Colaborador','Faltas','Atrasos','Total'],rows:pr.slice().sort((a,b)=>b.minutes-a.minutes).map(r=>[who(r),faClock(r.faltaMin),faClock(r.atrasoMin),'<b>'+faClock(r.minutes)+'</b>']),total:['Total: '+pr.length,faClock(T.faltaMin),faClock(T.minutes-T.faltaMin),'<b>'+faClock(T.minutes)+'</b>']}]};
+  case 'rate':{const pp=x=>faDec(x/T.expectedMin*100,2)+'%';return {title:'Taxa de absenteísmo = '+(T.rate!=null?faDec(T.rate,2)+'%':'—'),base:per,formula:'Horas perdidas (faltas + atrasos e saídas antes) ÷ horas previstas no espelho (HRPV dos dias de trabalho)<br><b>'+faClock(T.minutes)+'</b> ÷ <b>'+faInt(Math.round(T.expectedMin/60))+'h</b> = <b>'+(T.rate!=null?faDec(T.rate,2)+'%':'—')+'</b> = faltas <b>'+pp(T.faltaMin)+'</b> + atrasos <b>'+pp(T.minutes-T.faltaMin)+'</b>.<br>Atestados não entram (com atestados: '+faDec((T.minutes+(T.atesMin||0))/(T.expectedMin+(T.atesMin||0))*100,2)+'%). Os atrasos são quase todos compensados no banco de horas, que recebeu '+faInt(Math.round((T.credMin||0)/60))+'h de crédito no mês. Antes, a tela via só o relatório Faltas e Atrasos (o que é descontado em folha), por isso mostrava '+(m.cartao?faDec(m.cartao.totals.rate||0,2)+'%':'menos')+'.'+nota,
+    sections:[{title:'Por loja',cols:['Loja','Com ponto','Horas perdidas','Absenteísmo'],rows:m.byStore.map(s=>[faEsc(s.store),s.headcount,faClock(s.minutes),s.rate!=null?faDec(s.rate,2)+'%':'—']),total:['Lojas com ocorrência: '+m.byStore.length,'',faClock(m.byStore.reduce((s,x)=>s+x.minutes,0)),'']}]}}
+  case 'hours':return {title:'Horas perdidas = '+faClock(T.minutes),base:per,formula:'Faltas '+faClock(T.faltaMin)+' + atrasos e saídas antes '+faClock(T.minutes-T.faltaMin)+'. Os atrasos de quem tem banco de horas são compensados no banco (crédito de '+faInt(Math.round((T.credMin||0)/60))+'h no mês) e não são descontados; faltas e atraso injustificado vão para a folha. Antes a tela mostrava '+(m.cartao?faClock(m.cartao.totals.minutes):'menos')+' porque só via o que é descontado em folha.'+nota,sections:[{cols:['Colaborador','Faltas','Atrasos','Total'],rows:pr.slice().sort((a,b)=>b.minutes-a.minutes).map(r=>[who(r),faClock(r.faltaMin),faClock(r.atrasoMin),'<b>'+faClock(r.minutes)+'</b>']),total:['Total: '+pr.length,faClock(T.faltaMin),faClock(T.minutes-T.faltaMin),'<b>'+faClock(T.minutes)+'</b>']}]};
   }return null}
