@@ -39,3 +39,8 @@ drop policy if exists inv_estoque_final_colaborador_select on public.inv_estoque
 create policy inv_estoque_final_colaborador_select on public.inv_estoque_final for select to authenticated using ((select public.portal_is_colaborador()));
 drop policy if exists inv_fotos_colaborador_select on public.inv_fotos;
 create policy inv_fotos_colaborador_select on public.inv_fotos for select to authenticated using ((select public.portal_is_colaborador()));
+
+-- 5) Arquivo do Portal no Storage: colaborador lê só o arquivo principal (backups continuam fechados)
+drop policy if exists portal_file_colaborador_read on storage.objects;
+create policy portal_file_colaborador_read on storage.objects for select to authenticated
+  using (bucket_id = 'portal-file' and name = 'PORTAL_ESPOSENDE_V4_AUTH.html' and (select public.portal_is_colaborador()));
