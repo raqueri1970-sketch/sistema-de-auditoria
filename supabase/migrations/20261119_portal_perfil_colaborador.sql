@@ -3,7 +3,7 @@
 -- Fechamento Rescisão (resc), Descontos Funcionários (cmpaud), Comissões Meias (mei), Comissões Grendene (gren).
 -- RH e Crediário já ficam fechados sozinhos: portal_pode('rh') e cred_pode_auditar() não incluem "colaborador".
 -- Despesas, CFTV e Patrimônio de Segurança têm login próprio só para administrador/controladoria/diretoria.
--- AINDA NÃO APLICADA — revisar antes de rodar no projeto.
+-- Aplicada em 19/11/2026. Usuários: criar no Supabase Auth e inserir orc_perfis (perfil colaborador).
 
 -- 1) Novo perfil permitido em orc_perfis
 alter table public.orc_perfis drop constraint if exists orc_perfis_perfil_check;
