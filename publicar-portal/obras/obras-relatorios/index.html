@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Obras · Relatórios</title>
+<meta name="theme-color" content="#0b1020">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="../obras-contas-pagar/comum.css?v=20261027-dark">
+</head>
+<body>
+
+<div id="vLogin" class="hidden" style="max-width:420px;margin:40px auto">
+  <h1>Relatórios · Obras</h1><div class="sub">Entre com o seu usuário do Portal</div>
+  <div class="card" style="margin-top:16px">
+    <label>Email</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label>Senha</label><input id="lSenha" type="password" autocomplete="current-password">
+    <div id="lErr" class="err"></div>
+    <button class="btn b-pri" style="width:100%;padding:14px" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div><h1>Obras &amp; Reformas · Relatórios</h1><div class="sub" id="quem"></div></div>
+    <div class="row"><button class="btn" onclick="carregar()">Atualizar</button><button class="btn" onclick="sair()">Sair</button></div>
+  </div>
+  <div id="menu"></div>
+
+  <h2>1. Escolha o relatório</h2>
+  <div class="tabs" id="tabs"></div>
+  <div class="small mut" id="relDesc" style="margin-top:10px"></div>
+
+  <h2>2. Filtros</h2>
+  <div class="card filtros">
+    <div><label>Prestador</label><select id="fPrest" onchange="mostrar()"></select></div>
+    <div><label>De</label><input id="fDe" type="date" onchange="mostrar()"></div>
+    <div><label>Até</label><input id="fAte" type="date" onchange="mostrar()"></div>
+    <div><label>Atalho</label><select id="fAtalho" onchange="atalho(this.value)">
+      <option value="">—</option><option value="d7">Últimos 7 dias</option><option value="d15">Últimos 15 dias</option><option value="d30">Últimos 30 dias</option><option value="semana">Esta semana</option><option value="mes">Este mês</option><option value="mes_ant">Mês passado</option>
+      <option value="ano">Este ano</option><option value="tudo">Tudo</option></select></div>
+  </div>
+
+  <div class="row" style="justify-content:space-between;margin-top:18px">
+    <h2 style="margin:0" id="tituloRel">3. Resultado</h2>
+    <div class="row"><button class="btn b-pri" onclick="pdf()">Baixar PDF</button><button class="btn" onclick="csv()">Baixar planilha (Excel)</button></div>
+  </div>
+  <div id="saida"><div class="card vazio">Carregando…</div></div>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="../obras-contas-pagar/comum.js?v=20261117-fundo"></script>
+<script>
+let D = null, REL = 'aberto', MODELO = null;
+const RELS = {aberto: 'Contas a pagar em aberto', caixa: 'Caixa dos prestadores', semanas: 'Fechamento por semana', duplicadas: 'Duplicidades já pagas', extrato: 'Extrato do prestador', fluxo: 'Fluxo de caixa semanal', pagamentos: 'Pagamentos realizados',
+  categorias: 'Despesas por categoria e obra', fornecedores: 'Fornecedores de cada prestador', auditor: 'Pontos do Agente Auditor'};
+const RELS_DESC = {aberto: 'O que a empresa deve hoje a cada prestador: gasto em aberto, crédito de adiantamento, caixa e cada despesa ainda não reembolsada.',
+  caixa: 'Extrato tipo bancário do dinheiro da empresa com cada prestador: adiantamentos e reembolsos entram, despesas saem, saldo linha a linha.',
+  semanas: 'Cada semana (segunda a domingo): quanto foi gasto, pago e o que falta, por prestador.',
+  duplicadas: 'Comprovantes cobrados duas vezes, com as duas fotos lado a lado.',
+  extrato: 'Tudo de um prestador: caixa, despesas, pagamentos e adiantamentos. Escolha o prestador no filtro.',
+  fluxo: 'Semana a semana: despesas, pagamentos e saldo acumulado de cada prestador.',
+  pagamentos: 'Pagamentos feitos no período, com o recibo de cada um em PDF.',
+  categorias: 'Para onde foi o dinheiro: por categoria, por obra e por semana.',
+  fornecedores: 'Com quem cada prestador gastou: fornecedores, quantidade e total.',
+  auditor: 'Pontos levantados pelo Agente Auditor (duplicidade, sem nota, uso pessoal, etc.).'};
+const REGRAS = {duplicidade_autenticacao: 'Pagamento repetido (mesma autenticação)', duplicidade_valor_data_fornecedor: 'Possível duplicidade',
+  arquivo_repetido: 'Comprovante repetido', sem_comprovante: 'Sem documento', leitura_baixa_confianca: 'Leitura duvidosa', valor_atipico: 'Valor fora do padrão',
+  sem_obra: 'Sem obra', data_incoerente: 'Data incoerente', pix_pessoa_fisica_material: 'PIX p/ pessoa física', fornecedor_varias_vezes_dia: 'Fornecedor repetido no dia',
+  ia_suspeita: 'IA viu sinal na foto', desvio_finalidade_grave: 'Desvio de finalidade', desvio_finalidade: 'Item de uso pessoal', pix_para_o_proprio: 'Pagou a si mesmo',
+  material_sem_nota: 'Material sem nota fiscal', outra_cidade: 'Outra cidade', compra_domingo: 'Compra no domingo', compra_madrugada: 'Despesa de madrugada'};
+
+async function carregar() {
+  try {
+    const [desp, saldos, pags, itens, adis, fluxo, prest, prestIds] = await Promise.all([carregarDespesas(), carregarSaldos(), carregarPagamentos(), carregarItens(), carregarAdiantamentos(),
+      todos(() => sb.from('obras_fluxo_semanal').select('*').order('prestador').order('semana')), carregarPrestacoes(),
+      todos(() => sb.from('obras_comprovantes').select('id,prestacao_id').in('status', ['duplicada', 'lancado']).not('prestacao_id', 'is', null))]);
+    D = {desp, saldos, pags, itens, adis, fluxo, prest, prestDe: new Map(prestIds.map(x => [x.id, x.prestacao_id]))};
+  } catch (e) { $('saida').innerHTML = `<div class="card err">Erro ao carregar: ${esc(msgErro(e))}</div>`; return; }
+  const sel = $('fPrest').value;
+  $('fPrest').innerHTML = '<option value="">Todos os prestadores</option>' + D.saldos.map(s => `<option ${s.prestador === sel ? 'selected' : ''}>${esc(s.prestador)}</option>`).join('');
+  mostrar();
+}
+
+function atalho(v) {
+  const h = hojeISO(), d = new Date(h + 'T12:00:00'), iso = x => x.toISOString().slice(0, 10);
+  if (/^d\d+$/.test(v)) { $('fDe').value = somaDias(h, -(Number(v.slice(1)) - 1)); $('fAte').value = h; }
+  if (v === 'semana') { const s = new Date(d); s.setDate(d.getDate() - (d.getDay() + 6) % 7); $('fDe').value = iso(s); $('fAte').value = h; }
+  if (v === 'mes') { $('fDe').value = h.slice(0, 8) + '01'; $('fAte').value = h; }
+  if (v === 'mes_ant') { const a = new Date(d.getFullYear(), d.getMonth() - 1, 1, 12), b = new Date(d.getFullYear(), d.getMonth(), 0, 12); $('fDe').value = iso(a); $('fAte').value = iso(b); }
+  if (v === 'ano') { $('fDe').value = h.slice(0, 4) + '-01-01'; $('fAte').value = h; }
+  if (v === 'tudo') { $('fDe').value = ''; $('fAte').value = ''; }
+  mostrar();
+}
+
+function filtros() {
+  const prest = $('fPrest').value, de = $('fDe').value, ate = $('fAte').value;
+  const noPer = d => (!de || (d || '') >= de) && (!ate || (d || '') <= ate);
+  const per = de || ate ? `${de ? dBRano(de) : 'início'} a ${ate ? dBRano(ate) : 'hoje'}` : 'todo o período';
+  return {prest, de, ate, noPer, per, doPrest: x => !prest || x.prestador === prest};
+}
+// agrupa e soma: [{rotulo, a}] do maior para o menor
+const somaPor = (l, chave, val = 'valor') => { const m = {}; for (const x of l) { const k = chave(x) || '(sem)'; m[k] = (m[k] || 0) + Number((typeof val === 'function' ? val(x) : x[val]) || 0); }
+  return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([rotulo, a]) => ({rotulo, a})); };
+// semanas em ordem: [{rotulo, a: despesas, b: pago}]
+const porSemana = (l, sem = d => d.semana) => { const m = {}; for (const d of l) { const k = sem(d); if (!k) continue; const x = m[k] = m[k] || {a: 0, b: 0}; x.a += Number(d.valor || 0); x.b += Number(d.valor_pago || 0); }
+  return Object.keys(m).sort().map(k => ({rotulo: dBR(k), a: m[k].a, b: m[k].b})); };
+const soma = (a, f) => a.reduce((t, x) => t + Number((typeof f === 'function' ? f(x) : x[f]) || 0), 0);
+
+const MODELOS = {
+  aberto(f) {
+    const sal = D.saldos.filter(f.doPrest), abertos = D.desp.filter(d => Number(d.saldo) > 0 && f.doPrest(d));
+    return {titulo: 'Contas a pagar em aberto', subtitulo: `Obras & Reformas - Esposende - posição de ${dBRano(hojeISO())}${f.prest ? ' - ' + f.prest : ''}`,
+      resumo: [['Recarga a pagar', brl(soma(sal, 'saldo_devedor'))], ['Gasto em aberto', brl(soma(sal, 'em_aberto'))], ['Crédito de adiantamento', brl(soma(sal, 'adiantamento_disponivel'))],
+        ['Caixa com os prestadores', brl(soma(sal, s => caixaPrestador(s)))], ...(soma(sal, 'divergencia') > 0.004 ? [['Divergência', brl(soma(sal, 'divergencia'))]] : [])],
+      graficos: [{titulo: 'Gasto em aberto × crédito por prestador', tipo: 'barras', series: ['Gasto em aberto', 'Crédito'],
+          itens: sal.filter(x => Number(x.em_aberto) || Number(x.adiantamento_disponivel)).map(x => ({rotulo: x.prestador, a: Number(x.em_aberto), b: Number(x.adiantamento_disponivel)}))},
+        {titulo: 'Em aberto por semana', tipo: 'colunas', itens: porSemana(abertos).map(x => ({rotulo: x.rotulo, a: x.a - x.b})), nota: 'valor ainda não reembolsado de cada semana'}],
+      secoes: [{titulo: 'Por prestador', nota: 'Caixa = crédito de adiantamento − gasto em aberto (dinheiro da empresa com o prestador). A pagar = o gasto que passa do crédito.',
+          cab: ['Prestador', 'Despesas', 'Gasto em aberto', 'Crédito adiant.', 'Saldo com ele', 'Recarga', 'Desde', 'Risco'], direita: [1, 2, 3, 4, 5],
+          linhas: sal.map(s => [s.prestador, s.itens_abertos, V(s.em_aberto), V(s.adiantamento_disponivel), V(caixaPrestador(s)), V(s.saldo_devedor), dBRano(s.semana_mais_antiga), (RISCO[s.risco] || [''])[0]]),
+          rodape: ['Total', soma(sal, 'itens_abertos'), V(soma(sal, 'em_aberto')), V(soma(sal, 'adiantamento_disponivel')), V(soma(sal, s => caixaPrestador(s))), V(soma(sal, 'saldo_devedor')), '', '']},
+        {titulo: `Despesas em aberto (${abertos.length})`, nota: 'Inclui o que sobrou de pagamentos parciais. Acumula todas as semanas.',
+          cab: ['Prestador', 'Semana', 'Data', 'Fornecedor', 'Categoria', 'Recibo', 'Já pago', 'Em aberto', 'Alertas'], direita: [5, 6, 7],
+          linhas: abertos.map(d => [d.prestador, dBR(d.semana), dBRano(d.data_despesa), d.fornecedor || '', CATS[d.categoria] || d.categoria, V(d.valor), V(d.valor_pago), V(d.saldo),
+            d.criticos ? `${d.criticos} crítico(s)` : d.atencoes ? `${d.atencoes} atenção` : '']),
+          rodape: ['Total', '', '', '', '', V(soma(abertos, 'valor')), V(soma(abertos, 'valor_pago')), V(soma(abertos, 'saldo')), '']}],
+      paisagem: true, arquivo: `contas_a_pagar_${f.prest || 'todos'}_${hojeISO()}`};
+  },
+  duplicadas(f) {
+    // Duplicidades que JÁ FORAM PAGAS: a prestação foi paga pelo total que o prestador declarou, e esse total somou a mesma despesa 2 vezes.
+    // (Na 23ª em diante o pagamento é pelas fotos lançadas: a duplicata fica fora e não entra aqui.)
+    const pr = id => D.prest.find(p => p.id === D.prestDe.get(id));
+    const ds = D.desp.filter(d => d.status === 'duplicada' && d.situacao_pagamento === 'pago' && D.prestDe.get(d.id) && f.doPrest(d) && f.noPer(d.data_despesa))
+      .sort((a, b) => a.prestador.localeCompare(b.prestador) || String(a.data_despesa).localeCompare(String(b.data_despesa)));
+    const limpa = t => String(t || '').replace(/\s+/g, ' ').replace(/â€”|â€"/g, '—').replace(/^.*?\[DUP\]\s*/, '');
+    const prests = [...new Set(ds.map(d => d.prestador))].sort((a, b) => soma(ds.filter(d => d.prestador === b), 'valor') - soma(ds.filter(d => d.prestador === a), 'valor'));
+    const pares = ds.map(d => ({d, o: origemDup(d)}));
+    const ondeOrig = o => o ? `${(pr(o.id) || {}).numero ? ordinal(pr(o.id).numero) + ' · ' : ''}${paginaDe(o.arquivo_path)}` : 'não localizada';
+    const porPrest = prests.map(p => { const l = pares.filter(x => x.d.prestador === p);
+      return {titulo: `${p} — ${l.length} duplicidade(s) · ${brl(soma(l, x => x.d.valor))}`, cab: ['Nº', 'Prestação', 'Data', 'Fornecedor', 'Foto cobrada de novo', 'Foto original', 'O que foi duplicado', 'Pago a mais'], direita: [7],
+        linhas: l.map(({d, o}) => [pares.findIndex(x => x.d === d) + 1, (pr(d.id) || {}).numero || '', dBRano(d.data_despesa), d.fornecedor || '', paginaDe(d.arquivo_path), ondeOrig(o), limpa(d.descricao), V(d.valor)]),
+        rodape: ['Total', '', '', '', '', '', `${l.length} item(ns)`, V(soma(l, x => x.d.valor))]}; });
+    // conferência por prestação: declarado na capa x fotos válidas x duplicado
+    const ids = [...new Set(ds.map(d => D.prestDe.get(d.id)))];
+    const conf = ids.map(id => { const p = D.prest.find(x => x.id === id) || {}, val = D.desp.filter(d => D.prestDe.get(d.id) === id && d.status === 'lancado');
+      const dup = ds.filter(d => D.prestDe.get(d.id) === id);
+      return [p.responsavel || '', p.numero || '', p.valor_declarado != null ? V(p.valor_declarado) : 'sem capa', V(soma(val, 'valor')), V(soma(dup, 'valor')),
+        p.valor_declarado != null ? V(Number(p.valor_declarado) - soma(val, 'valor')) : '—']; })
+      .sort((a, b) => a[0].localeCompare(b[0]));
+    return {titulo: 'Duplicidades já pagas nas prestações de contas', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
+      resumo: [['Total pago a mais', brl(soma(ds, 'valor'))], ['Duplicidades', String(ds.length)], ...prests.slice(0, 3).map(p => [p, brl(soma(ds.filter(d => d.prestador === p), 'valor'))])],
+      graficos: [{titulo: 'Pago a mais por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador)},
+        {titulo: 'Pago a mais por fornecedor (10 maiores)', tipo: 'barras', itens: somaPor(ds, d => d.fornecedor || 'não lido')}],
+      secoes: [...porPrest,
+        {titulo: 'Conferência por prestação', nota: 'Declarado = total que o prestador pôs na capa (foi o valor pago). Fotos válidas = soma das despesas sem as duplicadas. A diferença mostra o que foi pago a mais.',
+          cab: ['Prestador', 'Prestação', 'Declarado (pago)', 'Fotos válidas', 'Duplicado', 'Declarado − válidas'], direita: [2, 3, 4, 5], linhas: conf,
+          rodape: ['Total', '', '', '', V(soma(ds, 'valor')), '']}],
+      paisagem: true, arquivo: `duplicidades_pagas_com_fotos_${f.prest || 'todos'}_${hojeISO()}`, pares,
+      depois: (pdf, ctx) => fotosDupPDF(pdf, ctx, pares, d => (pr(d.id) || {}).numero)};
+  },
+  semanas(f) {
+    // Fechamento semanal (segunda a domingo): despesas da semana, quanto já foi pago e se a semana/prestação está QUITADA
+    const todas = D.desp.filter(d => d.status === 'lancado' && d.situacao !== 'recusado' && d.semana && f.doPrest(d) && f.noPer(d.data_despesa));
+    const ds = todas.filter(d => !pagoDireto(d)), diretos = todas.filter(pagoDireto);
+    const m = {};
+    for (const d of ds) { const k = d.semana + '|' + d.prestador; const x = m[k] = m[k] || {sem: d.semana, prest: d.prestador, n: 0, v: 0, p: 0, a: 0, obras: new Set()};
+      x.n++; x.v += Number(d.valor); x.p += Number(d.valor_pago); x.a += Number(d.saldo); x.obras.add(nomeObra(d.obra)); }
+    const l = Object.values(m).sort((a, b) => b.sem.localeCompare(a.sem) || a.prest.localeCompare(b.prest));
+    const pr = x => D.prest.find(p => p.responsavel === x.prest && p.periodo_inicio && p.periodo_inicio <= somaDias(x.sem, 6) && (p.periodo_fim || somaDias(p.periodo_inicio, 6)) >= x.sem);
+    return {titulo: 'Fechamento por semana', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
+      resumo: [['Despesas', brl(soma(l, 'v'))], ['Pago', brl(soma(l, 'p'))], ['Em aberto', brl(soma(l, 'a'))], ['Semanas quitadas', `${l.filter(x => x.a < 0.005).length} de ${l.length}`],
+        ...(diretos.length ? [['Pago direto pela empresa', brl(soma(diretos, 'valor'))]] : [])],
+      graficos: [{titulo: 'Despesas × pago por semana', tipo: 'colunas', series: ['Despesas', 'Pago'], itens: porSemana(ds)},
+        {titulo: 'Em aberto por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador, 'saldo')}],
+      secoes: [{titulo: `Semanas (${l.length})`, nota: 'Semana quitada = todas as despesas da semana pagas. A prestação de contas da semana fica quitada junto.',
+        cab: ['Semana', 'Prestador', 'Obras', 'Prestação', 'Despesas', 'Pago', 'Em aberto', 'Situação'], direita: [4, 5, 6],
+        linhas: l.map(x => { const p = pr(x); return [`${dBR(x.sem)} a ${dBR(somaDias(x.sem, 6))}`, x.prest, [...x.obras].join(', '), p ? p.numero : '', V(x.v), V(x.p), V(x.a),
+          x.a < 0.005 ? 'QUITADA' : x.p > 0.005 ? 'Paga em parte' : 'Em aberto']; }),
+        rodape: ['Total', '', '', '', V(soma(l, 'v')), V(soma(l, 'p')), V(soma(l, 'a')), '']}, ...(diretos.length ? [secaoPagoDireto(diretos)] : [])],
+      paisagem: true, arquivo: `fechamento_semanal_${f.prest || 'todos'}_${hojeISO()}`};
+  },
+  caixa(f) {
+    const sal = D.saldos.filter(prestVisivel).filter(f.doPrest).filter(s => Number(s.total_adiantado) > 0 || Number(s.em_aberto) > 0);
+    if (!sal.length) return {titulo: 'Caixa dos prestadores', secoes: [], vazio: 'Nenhum prestador com adiantamento ou gasto em aberto.'};
+    const livros = sal.map(s => [s, livroCaixa(s.prestador, D.desp.filter(d => d.prestador === s.prestador), D.pags.filter(p => p.prestador === s.prestador), D.adis.filter(a => a.prestador === s.prestador), s, {de: f.de, ate: f.ate})]);
+    return {titulo: 'Caixa dos prestadores (extrato)', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
+      resumo: [['Caixa com os prestadores hoje', brl(soma(sal, s => caixaPrestador(s)))], ['Crédito de adiantamento', brl(soma(sal, 'adiantamento_disponivel'))],
+        ['Gasto em aberto', brl(soma(sal, 'em_aberto'))], ['Recarga a pagar', brl(soma(sal, 'saldo_devedor'))]],
+      graficos: [{titulo: 'Caixa hoje por prestador', tipo: 'barras', series: ['Crédito', 'Gasto em aberto'],
+          itens: sal.map(x => ({rotulo: `${x.prestador} (${brlCurto(caixaPrestador(x))})`, a: Number(x.adiantamento_disponivel), b: Number(x.em_aberto)}))},
+        ...livros.slice(0, 5).map(([x, lc]) => ({titulo: 'Caixa dia a dia · ' + x.prestador, tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'}))],
+      secoes: [{titulo: 'Conta corrente por prestador', nota: 'Saldo inicial + adiantamentos + depósitos − despesas = saldo final do período. Auditoria: o saldo de todo o período tem de bater com o sistema (crédito − em aberto).',
+          cab: ['Prestador', 'Saldo inicial', 'Adiantamentos', 'Depósitos', 'Despesas', 'Saldo final', 'Caixa hoje', 'Auditoria'], direita: [1, 2, 3, 4, 5, 6],
+          linhas: livros.map(([s, lc]) => [s.prestador, V(lc.saldoInicial), V(lc.adiantamentos), V(lc.depositos), V(lc.despesas), V(lc.saldoFinal), V(lc.hoje), lc.confere ? 'Confere' : 'Diferença ' + brl(lc.diferenca)]),
+          rodape: ['Total', V(soma(livros, x => x[1].saldoInicial)), V(soma(livros, x => x[1].adiantamentos)), V(soma(livros, x => x[1].depositos)), V(soma(livros, x => x[1].despesas)),
+            V(soma(livros, x => x[1].saldoFinal)), V(soma(livros, x => x[1].hoje)), livros.every(x => x[1].confere) ? 'Tudo confere' : 'Ver diferenças']},
+        ...livros.map(([s, lc]) => ({...secaoLivroCaixa(lc), titulo: 'Conta corrente · ' + s.prestador}))],
+      arquivo: `caixa_prestadores_${f.prest || 'todos'}_${hojeISO()}`};
+  },
+  extrato(f) {
+    if (!f.prest) return {titulo: 'Extrato do prestador', secoes: [], vazio: 'Escolha um prestador no filtro para ver o extrato completo.'};
+    const s = D.saldos.find(x => x.prestador === f.prest) || {};
+    return modeloExtrato(f.prest, D.desp.filter(d => d.prestador === f.prest), D.pags.filter(p => p.prestador === f.prest), D.adis.filter(a => a.prestador === f.prest), s, {de: f.de, ate: f.ate}, D.itens);
+  },
+  fluxo(f) {
+    const lin = D.fluxo.filter(x => f.doPrest(x) && f.noPer(x.semana));
+    const prests = [...new Set(lin.map(x => x.prestador))];
+    return {titulo: 'Fluxo de caixa semanal por prestador', subtitulo: `Obras & Reformas - Esposende - ${f.per}`,
+      resumo: [['Despesas (entradas)', brl(soma(lin, 'despesas'))], ['Pagamentos (saídas)', brl(soma(lin, x => Number(x.pago_legado) + Number(x.pagamentos)))],
+        ['Adiantamentos', brl(soma(lin, 'adiantamentos'))], ['Recusado (não pago)', brl(soma(lin, 'recusado'))]],
+      graficos: [{titulo: 'Despesas × pagamentos por semana', tipo: 'colunas', series: ['Despesas', 'Pago'],
+          itens: Object.entries(lin.reduce((m, x) => { const y = m[x.semana] = m[x.semana] || {a: 0, b: 0}; y.a += Number(x.despesas); y.b += Number(x.pago_legado) + Number(x.pagamentos); return m; }, {}))
+            .sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => ({rotulo: dBR(k), ...v}))},
+        ...prests.slice(0, 3).map(p => ({titulo: 'Saldo a pagar semana a semana · ' + p, tipo: 'linha', itens: lin.filter(x => x.prestador === p).map(x => ({rotulo: dBR(x.semana), a: Number(x.saldo_acumulado)}))}))],
+      secoes: prests.map(p => { const l = lin.filter(x => x.prestador === p);
+        return {titulo: p, nota: 'Despesas = o que o prestador gastou na semana. Pago = pagamentos feitos na semana (inclui o histórico já pago). Saldo = quanto a empresa deve ao prestador ao fim da semana.',
+          cab: ['Semana', 'Despesas', 'Pago', 'Adiantamento', 'Recusado', 'Saldo a pagar'], direita: [1, 2, 3, 4, 5],
+          linhas: l.map(x => [`${dBR(x.semana)} a ${dBR(x.semana_fim)}`, V(x.despesas), V(Number(x.pago_legado) + Number(x.pagamentos)), V(x.adiantamentos), V(x.recusado), V(x.saldo_acumulado)]),
+          rodape: ['Total', V(soma(l, 'despesas')), V(soma(l, x => Number(x.pago_legado) + Number(x.pagamentos))), V(soma(l, 'adiantamentos')), V(soma(l, 'recusado')), V(l.length ? l[l.length - 1].saldo_acumulado : 0)]}; }),
+      arquivo: `fluxo_caixa_${f.prest || 'todos'}_${hojeISO()}`};
+  },
+  pagamentos(f) {
+    const ps = D.pags.filter(p => f.doPrest(p) && f.noPer((p.pago_em || p.created_at).slice(0, 10)));
+    const ef = ps.filter(p => ['pago', 'auditado', 'pendencia'].includes(p.status));
+    return {titulo: 'Pagamentos realizados', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
+      resumo: [['Pago', brl(soma(ef, 'valor_pago'))], ['Pagamentos', String(ef.length)], ['Aprovados sem pagamento', brl(soma(ps.filter(p => p.status === 'aprovado'), 'valor_aprovado'))],
+        ['Com pendência', String(ps.filter(p => p.status === 'pendencia').length)]],
+      graficos: [{titulo: 'Pago por prestador', tipo: 'barras', itens: somaPor(ef, p => p.prestador, 'valor_pago')},
+        {titulo: 'Pago por semana', tipo: 'colunas', itens: somaPor(ef, p => segundaDe(String(p.pago_em || p.created_at).slice(0, 10)), 'valor_pago').sort((a, b) => a.rotulo.localeCompare(b.rotulo)).map(x => ({rotulo: dBR(x.rotulo), a: x.a}))}],
+      secoes: [{titulo: `Pagamentos (${ps.length})`, cab: ['Nº', 'Prestador', 'Aprovado', 'Pago em', 'Despesas', 'Valor pago', 'Forma', 'Situação'],
+        direita: [4, 5], linhas: ps.map(p => [p.numero, p.prestador, dtBR(p.aprovado_em), p.pago_em ? dtBR(p.pago_em) : '', V(p.valor_itens),
+          p.valor_pago != null ? V(p.valor_pago) : '', FORMAS[p.forma_pagamento] || p.forma_pagamento || '', (PAG[p.status] || [p.status])[0]]),
+        rodape: ['Total', '', '', '', V(soma(ef, 'valor_itens')), V(soma(ef, 'valor_pago')), '', '']}],
+      paisagem: true, arquivo: `pagamentos_${f.prest || 'todos'}_${hojeISO()}`, recibos: ps};
+  },
+  categorias(f) {
+    const todas = D.desp.filter(d => d.status === 'lancado' && d.situacao !== 'recusado' && f.doPrest(d) && f.noPer(d.data_despesa));
+    const ds = todas.filter(d => !pagoDireto(d)), diretos = todas.filter(pagoDireto);
+    const sal = D.saldos.filter(f.doPrest);
+    const agrupa = chave => { const m = {}; for (const d of ds) { const k = chave(d) || '(sem)'; m[k] = m[k] || {qtd: 0, v: 0, p: 0, a: 0}; m[k].qtd++; m[k].v += Number(d.valor); m[k].p += Number(d.valor_pago); m[k].a += Number(d.saldo); }
+      return Object.entries(m).sort((a, b) => b[1].v - a[1].v); };
+    const tot = soma(ds, 'valor'), pct = v => tot ? (v / tot * 100).toFixed(1).replace('.', ',') + '%' : '';
+    const sec = (titulo, rot, g) => ({titulo, cab: [rot, 'Qtd', 'Total', '%', 'Pago', 'Em aberto'], direita: [1, 2, 3, 4, 5],
+      linhas: g.map(([k, x]) => [k, x.qtd, V(x.v), pct(x.v), V(x.p), V(x.a)]), rodape: ['Total', ds.length, V(tot), '100%', V(soma(ds, 'valor_pago')), V(soma(ds, 'saldo'))]});
+    return {titulo: 'Despesas por categoria e obra', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
+      // Mesmos números dos cards da Visão geral: em aberto, crédito de adiantamento e o que falta pagar hoje
+      resumo: [['Total de despesas', brl(tot)], ['Recibos', String(ds.length)], ['Pago', brl(soma(ds, 'valor_pago'))], ['Em aberto no período', brl(soma(ds, 'saldo'))],
+        ['Crédito de adiantamento (hoje)', brl(soma(sal, 'adiantamento_disponivel'))], ['Recarga a pagar', brl(soma(sal, 'saldo_devedor'))],
+        ...(diretos.length ? [['Pago direto pela empresa', brl(soma(diretos, 'valor'))]] : [])],
+      graficos: [{titulo: 'Despesas por categoria', tipo: 'barras', itens: somaPor(ds, d => CATS[d.categoria] || d.categoria)},
+        {titulo: 'Despesas por obra (10 maiores)', tipo: 'barras', itens: somaPor(ds, d => nomeObra(d.obra))},
+        {titulo: 'Despesas × pago por semana', tipo: 'colunas', series: ['Despesas', 'Pago'], itens: porSemana(ds)},
+        ...(!f.prest ? [{titulo: 'Despesas por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador)}] : [])],
+      secoes: [sec('Por categoria', 'Categoria', agrupa(d => CATS[d.categoria] || d.categoria)), sec('Por obra', 'Obra', agrupa(d => nomeObra(d.obra))),
+        ...(!f.prest ? [sec('Por prestador', 'Prestador', agrupa(d => d.prestador))] : []), {...sec('Maiores fornecedores (20)', 'Fornecedor', agrupa(d => d.fornecedor).slice(0, 20)), rodape: null},
+        ...(diretos.length ? [secaoPagoDireto(diretos)] : [])],
+      arquivo: `despesas_categoria_${f.prest || 'todos'}_${hojeISO()}`};
+  },
+  // 15/10/2026: cada prestador com o gasto, o crédito de adiantamento, o resultado e os fornecedores (nomes parecidos juntos)
+  fornecedores(f) {
+    const ds = D.desp.filter(d => d.status === 'lancado' && d.situacao !== 'recusado' && f.doPrest(d) && f.noPer(d.data_despesa) && !semPrestador(d.prestador) && !pagoDireto(d));
+    const prests = [...new Set(ds.map(d => d.prestador))].sort((a, b) => soma(ds.filter(d => d.prestador === b), 'valor') - soma(ds.filter(d => d.prestador === a), 'valor'));
+    const sal = p => D.saldos.find(s => s.prestador === p) || {};
+    const res = s => Number(s.adiantamento_disponivel || 0) - Number(s.em_aberto || 0);
+    const linhaRes = p => { const s = sal(p), l = ds.filter(d => d.prestador === p);
+      return [p, l.length, V(soma(l, 'valor')), V(s.em_aberto), V(s.adiantamento_disponivel), V(s.saldo_devedor), V(res(s))]; };
+    const secP = p => { const l = ds.filter(d => d.prestador === p), fs = porFornecedor(l), tot = soma(l, 'valor');
+      return {titulo: `${p} — ${fs.length} fornecedor(es) · ${brl(tot)}`, cab: ['Fornecedor', 'Qtd', 'Total', '%', 'Pago', 'Em aberto'], direita: [1, 2, 3, 4, 5],
+        linhas: fs.map(x => { const ld = l.filter(d => chaveForn(d.fornecedor) === chaveForn(x.nome));
+          return [x.nome, x.n, V(x.valor), tot ? (x.valor / tot * 100).toFixed(1).replace('.', ',') + '%' : '', V(soma(ld, 'valor_pago')), V(soma(ld, 'saldo'))]; }),
+        rodape: ['Total', l.length, V(tot), '100%', V(soma(l, 'valor_pago')), V(soma(l, 'saldo'))]}; };
+    return {titulo: 'Fornecedores de cada prestador', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
+      resumo: [['Gasto no período', brl(soma(ds, 'valor'))], ['Despesas', String(ds.length)], ['Fornecedores', String(porFornecedor(ds).length)],
+        ['Recarga a pagar', brl(soma(D.saldos.filter(f.doPrest), 'saldo_devedor'))]],
+      graficos: [{titulo: 'Maiores fornecedores (10)', tipo: 'barras', itens: porFornecedor(ds).sort((a, b) => b.valor - a.valor).map(x => ({rotulo: x.nome, a: x.valor}))},
+        {titulo: 'Gasto no período por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador)}],
+      secoes: [{titulo: 'Resumo por prestador', nota: 'Gasto em aberto = despesas das fotos ainda não acertadas (hoje). Crédito = adiantamento que ainda está com o prestador. Recarga = quanto pagar para ele voltar ao fundo dele (Jhony 12 mil, demais 10 mil); Saldo = crédito − gasto em aberto.',
+          cab: ['Prestador', 'Despesas', 'Gasto no período', 'Gasto em aberto', 'Crédito adiant.', 'Recarga', 'Saldo com ele'], direita: [1, 2, 3, 4, 5, 6],
+          linhas: prests.map(linhaRes), rodape: ['Total', ds.length, V(soma(ds, 'valor')), V(prests.reduce((t, p) => t + Number(sal(p).em_aberto || 0), 0)),
+            V(prests.reduce((t, p) => t + Number(sal(p).adiantamento_disponivel || 0), 0)), V(prests.reduce((t, p) => t + Number(sal(p).saldo_devedor || 0), 0)), V(prests.reduce((t, p) => t + res(sal(p)), 0))]},
+        ...prests.map(secP)],
+      paisagem: true, arquivo: `fornecedores_por_prestador_${f.prest || 'todos'}_${hojeISO()}`};
+  },
+  auditor(f) {
+    const ds = D.desp.filter(d => (d.achados || []).length && f.doPrest(d) && f.noPer(d.data_despesa));
+    const lin = []; for (const d of ds) for (const a of d.achados) lin.push([(RISCO[a.nivel] || [a.nivel])[0], d.prestador, dBRano(d.data_despesa), d.fornecedor || '', V(d.valor), (SIT[d.situacao] || [d.situacao])[0], a.mensagem]);
+    lin.sort((a, b) => a[0].localeCompare(b[0]) * -1);
+    const crit = lin.filter(l => l[0] === 'CRÍTICO').length;
+    return {titulo: 'Pontos do Agente Auditor', subtitulo: `Obras & Reformas - Esposende - ${f.per}${f.prest ? ' - ' + f.prest : ''}`,
+      resumo: [['Valor das despesas com ponto', brl(soma(ds, 'valor'))], ['Pontos em aberto', String(lin.length)], ['Críticos', String(crit)], ['Atenção', String(lin.length - crit)], ['Em despesas ainda não pagas', String(ds.filter(d => Number(d.saldo) > 0).reduce((t, d) => t + d.achados.length, 0))]],
+      graficos: [{titulo: 'Valor das despesas com ponto, por tipo', tipo: 'barras',
+          itens: somaPor(ds.flatMap(d => d.achados.map(x => ({k: REGRAS[x.regra] || String(x.mensagem || x.nivel || '').slice(0, 34), valor: d.valor}))), x => x.k)},
+        {titulo: 'Valor das despesas com ponto, por prestador', tipo: 'barras', itens: somaPor(ds, d => d.prestador)}],
+      secoes: [{titulo: `Pontos (${lin.length})`, cab: ['Nível', 'Prestador', 'Data', 'Fornecedor', 'Valor', 'Situação', 'O que o Auditor viu'], direita: [4], linhas: lin,
+        rodape: [`Total (${ds.length} despesa(s))`, '', '', '', V(soma(ds, 'valor')), '', 'cada despesa somada uma vez, mesmo com vários pontos']}],
+      paisagem: true, arquivo: `auditor_${f.prest || 'todos'}_${hojeISO()}`};
+  }
+};
+
+function mostrar() {
+  $('tabs').innerHTML = Object.entries(RELS).map(([k, t]) => `<button class="${k === REL ? 'on' : ''}" onclick="REL='${k}';mostrar()">${t}</button>`).join('');
+  $('relDesc').textContent = RELS_DESC[REL] || '';
+  if (!D) return;
+  const f = filtros();
+  MODELO = MODELOS[REL](f);
+  $('tituloRel').textContent = '3. ' + RELS[REL];
+  $('saida').innerHTML = MODELO.vazio ? `<div class="card vazio">${esc(MODELO.vazio)}</div>`
+    : htmlModelo(MODELO) + (MODELO.recibos && MODELO.recibos.length ? `<div class="card" style="margin-top:12px"><b>Recibo individual de cada pagamento (PDF)</b><div class="acoes" style="margin-top:8px">
+      ${MODELO.recibos.slice(0, 60).map(p => `<a onclick="recibo('${p.id}')">nº ${p.numero} · ${esc(p.prestador)} · ${brl(p.valor_pago ?? p.valor_aprovado)}</a>`).join('')}</div></div>` : '')
+    + (MODELO.pares ? galeriaDup(MODELO.pares) : '');
+  if (MODELO.pares) carregarGaleriaDup(MODELO.pares);
+}
+
+// ---------- Duplicidades: as 2 fotos de cada uma (a original e a cobrada de novo) ----------
+// A descrição da duplicata diz onde está a original: "igual P05_p046" (outra prestação) ou "(p038)" (mesma prestação).
+function origemDup(d) {
+  const desc = String(d.descricao || ''), pasta = (String(d.arquivo_path || '').match(/^(.*\/)?([A-Z0-9]+)_p\d{3}/) || []);
+  const cheia = desc.match(/\b([A-Z0-9]+)_p(\d{3})\b/), curta = desc.match(/\bp(\d{3})\b/);
+  let path = null;
+  if (cheia) path = String(d.arquivo_path).replace(/[^/]+\/[^/]+$/, `${cheia[1]}/${cheia[1]}_p${cheia[2]}.jpg`);
+  else if (curta && pasta[2]) path = String(d.arquivo_path).replace(/[^/]+$/, `${pasta[2]}_p${curta[1]}.jpg`);
+  const val = D.desp.filter(x => x.id !== d.id && x.status === 'lancado');
+  const perto = l => l.sort((a, b) => Math.abs(a.valor - d.valor) - Math.abs(b.valor - d.valor))[0];
+  if (path) { const o = perto(val.filter(x => x.arquivo_path === path)); return o || {id: null, arquivo_path: path, valor: d.valor, data_despesa: d.data_despesa, fornecedor: d.fornecedor}; }
+  // sem referência: mesmo prestador, mesmo valor e mesma data (pode ser a mesma foto lida 2 vezes)
+  return perto(val.filter(x => x.prestador === d.prestador && Number(x.valor) === Number(d.valor) && x.data_despesa === d.data_despesa)) || null;
+}
+const ordinal = n => /^\d+$/.test(String(n)) ? n + 'ª' : String(n);
+const paginaDe = path => { const m = String(path || '').match(/([A-Z0-9]+)_p(\d{3})/); return m ? `${m[1]} pág. ${Number(m[2])}` : String(path || '').split('/').pop(); };
+function galeriaDup(pares) {
+  if (!pares.length) return '';
+  return `<div class="card" style="margin-top:12px"><b>Comprovantes de cada duplicidade (${pares.length})</b>
+    <div class="small mut">À esquerda a foto ORIGINAL (já cobrada); à direita a MESMA despesa apresentada de novo e paga outra vez. O PDF traz as duas fotos de cada uma, uma duplicidade por página.</div>
+    ${pares.map(({d, o}, i) => `<div class="dup-par"><div class="small" style="margin:12px 0 6px"><b>${i + 1}. ${esc(d.prestador)} · ${esc(d.fornecedor || '')} · ${dBRano(d.data_despesa)} · ${brl(d.valor)} pago a mais</b>
+      ${o && o.arquivo_path === d.arquivo_path ? ' · <span class="crit">mesma foto lançada 2 vezes</span>' : ''}</div>
+      <div class="cmp-grid"><div class="cmp-col"><div class="small"><b>Original</b> · ${o ? esc(paginaDe(o.arquivo_path)) + ' · ' + brl(o.valor) : 'não localizada'}</div><div class="visor" id="dupo_${i}"></div></div>
+      <div class="cmp-col"><div class="small"><b>Cobrada de novo</b> · ${esc(paginaDe(d.arquivo_path))} · ${brl(d.valor)}</div><div class="visor" id="dupd_${i}"></div></div></div></div>`).join('')}</div>`;
+}
+async function carregarGaleriaDup(pares) {
+  const fila = pares.flatMap(({d, o}, i) => [['dupo_' + i, o && o.arquivo_path], ['dupd_' + i, d.arquivo_path]]);
+  const vez = MODELO;
+  for (let k = 0; k < fila.length; k += 4) {
+    if (MODELO !== vez) return;  // trocou de relatório
+    await Promise.all(fila.slice(k, k + 4).map(([id, p]) => $(id) && (p ? mostrarArquivoEm($(id), p, 440) : ($(id).innerHTML = '<div class="crit">Foto original não localizada.</div>'))));
+  }
+}
+// Baixa a foto (ou a 1ª página do PDF) já reduzida para caber no PDF sem ficar pesado
+async function imagemPDF(path) {
+  if (!path) return null;
+  try {
+    const {data, error} = await sb.storage.from('obras-comprovantes').download(path); if (error) throw error;
+    let fonte;
+    if (/\.pdf$/i.test(path) || data.type === 'application/pdf') {
+      const lib = await pdfjs(), doc = await lib.getDocument({data: new Uint8Array(await data.arrayBuffer())}).promise, pg = await doc.getPage(1);
+      const vp = pg.getViewport({scale: 2}); fonte = document.createElement('canvas'); fonte.width = vp.width; fonte.height = vp.height;
+      await pg.render({canvasContext: fonte.getContext('2d'), viewport: vp}).promise;
+    } else {
+      const url = URL.createObjectURL(data);
+      fonte = await new Promise((ok, erro) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => erro(new Error('imagem inválida')); im.src = url; });
+    }
+    const w0 = fonte.naturalWidth || fonte.width, h0 = fonte.naturalHeight || fonte.height, f = Math.min(1, 1100 / Math.max(w0, h0));
+    const c = document.createElement('canvas'); c.width = Math.round(w0 * f); c.height = Math.round(h0 * f);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(fonte, 0, 0, c.width, c.height);
+    return {data: c.toDataURL('image/jpeg', .72), w: c.width, h: c.height};
+  } catch (e) { return null; }
+}
+async function fotosDupPDF(pdf, {W, H, M}, pares, prestacao) {
+  const topoImg = 126;
+  for (let i = 0; i < pares.length; i++) {
+    const {d, o} = pares[i];
+    toast(`Gerando PDF… fotos ${i + 1} de ${pares.length}`, 60000);
+    const [io, idd] = await Promise.all([imagemPDF(o && o.arquivo_path), imagemPDF(d.arquivo_path)]);
+    pdf.addPage('a4', 'portrait');
+    const PW = pdf.internal.pageSize.getWidth(), PH = pdf.internal.pageSize.getHeight(), w = (PW - 2 * M - 14) / 2, am = PH - topoImg - 40;
+    pdf.setTextColor(15, 30, 60); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12.5);
+    pdf.text(pdfTxt(`Duplicidade ${i + 1} de ${pares.length} - ${d.prestador} - ${brl(d.valor)} pago a mais`), M, 40);
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); pdf.setTextColor(60);
+    const linhas = pdf.splitTextToSize(pdfTxt(`${d.fornecedor || ''} - ${dBRano(d.data_despesa)} - ${String(d.descricao || '').replace(/\s+/g, ' ').replace(/^.*?\[DUP\]\s*/, '')}`), PW - 2 * M).slice(0, 3);
+    pdf.text(linhas, M, 56);
+    pdf.setDrawColor(14, 74, 107); pdf.setLineWidth(1); pdf.line(M, 92, PW - M, 92); pdf.setLineWidth(.5);
+    const col = (img, x, rot, cor) => {
+      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9); pdf.setTextColor(...cor); pdf.text(pdf.splitTextToSize(pdfTxt(rot), w).slice(0, 2), x, 104); pdf.setTextColor(20); pdf.setFont('helvetica', 'normal');
+      if (!img) { pdf.setDrawColor(200); pdf.rect(x, topoImg, w, 120); pdf.setFontSize(9); pdf.text('Foto não localizada', x + w / 2, topoImg + 62, {align: 'center'}); return; }
+      const f = Math.min(w / img.w, am / img.h), iw = img.w * f, ih = img.h * f;
+      pdf.addImage(img.data, 'JPEG', x + (w - iw) / 2, topoImg, iw, ih); pdf.setDrawColor(190); pdf.rect(x + (w - iw) / 2, topoImg, iw, ih);
+    };
+    const np = x => x ? `${ordinal(x)} prestação - ` : '';
+    col(io, M, `ORIGINAL (já cobrada): ${o ? np(o.id ? prestacao(o) : '') + paginaDe(o.arquivo_path) + ' - ' + brl(o.valor) : 'não localizada'}`, [21, 101, 52]);
+    col(idd, M + w + 14, `COBRADA DE NOVO: ${np(prestacao(d))}${paginaDe(d.arquivo_path)} - ${brl(d.valor)}`, [185, 28, 28]);
+    if (o && o.arquivo_path === d.arquivo_path) { pdf.setFontSize(8.5); pdf.setTextColor(185, 28, 28); pdf.text('Mesma foto lançada 2 vezes na prestação.', M, PH - 30); pdf.setTextColor(20); }
+  }
+  toast('PDF pronto.');
+}
+
+async function pdf() {
+  if (!MODELO || MODELO.vazio) return toast(MODELO && MODELO.vazio || 'Carregando…');
+  try { toast('Gerando PDF…'); await gerarPDF(MODELO); } catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); }
+}
+function csv() { if (!MODELO || MODELO.vazio) return toast(MODELO && MODELO.vazio || 'Carregando…'); baixarCSVModelo(MODELO); }
+async function recibo(id) { try { toast('Gerando PDF…'); await pdfPagamento(id); } catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); } }
+
+iniciarLogin(user => {
+  $('menu').innerHTML = menu('relatorios');
+  $('quem').textContent = 'Conectado como ' + (user.email || '');
+  const q = new URLSearchParams(location.search); if (q.get('rel') && RELS[q.get('rel')]) REL = q.get('rel');
+  mostrar(); carregar();
+});
+</script>
+</body>
+</html>

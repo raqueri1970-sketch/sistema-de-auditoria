@@ -156,7 +156,7 @@ function render() {
   const k = (cls, l, v, n, acao) => `<div class="card kpi ${cls} ${acao ? 'clic' : ''}" ${acao ? `onclick="${acao}" role="button" tabindex="0"` : ''}><div class="l">${l}</div><div class="v">${v}</div>${n ? `<div class="n">${n}</div>` : ''}</div>`;
   // o PDF usa a mesma lista, na mesma ordem da tela
   window.KPIS_PDF = [['Crédito de adiantamento', brl(credito), 'adiantado e ainda não usado'], ['Gasto em aberto', brl(gastoAberto), `${nAbertas} despesa(s) ainda não reembolsada(s)`],
-    ['Saldo com os prestadores', brl(caixa), comCaixa.map(s => `${s.prestador.split(' ')[0]} ${brl(caixaPrestador(s))}`).join(' · ')], ['Recarga a pagar', brl(aPagar), aPagar > 0.005 ? 'para cada um voltar a R$ 10 mil' : 'fundos completos'],
+    ['Saldo com os prestadores', brl(caixa), comCaixa.map(s => `${s.prestador.split(' ')[0]} ${brl(caixaPrestador(s))}`).join(' · ')], ['Recarga a pagar', brl(aPagar), aPagar > 0.005 ? 'para cada um voltar ao fundo dele' : 'fundos completos'],
     [`Despesas · ${int.rotulo}`, brl(soma(ds, 'valor')), `${ds.length} despesa(s)`], ['Já pago dessas despesas', brl(pago), `${pct}% quitado`],
     ['Em aberto no período', brl(aberto), `${semanas.length - quitadas} semana(s) em aberto`], ['Semanas quitadas', `${quitadas} de ${semanas.length}`, ''],
     ['Duplicidades para decidir', String(D.dupl.length), dupSomadas.length ? `${dupSomadas.length} somada(s) no total` : 'nenhuma somada no total']];
@@ -173,7 +173,7 @@ function render() {
         ${k('k-azul', 'Crédito de adiantamento', brl(credito), 'adiantado e ainda não usado')}<div class="op">−</div>
         ${k('k-lar', 'Gasto em aberto', brl(gastoAberto), `${nAbertas} despesa(s) ainda não reembolsada(s)`)}<div class="op">=</div>
         ${k(caixa >= 0 ? 'k-ok' : 'k-bad', 'Saldo com os prestadores', brl(caixa), comCaixa.map(s => `${esc(s.prestador.split(' ')[0])} ${brl(caixaPrestador(s))}`).join(' · ') || 'nenhum adiantamento', "irPara('tPrest')")}
-        ${k((aPagar > 0.005 ? 'k-pagar' : 'k-ok') + ' destaque', 'Recarga a pagar', brl(aPagar), aPagar > 0.005 ? '<b>para cada um voltar a R$ 10 mil · toque para pagar</b>' : 'fundos completos', "location.href='../obras-presidente/'")}
+        ${k((aPagar > 0.005 ? 'k-pagar' : 'k-ok') + ' destaque', 'Recarga a pagar', brl(aPagar), aPagar > 0.005 ? '<b>para cada um voltar ao fundo dele · toque para pagar</b>' : 'fundos completos', "location.href='../obras-presidente/'")}
       </div>
       <div class="pend">${pend.length ? '<span class="small mut" style="align-self:center">Para resolver:</span>' + pend.join('') : '<span class="ok">✔ Nada pendente para resolver</span>'}</div>
     </section>

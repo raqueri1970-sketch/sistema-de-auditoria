@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Obras · Visão geral</title>
+<meta name="theme-color" content="#0b1020">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="comum.css?v=20261027-dark">
+</head>
+<body>
+
+<div id="vLogin" class="hidden" style="max-width:420px;margin:40px auto">
+  <h1>🏗️ Obras · Visão geral</h1><div class="sub">Entre com o mesmo usuário do Portal Esposende</div>
+  <div class="card" style="margin-top:16px">
+    <label class="small">Email do Portal</label><input id="lEmail" type="email" autocomplete="username" inputmode="email">
+    <label class="small">Senha</label><input id="lSenha" type="password" autocomplete="current-password">
+    <div id="lErr" class="err"></div>
+    <button class="btn b-pri" style="width:100%;padding:14px" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div><h1>🏗️ Obras · Despesas e pagamentos</h1>
+      <div class="sub">Recibos do grupo “Adm Obras Esposende” → despesa do prestador → Presidente paga a semana → semana quitada · <span id="atual"></span></div></div>
+    <div class="row"><button class="btn" onclick="carregar()">Atualizar</button><button class="btn b-pri" onclick="pdfVisaoGeral()">PDF desta tela</button><button class="btn" onclick="sair()">Sair</button></div>
+  </div>
+  <div id="menu"></div>
+  <div id="alertaSaude"></div>
+
+  <div class="filtro-bar" id="filtros"></div>
+  <div id="kpis"></div>
+
+  <h2 id="tPrest">Prestadores <span class="mut" style="text-transform:none;letter-spacing:0;font-weight:500">· caixa de cada um, o que gastou e o que falta pagar</span></h2>
+  <div class="pgrid" id="pessoas"></div>
+  <div id="contaDet"></div>
+
+  <h2 id="tSemanas">Fechamento por semana <span class="mut" style="text-transform:none;letter-spacing:0;font-weight:500">· segunda a domingo</span></h2>
+  <div class="card" id="semanas"></div>
+
+  <h2>Gráficos</h2>
+  <div class="g2">
+    <div class="card viz"><h3>Despesas × pago por semana <span id="gLeg"></span></h3><div id="gSem"></div></div>
+    <div class="card viz"><h3>Despesas por obra <span class="small mut" style="font-weight:500" id="gObraSub"></span></h3><div id="gObra"></div></div>
+  </div>
+  <div class="card viz" style="margin-top:14px"><h3>Adiantamento × gasto por prestador <span id="gAGLeg"></span></h3>
+    <div class="small mut" style="margin-bottom:6px">Azul = adiantamento que ainda está com o prestador (crédito). Laranja = despesas das fotos ainda não acertadas. Se o laranja passa do azul, a diferença é o que a empresa tem a pagar.</div><div id="gAG"></div></div>
+
+  <h2 id="tResolver">Para resolver</h2>
+  <div id="alocar"></div>
+  <h2 id="dupTitulo">Duplicidades · aprovar ou reprovar</h2>
+  <div class="card" id="duplicidades"></div>
+  <div id="fraude"></div>
+  <div id="orcamentos"></div>
+
+  <h2>Conferência</h2>
+  <details class="card" id="auditorBox"><summary id="auditorResumo">Agente Auditor</summary><div id="auditor" style="margin-top:10px"></div></details>
+  <details class="card" style="margin-top:12px"><summary>Saúde do capturador (WhatsApp → Supabase)</summary><div class="grid" id="saude" style="margin-top:10px"></div></details>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="comum.js?v=20261117-fundo"></script>
+<script>
+let D = null, TIMER = null, VER_HISTORICO = false, PAP = {};
+let F = {p: '30', obra: '', prest: '', ...lerFiltro('obras-visao-filtro')};
+const haQuanto = iso => { if (!iso) return '—'; const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  return m < 1 ? 'agora' : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.round(m / 60)} h` : dtBR(iso); };
+const soma = (a, f) => a.reduce((t, x) => t + Number((typeof f === 'function' ? f(x) : x[f]) || 0), 0);
+
+async function carregar() {
+  try {
+    const st = await sb.from('capturador_status').select('*').order('atualizado_em', {ascending: false});
+    const [saldos, desp, pags, obras, prest, itens, fraude, fotos, fotosAud, adis] = await Promise.all([carregarSaldos(), carregarDespesas(q => q.in('status', ['lancado', 'orcamento', 'duplicada'])),
+      carregarPagamentos(), carregarObras(), carregarPrestacoes(), carregarItens(),
+      todos(() => sb.from('obras_auditoria_achados').select('id,comprovante_id,regra,nivel,mensagem,relacionado_id').eq('resolvido', false).in('regra', Object.keys(FRAUDE)).order('criado_em', {ascending: false})),
+      sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null),
+      sb.from('obras_comprovantes').select('id', {count: 'exact', head: true}).eq('status', 'lancado').not('arquivo_path', 'is', null).not('auditoria_ia', 'is', null),
+      carregarAdiantamentos()]);
+    D = {saude: st.error ? null : st.data, saldos, desp, pags, itens, obras, prest, fraude, fotos: fotos.count || 0, fotosAud: fotosAud.count || 0, adis,
+      dups: desp.filter(d => d.status === 'duplicada')};
+    render();
+    $('atual').textContent = 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+  } catch (e) {
+    if (/JWT|not authenticated/i.test(e.message)) { await sb.auth.signOut(); semPermissao('Sessão expirada.'); return; }
+    toast('Erro ao carregar: ' + msgErro(e), 6000);
+  }
+}
+function mudarFiltro(novo) { F = {...F, ...novo}; salvarFiltro('obras-visao-filtro', F); render(); }
+
+function renderSaude() {
+  const box = $('saude'), al = $('alertaSaude');
+  if (!D.saude) { box.innerHTML = '<div class="mut small">Status indisponível para este usuário.</div>'; al.innerHTML = ''; return; }
+  if (!D.saude.length) { box.innerHTML = '<div class="mut small">Nenhuma instância publicou status ainda.</div>'; al.innerHTML = ''; return; }
+  // Basta UM capturador ligado e conectado para nada se perder (o D90 é reserva da nuvem).
+  const ativos = D.saude.filter(s => (Date.now() - new Date(s.atualizado_em)) / 60000 <= 3 && s.whatsapp_estado === 'CONNECTED');
+  const problemas = [];
+  box.innerHTML = D.saude.map(s => {
+    const online = (Date.now() - new Date(s.atualizado_em)) / 60000 <= 3, wa = s.whatsapp_estado === 'CONNECTED';
+    if (online && wa && /SEM CREDITO|nenhuma/i.test(s.ia || '')) problemas.push(`IA ${s.instancia}: ${s.ia}`);
+    const lin = (l, v) => `<div class="row" style="justify-content:space-between;font-size:14px;margin:3px 0"><span class="mut">${l}</span><b>${v}</b></div>`;
+    return `<div class="card ${!online || !wa ? 'k-bad' : ''}"><div class="row" style="justify-content:space-between"><b>${esc(s.instancia)}</b>
+      <span class="chip ${online && wa ? 's-auditada' : 's-pendencia'}">${online ? (wa ? 'ONLINE' : 'SEM WHATSAPP') : 'OFFLINE'}</span></div>
+      ${lin('WhatsApp', wa ? 'CONECTADO' : esc(s.whatsapp_estado || 'DESCONECTADO'))}${lin('Supabase', s.supabase_ok ? 'OK' : 'ERRO')}${lin('IA', esc(s.ia || '—'))}
+      ${lin('Última mensagem do grupo', haQuanto(s.ultima_mensagem))}${lin('Último comprovante lido', haQuanto(s.ultimo_comprovante))}
+      ${lin('Fila / pendentes de leitura', `${s.fila_pendente || 0} / ${s.pendentes_leitura || 0}`)}${lin('Erros nas últimas 24h', s.erros_24h ?? '—')}
+      ${s.ultimo_erro ? `<div class="small mut" style="margin-top:6px">Último erro: ${esc(s.ultimo_erro)}</div>` : ''}
+      <div class="small mut" style="margin-top:6px">status ${haQuanto(s.atualizado_em)} · ligado ${haQuanto(s.iniciado_em)}</div></div>`;
+  }).join('');
+  if (!ativos.length) problemas.unshift('NENHUM capturador lendo o grupo agora — comprovantes novos vão esperar a reconexão');
+  al.innerHTML = problemas.length ? `<div class="card k-bad" style="margin-top:14px"><b style="color:#fca5a5">⚠ Capturador:</b> ${problemas.map(esc).join(' · ')}</div>`
+    : `<div class="small mut" style="margin-top:10px">✔ Capturador lendo o grupo (${esc(ativos.map(s => s.instancia).join(', '))}) · última mensagem ${haQuanto(ativos.map(s => s.ultima_mensagem).filter(Boolean).sort().pop())}</div>`;
+}
+
+// Despesas que valem (lançadas, não recusadas) dentro do filtro de período / obra / prestador
+function despesasFiltradas(int) {
+  return D.desp.filter(d => d.status === 'lancado' && d.situacao !== 'recusado' && !pagoDireto(d) && noIntervalo(d.data_despesa, int)
+    && (!F.obra || (F.obra === 'sem' ? !d.obra_id : d.obra_id === F.obra)) && (!F.prest || d.prestador === F.prest));
+}
+// Prestação de contas do prestador que cobre a semana (para mostrar o nº e se já foi quitada)
+function prestacaoDa(prest, sem) {
+  const fim = somaDias(sem, 6);
+  return D.prest.find(p => p.responsavel === prest && p.periodo_inicio && p.periodo_inicio <= fim && (p.periodo_fim || somaDias(p.periodo_inicio, 6)) >= sem);
+}
+const sitSemana = s => s.aberto < 0.005 ? '<span class="chip s-quitada">QUITADA</span>' : s.pago > 0.005 ? '<span class="chip s-aprovada">PAGA EM PARTE</span>' : '<span class="chip s-fechada">EM ABERTO</span>';
+
+function render() {
+  renderSaude();
+  const todasSemanas = [...new Set(D.desp.filter(d => d.status === 'lancado' && d.semana).map(d => d.semana))].sort().reverse();
+  if (!todasSemanas.includes(segundaDe())) todasSemanas.unshift(segundaDe());
+  if (F.p === 'sem' && !todasSemanas.includes(F.sem)) F.sem = todasSemanas[0];
+  const int = intervalo(F);
+  const prestadores = [...new Set(D.desp.filter(d => d.status === 'lancado' && !semPrestador(d.prestador)).map(d => d.prestador))].sort();
+  const obrasUsadas = D.obras.filter(o => D.desp.some(d => d.obra_id === o.id && d.status === 'lancado'));
+  $('filtros').innerHTML = barraPeriodo(F, todasSemanas, mudarFiltro) + `<div class="row">
+    <select onchange="mudarFiltro({obra: this.value})" aria-label="Obra"><option value="">Todas as obras</option>${obrasUsadas.map(o => `<option value="${o.id}" ${F.obra === o.id ? 'selected' : ''}>${esc(nomeObra(o.nome))}</option>`).join('')}<option value="sem" ${F.obra === 'sem' ? 'selected' : ''}>Sem obra</option></select>
+    <select onchange="mudarFiltro({prest: this.value})" aria-label="Prestador"><option value="">Todos os prestadores</option>${prestadores.map(p => `<option ${F.prest === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div>`;
+
+  const ds = despesasFiltradas(int);
+  const saldos = D.saldos.filter(s => !F.prest || s.prestador === F.prest);
+  const aPagar = soma(saldos, 'saldo_devedor'), abertas = D.desp.filter(d => Number(d.saldo) > 0 && (!F.prest || d.prestador === F.prest));
+  // por prestador: o crédito de um não paga a despesa do outro
+  const gastoAberto = soma(saldos, 'em_aberto'), credito = soma(saldos, 'adiantamento_disponivel');
+  const creditoUsado = soma(saldos, s => Math.min(Number(s.adiantamento_disponivel), Number(s.em_aberto))), sobra = credito - creditoUsado;
+  D.dupl = listaDuplicidades(D.desp.filter(d => !F.prest || d.prestador === F.prest));
+  const dupSomadas = D.dupl.filter(x => x.caso.startsWith('somada')), dupAbertas = D.dupl.filter(x => x.caso === 'somada_aberta');
+  const semanas = agruparSemanas(ds);
+  const quitadas = semanas.filter(s => s.aberto < 0.005).length;
+  const caixa = soma(saldos, s => caixaPrestador(s)), nAbertas = abertas.filter(d => d.status === 'lancado').length;
+  const pago = soma(ds, 'valor_pago'), aberto = soma(ds, 'saldo'), pct = ds.length ? Math.round(pago / Math.max(0.01, soma(ds, 'valor')) * 100) : 0;
+  const filtroTxt = [int.rotulo, F.obra ? (F.obra === 'sem' ? 'sem obra' : nomeObra((D.obras.find(o => o.id === F.obra) || {}).nome)) : '', F.prest || ''].filter(Boolean).join(' · ');
+  const comCaixa = saldos.filter(prestVisivel).filter(s => Number(s.adiantamento_disponivel) > 0 || Number(s.em_aberto) > 0);
+  const k = (cls, l, v, n, acao) => `<div class="card kpi ${cls} ${acao ? 'clic' : ''}" ${acao ? `onclick="${acao}" role="button" tabindex="0"` : ''}><div class="l">${l}</div><div class="v">${v}</div>${n ? `<div class="n">${n}</div>` : ''}</div>`;
+  // o PDF usa a mesma lista, na mesma ordem da tela
+  window.KPIS_PDF = [['Crédito de adiantamento', brl(credito), 'adiantado e ainda não usado'], ['Gasto em aberto', brl(gastoAberto), `${nAbertas} despesa(s) ainda não reembolsada(s)`],
+    ['Saldo com os prestadores', brl(caixa), comCaixa.map(s => `${s.prestador.split(' ')[0]} ${brl(caixaPrestador(s))}`).join(' · ')], ['Recarga a pagar', brl(aPagar), aPagar > 0.005 ? 'para cada um voltar ao fundo dele' : 'fundos completos'],
+    [`Despesas · ${int.rotulo}`, brl(soma(ds, 'valor')), `${ds.length} despesa(s)`], ['Já pago dessas despesas', brl(pago), `${pct}% quitado`],
+    ['Em aberto no período', brl(aberto), `${semanas.length - quitadas} semana(s) em aberto`], ['Semanas quitadas', `${quitadas} de ${semanas.length}`, ''],
+    ['Duplicidades para decidir', String(D.dupl.length), dupSomadas.length ? `${dupSomadas.length} somada(s) no total` : 'nenhuma somada no total']];
+  const semP = D.desp.filter(d => semPrestador(d.prestador) && ['lancado', 'orcamento'].includes(d.status) && d.situacao !== 'recusado').length;
+  const orc = D.desp.filter(d => d.status === 'orcamento' && !d.pagamento_id).length;
+  const fra = D.fraude.filter(a => { const d = D.desp.find(x => x.id === a.comprovante_id); return d && (!F.prest || d.prestador === F.prest) && a.nivel === 'critico'; }).length;
+  const pend = [semP && `<a class="ruim" href="#" onclick="irPara('alocar');return false">Sem prestador <b>${semP}</b></a>`,
+    D.dupl.length && `<a class="${dupSomadas.length ? 'ruim' : 'aten'}" href="#" onclick="irDup();return false">Duplicidades <b>${D.dupl.length}</b>${dupSomadas.length ? ` · ${dupSomadas.length} somada(s)` : ''}</a>`,
+    fra && `<a class="ruim" href="#" onclick="irPara('fraude');return false">Alertas críticos do Auditor <b>${fra}</b></a>`,
+    orc && `<a class="aten" href="#" onclick="irPara('orcamentos');return false">Orçamentos <b>${orc}</b></a>`].filter(Boolean);
+  $('kpis').innerHTML = `
+    <section class="banda"><div class="banda-cab"><b>Situação hoje</b><span>conta corrente com os prestadores · não muda com o filtro de período</span></div>
+      <div class="conta">
+        ${k('k-azul', 'Crédito de adiantamento', brl(credito), 'adiantado e ainda não usado')}<div class="op">−</div>
+        ${k('k-lar', 'Gasto em aberto', brl(gastoAberto), `${nAbertas} despesa(s) ainda não reembolsada(s)`)}<div class="op">=</div>
+        ${k(caixa >= 0 ? 'k-ok' : 'k-bad', 'Saldo com os prestadores', brl(caixa), comCaixa.map(s => `${esc(s.prestador.split(' ')[0])} ${brl(caixaPrestador(s))}`).join(' · ') || 'nenhum adiantamento', "irPara('tPrest')")}
+        ${k((aPagar > 0.005 ? 'k-pagar' : 'k-ok') + ' destaque', 'Recarga a pagar', brl(aPagar), aPagar > 0.005 ? '<b>para cada um voltar ao fundo dele · toque para pagar</b>' : 'fundos completos', "location.href='../obras-presidente/'")}
+      </div>
+      <div class="pend">${pend.length ? '<span class="small mut" style="align-self:center">Para resolver:</span>' + pend.join('') : '<span class="ok">✔ Nada pendente para resolver</span>'}</div>
+    </section>
+    <section class="banda"><div class="banda-cab"><b>No período</b><span>${esc(filtroTxt)}</span></div>
+      <div class="per">
+        ${k('', 'Despesas lançadas', brl(soma(ds, 'valor')), `${ds.length} despesa(s)`, "irPara('tSemanas')")}
+        ${k('k-ok', 'Já pago', brl(pago), `${pct}% quitado<div class="progresso"><i style="width:${Math.min(100, pct)}%"></i></div>`)}
+        ${k(aberto > 0.005 ? 'k-pagar' : 'k-ok', 'Ainda em aberto', brl(aberto), aberto > 0.005 ? (aPagar > 0.005 ? 'parte entra no a pagar de hoje' : 'o crédito do prestador cobre') : 'tudo acertado')}
+        ${k(quitadas === semanas.length && semanas.length ? 'k-ok' : '', 'Semanas quitadas', `${quitadas} de ${semanas.length}`, 'segunda a domingo', "irPara('tSemanas')")}
+      </div>
+    </section>`;
+
+  renderSemanas(semanas);
+  $('gLeg').innerHTML = legenda(['Despesas', 'Pago']);
+  graficoColunas($('gSem'), semanas.slice(0, 12).reverse().map(s => ({rotulo: dBR(s.sem), titulo: `Semana ${dBR(s.sem)} a ${dBR(somaDias(s.sem, 6))}`, a: s.desp, b: s.pago,
+    det: `<div><span>Em aberto</span><span>${brl(s.aberto)}</span></div>`})), ['Despesas', 'Pago']);
+  const porObra = {}; for (const d of ds) { const o = porObra[d.obra_id || ''] = porObra[d.obra_id || ''] || {rotulo: nomeObra(d.obra), valor: 0, aberto: 0, id: d.obra_id || 'sem'}; o.valor += Number(d.valor); o.aberto += Number(d.saldo); }
+  const obrasL = Object.values(porObra).filter(o => o.valor > 0).sort((a, b) => b.valor - a.valor);
+  $('gObraSub').textContent = int.rotulo;
+  graficoRosca($('gObra'), obrasL.map(o => ({...o, det: `<div><span>Em aberto</span><span>${brl(o.aberto)}</span></div>`})), {vazio: 'Nenhuma despesa no período.', centro: 'Despesas',
+    aoClicar: i => mudarFiltro({obra: obrasL[i].id})});
+
+  renderPessoas(int, ds); renderDuplicidades(); renderAlocar(); renderOrcamentos(); renderAuditor(); renderFraude();
+  $('gAGLeg').innerHTML = legendaAG();
+  graficoAdiantGasto($('gAG'), D.saldos.filter(prestVisivel).filter(s => !semPrestador(s.prestador) && (!F.prest || s.prestador === F.prest))
+    .map(s => ({rotulo: s.prestador, credito: Number(s.adiantamento_disponivel), gasto: Number(s.em_aberto),
+      det: `<div><span>Adiantado (total)</span><span>${brl(s.total_adiantado)}</span></div><div><span>Gasto (total)</span><span>${brl(s.total_despesas)}</span></div>`})));
+}
+
+// PDF da Visão geral com o que está na tela (mesmo período / obra / prestador do filtro).
+async function pdfVisaoGeral() {
+  if (!D) return;
+  try { toast('Gerando PDF…');
+    const txt = h => String(h == null ? '' : h).replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+    const int = intervalo(F), ds = despesasFiltradas(int), semanas = agruparSemanas(ds);
+    const obra = F.obra ? (F.obra === 'sem' ? 'Sem obra' : nomeObra((D.obras.find(o => o.id === F.obra) || {}).nome)) : 'Todas as obras';
+    const lista = D.saldos.filter(prestVisivel).filter(s => !semPrestador(s.prestador) && (!F.prest || s.prestador === F.prest))
+      .sort((a, b) => b.em_aberto - a.em_aberto || a.prestador.localeCompare(b.prestador));
+    const secoes = [{titulo: 'Prestadores', nota: 'Caixa = dinheiro da empresa com o prestador hoje (crédito de adiantamento − gasto em aberto). Negativo = a empresa deve a ele.',
+        cab: ['Prestador', 'Gastou no período', 'Desp.', 'Gasto em aberto', 'Crédito adiant.', 'Saldo com ele', 'Recarga', 'Já reembolsado'], direita: [1, 2, 3, 4, 5, 6, 7],
+        linhas: lista.map(s => { const per = ds.filter(d => d.prestador === s.prestador), cx = caixaPrestador(s);
+          return [s.prestador, brl(soma(per, 'valor')), String(per.length), brl(s.em_aberto), brl(s.adiantamento_disponivel), (cx < 0 ? '−' : '') + brl(Math.abs(cx)), brl(s.saldo_devedor), brl(s.total_pago)]; }),
+        rodape: ['TOTAL', brl(soma(ds.filter(d => lista.some(s => s.prestador === d.prestador)), 'valor')), String(ds.filter(d => lista.some(s => s.prestador === d.prestador)).length),
+          brl(soma(lista, 'em_aberto')), brl(soma(lista, 'adiantamento_disponivel')), brl(soma(lista, s => caixaPrestador(s))), brl(soma(lista, 'saldo_devedor')), brl(soma(lista, 'total_pago'))]},
+      {titulo: 'Semanas (segunda a domingo)', cab: ['Semana', 'Prestador', 'Despesas', 'Pago', 'Em aberto', 'Situação'], direita: [2, 3, 4],
+        linhas: semanas.flatMap(s => [[`${dBR(s.sem)} a ${dBR(somaDias(s.sem, 6))}`, 'Total da semana', brl(s.desp), brl(s.pago), brl(s.aberto), s.aberto < 0.005 ? 'QUITADA' : s.pago > 0.005 ? 'PAGA EM PARTE' : 'EM ABERTO'],
+          ...Object.values(s.prest).sort((a, b) => b.desp - a.desp).map(p => ['', p.nome, brl(p.desp), brl(p.pago), brl(p.aberto), p.aberto < 0.005 ? 'paga' : ''])]),
+        rodape: ['TOTAL', '', brl(soma(semanas, 'desp')), brl(soma(semanas, 'pago')), brl(soma(semanas, 'aberto')), '']}];
+    const porObra = {}; for (const d of ds) { const o = porObra[d.obra_id || ''] = porObra[d.obra_id || ''] || {nome: nomeObra(d.obra), n: 0, valor: 0, aberto: 0}; o.n++; o.valor += Number(d.valor); o.aberto += Number(d.saldo); }
+    const obrasL = Object.values(porObra).sort((a, b) => b.valor - a.valor);
+    if (obrasL.length) secoes.push({titulo: 'Despesas por obra', cab: ['Obra', 'Despesas', 'Valor', 'Em aberto'], direita: [1, 2, 3],
+      linhas: obrasL.map(o => [o.nome, String(o.n), brl(o.valor), brl(o.aberto)]), rodape: ['TOTAL', String(ds.length), brl(soma(obrasL, 'valor')), brl(soma(obrasL, 'aberto'))]});
+    const graficos = [{titulo: 'Despesas × pago por semana', tipo: 'colunas', series: ['Despesas', 'Pago'], itens: semanas.slice().reverse().map(x => ({rotulo: dBR(x.sem), a: x.desp, b: x.pago}))},
+      {titulo: 'Despesas por obra', tipo: 'barras', itens: obrasL.map(o => ({rotulo: o.nome, a: o.valor}))},
+      {titulo: 'Crédito × gasto em aberto por prestador', tipo: 'barras', series: ['Crédito', 'Gasto em aberto'],
+        itens: lista.filter(s => Number(s.adiantamento_disponivel) || Number(s.em_aberto)).map(s => ({rotulo: s.prestador, a: Number(s.adiantamento_disponivel), b: Number(s.em_aberto)}))}];
+    for (const s of lista.filter(s => Number(s.total_adiantado) > 0 || Number(s.em_aberto) > 0)) {
+      const lc = livroCaixa(s.prestador, D.desp.filter(d => d.prestador === s.prestador), D.pags.filter(p => p.prestador === s.prestador), D.adis.filter(a => a.prestador === s.prestador), s);
+      secoes.push({...secaoLivroCaixa(lc), titulo: 'Extrato de caixa · ' + s.prestador});
+      graficos.push({titulo: 'Caixa dia a dia · ' + s.prestador, tipo: 'linha', itens: serieCaixa(lc), nota: 'abaixo da linha tracejada = a empresa deve a ele'});
+    }
+    await gerarPDF({titulo: 'Obras · Despesas e pagamentos — visão geral', paisagem: true,
+      subtitulo: `${int.rotulo} · ${obra} · ${F.prest || 'Todos os prestadores'}`,
+      resumo: KPIS_PDF.slice(0, 8).map(([l, v]) => [txt(l), txt(v)]), graficos, secoes,
+      arquivo: 'visao-geral-obras-' + hojeISO() + '.pdf'});
+  } catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); }
+}
+
+// Possível fraude ou desvio de finalidade: o Agente Auditor olha TODAS as despesas (inclusive as já pagas) e a IA olha cada foto.
+const FRAUDE = {ia_suspeita: 'IA viu sinal na foto', desvio_finalidade_grave: 'Desvio de finalidade', desvio_finalidade: 'Item de uso pessoal',
+  pix_para_o_proprio: 'Pagou a si mesmo', material_sem_nota: 'Material sem nota fiscal', outra_cidade: 'Outra cidade', compra_domingo: 'Compra no domingo',
+  compra_madrugada: 'Despesa de madrugada'};  // duplicidades ficam no painel próprio (aprovar / reprovar)
+let VER_FRAUDE_TUDO = false;
+function renderFraude() {
+  const porId = new Map(D.desp.map(d => [d.id, d]));
+  const l = D.fraude.map(a => ({...a, d: porId.get(a.comprovante_id)})).filter(a => a.d && (!F.prest || a.d.prestador === F.prest))
+    .sort((a, b) => (b.nivel === 'critico') - (a.nivel === 'critico') || (Number(b.d.saldo) > 0) - (Number(a.d.saldo) > 0) || String(b.d.data_despesa).localeCompare(String(a.d.data_despesa)));
+  window.FR = l;
+  const crit = l.filter(a => a.nivel === 'critico').length, abertos = l.filter(a => Number(a.d.saldo) > 0).length;
+  const pct = D.fotos ? Math.round(D.fotosAud / D.fotos * 100) : 0;
+  const mostrar = VER_FRAUDE_TUDO ? l : l.slice(0, 12);
+  $('fraude').innerHTML = `<h2>Possível fraude ou desvio de finalidade (${l.length})</h2><div class="card ${crit ? 'k-bad' : ''}">
+    <div class="row" style="justify-content:space-between"><div class="small"><b>Total envolvido: ${brl([...new Map(l.map(a => [a.d.id, a.d])).values()].reduce((t, d) => t + Number(d.valor), 0))}</b> · ${crit ? `<b style="color:#fca5a5">${crit} crítico(s)</b> · ` : ''}${abertos} em despesa ainda não paga · o Auditor confere todas as despesas, inclusive as já pagas</div>
+      <div class="small"><a href="#" onclick="irDup();return false">Duplicidades: veja o painel “Duplicidades · aprovar ou reprovar” acima</a></div>
+      <div class="small mut">Fotos auditadas pela IA: <b>${D.fotosAud}</b> de ${D.fotos} (${pct}%)${pct < 100 ? ' · o capturador audita em lotes a cada 15 min' : ''}</div></div>
+    ${l.length ? `<div class="tw"><table><tr><th>Nível</th><th>Despesa</th><th>O que o Auditor viu</th><th></th></tr>${mostrar.map((a, i) => `<tr>
+      <td>${riscoChip(a.nivel)}<div class="small mut" style="margin-top:4px">${esc(FRAUDE[a.regra] || a.regra)}</div></td>
+      <td class="small"><b>${esc(a.d.prestador || '')}</b> · ${dBR(a.d.data_despesa)} · ${esc(a.d.fornecedor || '')}<div class="mut">${brl(a.d.valor)} · ${esc(nomeObra(a.d.obra))} · ${(SIT[a.d.situacao] || [''])[0]}</div>${descrHTML(a.d, 120)}
+        <div>${linkArquivo(a.d.arquivo_path, 'ver comprovante')}</div></td>
+      <td class="small">${esc(a.mensagem)}${linkComparar(a.d, a) ? `<div style="margin-top:4px">${linkComparar(a.d, a)}</div>` : ''}</td>
+      <td><button class="btn" onclick="resolverFraude(${l.indexOf(a)})">Conferido</button></td></tr>`).join('')}</table></div>
+      ${l.length > 12 ? `<button class="btn" style="margin-top:8px" onclick="VER_FRAUDE_TUDO=!VER_FRAUDE_TUDO;renderFraude()">${VER_FRAUDE_TUDO ? 'Mostrar só os 12 primeiros' : `Ver todos os ${l.length}`}</button>` : ''}`
+      : '<div class="small mut" style="margin-top:8px">Nenhum sinal de fraude ou desvio nas despesas.</div>'}</div>`;
+}
+async function resolverFraude(i) {
+  const a = FR[i], obs = prompt(`${FRAUDE[a.regra] || a.regra}: ${a.mensagem}\n\nO que foi conferido? (fica registrado com o seu nome)`, 'Conferido com o prestador: gasto da obra');
+  if (!obs) return;
+  const {error} = await sb.rpc('obras_resolver_achados', {p_ids: [a.id], p_observacao: obs});
+  if (error) return toast(msgErro(error), 6000);
+  toast('Registrado.'); carregar();
+}
+
+// Agrupa por semana (seg–dom) e, dentro dela, por prestador
+function agruparSemanas(ds) {
+  const m = {};
+  for (const d of ds) {
+    const s = m[d.semana] = m[d.semana] || {sem: d.semana, desp: 0, pago: 0, aberto: 0, n: 0, prest: {}};
+    const p = s.prest[d.prestador] = s.prest[d.prestador] || {nome: d.prestador, desp: 0, pago: 0, aberto: 0, n: 0, obras: new Set()};
+    for (const o of [s, p]) { o.desp += Number(d.valor); o.pago += Number(d.valor_pago); o.aberto += Number(d.saldo); o.n++; }
+    p.obras.add(nomeObra(d.obra));
+  }
+  return Object.values(m).filter(s => s.sem).sort((a, b) => b.sem.localeCompare(a.sem));
+}
+
+function renderSemanas(semanas) {
+  if (!semanas.length) { $('semanas').innerHTML = '<div class="vazio">Nenhuma despesa no período escolhido.</div>'; return; }
+  const linhas = semanas.slice(0, 26).map(s => {
+    const ps = Object.values(s.prest).sort((a, b) => b.aberto - a.aberto || b.desp - a.desp);
+    return `<tr class="semrow"><td>Semana ${dBR(s.sem)} a ${dBR(somaDias(s.sem, 6))}${s.sem === segundaDe() ? ' <span class="tag">atual</span>' : ''}</td>
+        <td class="r">${brl(s.desp)}</td><td class="r">${brl(s.pago)}</td><td class="r">${brl(s.aberto)}</td><td>${sitSemana(s)}</td></tr>
+      ${ps.map(p => { const pr = prestacaoDa(p.nome, s.sem);
+        return `<tr><td class="small" style="padding-left:18px">${semPrestador(p.nome) ? '<span class="crit">Sem prestador — alocar abaixo</span>' : esc(p.nome)}
+          <div class="mut">${p.n} despesa(s) · ${esc([...p.obras].join(', '))}${pr ? ` · prestação ${esc(pr.numero)}${pr.quitada_em ? ' quitada' : ''}` : ''}</div></td>
+          <td class="r small">${brl(p.desp)}</td><td class="r small">${brl(p.pago)}</td><td class="r small"><b>${brl(p.aberto)}</b></td>
+          <td>${p.aberto > 0.005 && !semPrestador(p.nome) ? `<a class="btn b-ok" href="../obras-presidente/?p=${encodeURIComponent(p.nome)}&sem=${s.sem}">Pagar semana</a>` : p.aberto < 0.005 ? '<span class="small mut">✔ paga</span>' : ''}</td></tr>`; }).join('')}`;
+  }).join('');
+  $('semanas').innerHTML = `<div class="small mut">Cada semana fecha de segunda a domingo. “Pagar semana” abre a tela de pagamento já com as despesas daquela semana marcadas; ao pagar, a semana (e a prestação de contas dela) fica <b>QUITADA</b>.</div>
+    <div class="tw"><table><thead><tr><th>Semana / prestador</th><th class="r">Despesas</th><th class="r">Pago</th><th class="r">Em aberto</th><th></th></tr></thead><tbody>${linhas}</tbody>
+    <tfoot><tr><td>Total</td><td class="r">${brl(soma(semanas, 'desp'))}</td><td class="r">${brl(soma(semanas, 'pago'))}</td><td class="r">${brl(soma(semanas, 'aberto'))}</td><td></td></tr></tfoot></table></div>
+    ${semanas.length > 26 ? `<div class="small mut">Mostrando 26 de ${semanas.length} semanas — use o filtro de período.</div>` : ''}`;
+}
+
+// Um card por prestador: quanto gastou (no período e em aberto), o crédito de adiantamento, o resultado e os fornecedores.
+function renderPessoas(int, ds) {
+  const lista = D.saldos.filter(prestVisivel).filter(s => !semPrestador(s.prestador) && (!F.prest || s.prestador === F.prest))
+    .sort((a, b) => b.em_aberto - a.em_aberto || a.prestador.localeCompare(b.prestador));
+  window.PREST = lista.map(s => s.prestador); window.CONTAS = {}; window.GASTO_PER = {};
+  $('pessoas').innerHTML = lista.map((s, i) => {
+    const c = CONTAS[s.prestador] = contaPrestador(s, D.desp, D.adis, D.pags), nAlert = c.abertas.filter(d => (d.achados || []).length).length;
+    const per = GASTO_PER[s.prestador] = ds.filter(d => d.prestador === s.prestador);
+    const em = Number(s.em_aberto), cred = Number(s.adiantamento_disponivel), res = cred - em;
+    const dir = D.desp.filter(d => d.prestador === s.prestador && d.status === 'lancado' && pagoDireto(d)).reduce((t, d) => t + Number(d.valor), 0);
+    const dups = (D.dupl || []).filter(x => x.d.prestador === s.prestador), dupSom = dups.filter(x => x.caso.startsWith('somada'));
+    const pagoTot = Number(s.total_pago) - dir, gastoTot = Number(s.total_despesas) - dir, pctR = gastoTot > 0 ? Math.min(100, Math.round(pagoTot / gastoTot * 100)) : 100;
+    return `<div class="card pc"><div class="row" style="justify-content:space-between"><div class="pname">${esc(s.prestador)}</div>${nAlert ? riscoChip(c.abertas.some(d => d.criticos) ? 'critico' : 'atencao') : '<span class="chip r-normal">SEM ALERTA</span>'}</div>
+      ${cartaoCicloHTML(cicloAtual(s.prestador, D.desp, D.pags, D.adis, s), s)}
+      <div class="pc-per">${esc(int.rotulo)}: gastou <b>${brl(soma(per, 'valor'))}</b> em ${per.length} despesa(s)</div>
+      <div class="pc-per">Reembolsado até hoje <b>${brl(pagoTot)}</b> de ${brl(gastoTot)} gastos (${pctR}%)${dir ? ` · + ${brl(dir)} pagos direto pela empresa` : ''}
+        <div class="progresso" style="max-width:none;margin:6px 0 0"><i style="width:${pctR}%"></i></div></div>
+      ${dups.length ? `<div class="${dupSom.length ? 'crit' : 'warn'}" style="margin-top:8px">⚠ ${dups.length} duplicidade(s) para decidir${dupSom.length ? ` · ${dupSom.length} SOMADA(S) no total (${brl(dupSom.reduce((t, x) => t + Number(x.d.valor), 0))})` : ' · nenhuma somada'} <a href="#" onclick="irDup();return false">ver</a></div>` : ''}
+      ${nAlert ? `<div class="warn">⚠ ${nAlert} foto(s) com dúvida do Auditor — veja na conta</div>` : ''}
+      <details><summary>Despesas por fornecedor · ${esc(int.rotulo)}</summary>${fornecedoresHTML(per, 6)}</details>
+      <div class="row" style="margin-top:12px"><button class="btn b-pri" onclick="verConta(${i})">Ver a conta foto a foto</button>
+        <a class="btn" href="../obras-presidente/?p=${encodeURIComponent(s.prestador)}">Pagar / fechar semana</a>
+        <button class="btn" onclick="verFornecedores(${i})">Fornecedores</button><button class="btn" onclick="extrato(${i})">PDF do extrato</button></div>
+      </div>`;
+  }).join('') || '<div class="card vazio">Nenhum prestador.</div>';
+  mostrarConta();
+}
+function verFornecedores(i) {
+  const p = PREST[i], l = GASTO_PER[p] || [], fs = porFornecedor(l), tot = fs.reduce((t, f) => t + f.valor, 0);
+  window.FORN_DET = {p, l};
+  abrirModal(`<div class="row" style="justify-content:space-between"><h3 style="margin:0">${esc(p)} · despesas por fornecedor</h3><button class="btn" onclick="fecharModal()">Fechar ✕</button></div>
+    <div class="small mut">${esc(intervalo(F).rotulo)} · ${l.length} despesa(s) · ${brl(tot)} · toque no fornecedor para ver as despesas</div>
+    <div class="tw"><table><tr><th>Fornecedor</th><th class="r">Despesas</th><th class="r">Total</th><th class="r">%</th></tr>
+      ${fs.map((f, k) => `<tr class="clic" onclick="verFornecedor(${k})"><td>${esc(f.nome)}</td><td class="r">${f.n}</td><td class="r">${brl(f.valor)}</td><td class="r">${(f.valor / (tot || 1) * 100).toLocaleString('pt-BR', {maximumFractionDigits: 1})}%</td></tr>
+        <tr id="fd_${k}" class="hidden"><td colspan="4"></td></tr>`).join('')}
+      <tfoot><tr><td>Total</td><td class="r">${l.length}</td><td class="r">${brl(tot)}</td><td class="r">100%</td></tr></tfoot></table></div>`, 'larga');
+  window.FORN_LISTA = fs;
+}
+function verFornecedor(k) {
+  const tr = $('fd_' + k); if (!tr) return;
+  if (!tr.classList.contains('hidden')) { tr.classList.add('hidden'); return; }
+  const chave = chaveForn(FORN_LISTA[k].nome), l = FORN_DET.l.filter(d => chaveForn(d.fornecedor) === chave).sort((a, b) => String(a.data_despesa).localeCompare(String(b.data_despesa)));
+  tr.cells[0].innerHTML = l.map(d => `<div class="small" style="padding:4px 0;border-bottom:1px solid var(--line)">${dBRano(d.data_despesa)} · <b>${brl(d.valor)}</b> · ${esc(CATS[d.categoria] || '')} · ${esc(nomeObra(d.obra))} · ${(SIT[d.situacao] || [d.situacao])[0]} · ${linkArquivo(d.arquivo_path, 'ver foto')}${descrHTML(d)}</div>`).join('');
+  tr.classList.remove('hidden');
+}
+function renderDuplicidades() {
+  const l = D.dupl || [];
+  $('dupTitulo').innerHTML = `Duplicidades · aprovar ou reprovar <span class="mut" style="text-transform:none;letter-spacing:0;font-weight:500">· ${l.length} para decidir</span>`;
+  $('duplicidades').className = 'card' + (l.some(x => x.caso.startsWith('somada')) ? ' k-bad' : '');
+  $('duplicidades').innerHTML = painelDuplicidadesHTML(l);
+}
+function irPara(id) { const el = $(id); if (el) el.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+function irDup() { const el = $('dupTitulo'); if (el) el.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+
+let CONTA_ABERTA = null;
+function verConta(i) {
+  const p = PREST[i], box = $('contaDet');
+  if (CONTA_ABERTA === p) { CONTA_ABERTA = null; box.innerHTML = ''; return; }
+  CONTA_ABERTA = p; mostrarConta();
+  box.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+window.ccRedesenhar = () => mostrarConta();
+function mostrarConta() {
+  const box = $('contaDet'), c = CONTA_ABERTA && CONTAS[CONTA_ABERTA];
+  if (!c) { box.innerHTML = ''; return; }
+  const sal = D.saldos.find(s => s.prestador === CONTA_ABERTA) || {prestador: CONTA_ABERTA};
+  box.innerHTML = `<div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between"><div class="pname">Conta de ${esc(CONTA_ABERTA)}</div>
+    <button class="btn" onclick="CONTA_ABERTA=null;mostrarConta()">Fechar ✕</button></div>
+    ${blocoFundoHTML(sal, D.adis, livroCaixa(CONTA_ABERTA, D.desp, D.pags, D.adis, sal, CC_PER, D.itens), D.desp, D.pags)}
+    <details style="margin:4px 0 8px"><summary class="small" style="cursor:pointer;color:#93c5fd">Ver as despesas em aberto foto a foto</summary>${contaExtratoHTML(c)}</details></div>`;
+}
+
+async function extrato(i) {
+  const p = PREST[i];
+  try { toast('Gerando PDF…');
+    const [desp, adis, its] = await Promise.all([carregarDespesas(q => q.eq('prestador', p)), carregarAdiantamentos(), carregarItensDe(D.pags.filter(x => x.prestador === p && x.status !== 'cancelado').map(x => x.id))]);
+    await pdfExtrato(p, desp, D.pags.filter(x => x.prestador === p), adis.filter(a => a.prestador === p), D.saldos.find(s => s.prestador === p), {}, its); }
+  catch (e) { toast('Erro no PDF: ' + msgErro(e), 6000); }
+}
+
+// Tudo vai para um prestador: o que chegou sem prestador definido aparece aqui para alocar com um toque.
+function renderAlocar() {
+  const sem = D.desp.filter(d => semPrestador(d.prestador) && ['lancado', 'orcamento'].includes(d.status) && d.situacao !== 'recusado');
+  window.SEMP = sem;
+  if (!sem.length) { $('alocar').innerHTML = ''; return; }
+  const nomes = [...new Set(D.saldos.filter(s => !semPrestador(s.prestador) && s.prestador !== 'Paulo Almeida').map(s => s.prestador))].sort();
+  $('alocar').innerHTML = `<h2>Alocar a um prestador (${sem.length})</h2><div class="card k-pagar"><div class="small">Estes lançamentos chegaram sem prestador identificado. Escolha de quem é — o número do WhatsApp fica aprendido para as próximas.</div>
+    <div class="tw"><table><tr><th>Data</th><th>Fornecedor</th><th class="r">Valor</th><th>Prestador</th></tr>${sem.map((d, i) => `<tr><td>${dBR(d.data_despesa)}</td>
+      <td>${esc(d.fornecedor || '—')}<div class="mut small">${esc(d.legenda || d.descricao || '')} ${linkArquivo(d.arquivo_path, 'ver')}</div></td><td class="r">${brl(d.valor)}</td>
+      <td><select onchange="alocar(${i}, this.value)"><option value="">Escolher…</option>${nomes.map(n => `<option>${esc(n)}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
+}
+async function alocar(i, nome) {
+  if (!nome) return;
+  const {error} = await sb.rpc('obras_despesa_alocar', {p_comp: SEMP[i].id, p_prestador: nome});
+  if (error) return toast(msgErro(error), 6000);
+  toast(`Alocado para ${nome}.`); carregar();
+}
+
+function renderOrcamentos() {
+  const orc = D.desp.filter(d => d.status === 'orcamento' && d.situacao_pagamento === 'a_pagar');
+  $('orcamentos').innerHTML = orc.length ? `<h2>Orçamentos recebidos (${orc.length})</h2><div class="card k-orc clic" onclick="location.href='../obras-presidente/?orc=1'">
+    <div class="small">${orc.map(o => `${esc(o.fornecedor || '?')} · ${esc(o.prestador || '')} · <b>${brl(o.valor)}</b>`).join('<br>')}</div>
+    <div class="small" style="margin-top:6px"><b style="color:#c4b5fd">Toque para marcar como pago e distribuir na obra ›</b></div></div>` : '';
+}
+
+const REGRAS = {duplicidade_autenticacao: 'Pagamento repetido', duplicidade_valor_data_fornecedor: 'Possível duplicidade', arquivo_repetido: 'Comprovante repetido',
+  sem_comprovante: 'Sem documento', leitura_baixa_confianca: 'Leitura duvidosa', valor_atipico: 'Valor fora do padrão', sem_obra: 'Sem obra', data_incoerente: 'Data incoerente',
+  pix_pessoa_fisica_material: 'PIX p/ pessoa física', fornecedor_varias_vezes_dia: 'Fornecedor repetido no dia'};
+function renderAuditor() {
+  const ds = D.desp.filter(d => (d.achados || []).length && (VER_HISTORICO || Number(d.saldo) > 0));
+  // Itens da mesma nota viram um grupo só: aprova a nota inteira de uma vez.
+  const grupos = {};
+  for (const d of ds) {
+    const g = grupos[d.arquivo_path || d.id] = grupos[d.arquivo_path || d.id] || {itens: [], achados: []};
+    g.itens.push(d); for (const a of d.achados) g.achados.push(a);
+  }
+  const lista = Object.values(grupos).map(g => ({...g, d: g.itens[0], critico: g.achados.some(a => a.nivel === 'critico'),
+    msgs: [...new Set(g.achados.map(a => a.mensagem))]}));
+  lista.sort((a, b) => b.critico - a.critico || String(b.d.data_despesa).localeCompare(String(a.d.data_despesa)));
+  window.GRUPOS = lista;
+  const pend = D.pags.filter(p => p.status === 'pendencia');
+  const crit = lista.filter(g => g.critico).length + pend.length;
+  $('auditorResumo').innerHTML = `Agente Auditor · ${riscoChip(crit ? 'critico' : lista.length ? 'atencao' : 'normal')} <span class="small mut" style="font-weight:500">${lista.length} nota(s) para conferir${crit ? ` · ${crit} crítica(s)` : ''}</span>`;
+  if (crit) $('auditorBox').open = true;
+  $('auditor').innerHTML = `<div class="row" style="justify-content:space-between"><span class="small mut">${VER_HISTORICO ? 'Todas as despesas (inclui histórico pago)' : 'Despesas ainda não pagas'}</span>
+      <div class="row"><button class="btn" onclick="VER_HISTORICO=!VER_HISTORICO;renderAuditor()">${VER_HISTORICO ? 'Só o que vai ser pago' : 'Ver histórico pago também'}</button>
+      <a class="btn" href="../obras-relatorios/?rel=auditor">Relatório / PDF</a></div></div>
+    ${pend.map(p => `<div class="crit" style="margin-top:8px">⚠ Pagamento nº ${p.numero} (${esc(p.prestador)}, ${brl(p.valor_pago)}): ${esc(p.auditoria_resultado || '')}</div>`).join('')}
+    ${lista.length ? `<div class="tw"><table><tr><th>Nível</th><th>Despesa</th><th>O que o Auditor viu</th><th></th></tr>${lista.slice(0, 150).map((g, i) => {
+      const d = g.d, n = g.itens.length, total = soma(g.itens, 'valor');
+      return `<tr><td>${riscoChip(g.critico ? 'critico' : 'atencao')}</td><td class="small">${esc(d.prestador || '')}<div class="mut">${dBR(d.data_despesa)} · ${esc(d.fornecedor || '')} · ${brl(total)}${n > 1 ? ` · <b>${n} itens da mesma nota</b>` : ''} · ${(SIT[d.situacao] || [''])[0]}</div>
+        <div>${linkArquivo(d.arquivo_path, 'ver comprovante')}</div></td><td class="small">${g.msgs.map(esc).join('<br>')}
+        ${[...new Map(g.itens.flatMap(x => (x.achados || []).map(a => [a.regra + (a.relacionado_id || ''), linkComparar(x, a)])).filter(([, h]) => h)).values()].map(h => `<div style="margin-top:4px">${h}</div>`).join('')}</td>
+        <td><button class="btn${g.achados.length > 1 ? ' b-pri' : ''}" onclick="resolverGrupo(${i})">${n > 1 ? 'Aprovar nota inteira' : g.achados.length > 1 ? `Aprovar (${g.achados.length})` : 'Resolver'}</button></td></tr>`;
+    }).join('')}</table></div>
+      ${lista.length > 150 ? `<div class="small mut">Mostrando 150 de ${lista.length}. O relatório traz todos.</div>` : ''}` : '<div class="small mut" style="margin-top:8px">Nenhum ponto em aberto.</div>'}`;
+}
+
+async function resolverGrupo(i) {
+  const g = window.GRUPOS[i], ids = g.achados.map(a => a.id);
+  const obs = prompt(`${ids.length > 1 ? `Aprovar os ${ids.length} pontos desta nota (${g.itens.length} item(ns), ${brl(soma(g.itens, 'valor'))}).\n` : ''}Como foi resolvido? (fica registrado com o seu nome)`, 'Conferido: nota correta');
+  if (!obs) return;
+  const {data, error} = await sb.rpc('obras_resolver_achados', {p_ids: ids, p_observacao: obs});
+  if (error) return toast(msgErro(error), 6000);
+  toast(`${data || 0} ponto(s) aprovado(s).`); carregar();
+}
+
+iniciarLogin(async () => { $('menu').innerHTML = menu('contas'); PAP = await papeis(); carregar(); clearInterval(TIMER); TIMER = setInterval(carregar, 60000); });
+</script>
+</body>
+</html>
