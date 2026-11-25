@@ -1,0 +1,96 @@
+diff --git a/index.html b/index.html
+index 0173a05..bfd1e71 100644
+--- a/index.html
++++ b/index.html
+@@ -551,6 +551,71 @@ function instalarMenuAdminNoPortal(ifr){
+  setInterval(garantir,1500);
+ }
+ 
++/* Sair do sistema (25/11/2026): item fixo no fim do menu lateral do Portal, para todos os perfis.
++   Encerra a sessão neste navegador e volta para a tela de login. Sem clicar em Sair, a sessão continua
++   valendo: fechar e abrir o Portal entra direto. scope local: não derruba o mesmo usuário em outro aparelho. */
++async function sairDoPortal(){
++  try{ await sb.auth.signOut({scope:'local'}); }catch(e){}
++  location.replace(location.pathname);
++}
++window.sairDoPortal=sairDoPortal;
++function instalarSairNoPortal(ifr){
++ function garantir(){
++  var d;try{d=ifr.contentDocument}catch(e){return}
++  var sbar=d&&d.getElementById('sb');if(!sbar||d.getElementById('sg-sair-portal'))return;
++  var grupo=d.createElement('div');grupo.className='sg';grupo.id='sg-sair-portal';
++  var b=d.createElement('button');
++  b.type='button';b.className='ni';b.id='ni-sair-portal';b.title='Encerrar a sessão e voltar ao login';
++  b.innerHTML='<span class="nii">🚪</span><span class="nil">Sair do sistema</span>';
++  b.addEventListener('click',function(ev){
++   ev.preventDefault();ev.stopPropagation();
++   if(confirm('Sair do Portal? Para entrar de novo será preciso e-mail e senha.'))sairDoPortal();
++  });
++  grupo.appendChild(b);
++  var rodape=sbar.querySelector('.sbft');
++  if(rodape)sbar.insertBefore(grupo,rodape);else sbar.appendChild(grupo);
++ }
++ ifr.addEventListener('load',garantir);
++ setInterval(garantir,1500);
++}
++
++/* Versão nova do Portal chega sozinha (25/11/2026). Quem deixa o Portal aberto dias seguidos
++   (ex.: Roberto, Deivide) continuava com a versão antiga dos módulos e das correções.
++   A cada 5 min (e ao voltar para a aba) compara o index.html publicado com o carregado:
++   se mudou, recarrega quando a aba estiver em segundo plano ou após 2 min sem mexer na tela;
++   antes disso mostra a faixa "Nova versão do Portal". A sessão continua: não pede login de novo. */
++(function(){
++ var versaoCarregada=null,ultimoUso=Date.now(),faixa=null;
++ function marcarUso(){ultimoUso=Date.now()}
++ ['mousemove','keydown','click','touchstart','scroll'].forEach(function(t){document.addEventListener(t,marcarUso,{passive:true,capture:true})});
++ function marcaDoTexto(t){var h=0;for(var i=0;i<t.length;i++){h=(h*31+t.charCodeAt(i))|0}return t.length+':'+h}
++ async function versaoPublicada(){
++  try{var r=await fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'});if(!r.ok)return null;return marcaDoTexto(await r.text())}catch(e){return null}
++ }
++ function recarregar(){location.reload()}
++ function mostrarFaixa(){
++  if(faixa)return;
++  faixa=document.createElement('div');
++  faixa.style.cssText='position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483647;background:#1e40af;color:#fff;border-radius:10px;padding:10px 14px;font:700 13px Arial;display:flex;gap:10px;align-items:center;box-shadow:0 8px 24px rgba(0,0,0,.4)';
++  faixa.innerHTML='<span>🔄 Nova versão do Portal disponível.</span>';
++  var bt=document.createElement('button');bt.type='button';bt.textContent='Atualizar agora';
++  bt.style.cssText='width:auto;background:#fff;color:#1e40af;border:0;border-radius:6px;padding:6px 12px;font:800 12px Arial;cursor:pointer';
++  bt.onclick=recarregar;faixa.appendChild(bt);document.body.appendChild(faixa);
++ }
++ async function conferir(){
++  var v=await versaoPublicada();if(!v)return;
++  if(!versaoCarregada){versaoCarregada=v;return}
++  if(v===versaoCarregada)return;
++  if(!document.body.classList.contains('portal-on'))return recarregar();
++  if(document.hidden||Date.now()-ultimoUso>120000)return recarregar();
++  mostrarFaixa();
++ }
++ setTimeout(conferir,3000);
++ setInterval(conferir,300000);
++ setInterval(function(){if(faixa&&Date.now()-ultimoUso>120000)recarregar()},30000);
++ document.addEventListener('visibilitychange',function(){if(!document.hidden)conferir()});
++})();
++
+ // Ponte externa: controla a Central pelo documento de login, acima do shell antigo.
+ // Assim o módulo legado nunca precisa terminar de carregar para abrir a tela unificada.
+ function abrirCentralUnicaExterna(){
+@@ -700,10 +765,7 @@ async function abrirSomenteOrcamento(session){
+   var _btnIA=document.getElementById('btnInteligenciaAuditoria');if(_btnIA){_btnIA.style.display='block';_btnIA.style.position='fixed';_btnIA.style.bottom='14px';_btnIA.style.right='14px';_btnIA.style.zIndex='10001';_btnIA.style.width='auto';_btnIA.style.fontSize='12px';}
+   setStatus('','');
+ }
+-async function sairGestor(){
+-  try{ await sb.auth.signOut(); }catch(e){}
+-  location.reload();
+-}
++async function sairGestor(){ return sairDoPortal(); }
+ 
+ async function perfilDoUsuario(session){
+   if(!session||!session.user)return null;
+@@ -924,6 +986,7 @@ async function openPortal(){
+   instalarCerebroCentral(ifr);
+   instalarBaseMaeNoPortal(ifr);
+   instalarMenuAdminNoPortal(ifr);
++  instalarSairNoPortal(ifr);
+   instalarCentralTreinamentoNoPortal(ifr);
+   // instalarAjusteEntrada(ifr); // desativado: o Ajuste Expresso agora tem modulo proprio no Portal (Acerto de Estoque Lojas) e link separado para gerentes
+   ifr.style.display='block';
