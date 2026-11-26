@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel Minerador</title>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--txt:#1b2430;--sub:#5b6676;--line:#e3e7ee;--pri:#1F4E78;--pri2:#2f6fa8;--ok:#1e8e3e;--okbg:#e6f4ea;--warn:#b26a00;--warnbg:#fff4e0;--bar:#2f6fa8;--chip:#eef2f7}
+@media (prefers-color-scheme: dark){:root{--bg:#0f141a;--card:#18202a;--txt:#e6ebf1;--sub:#9aa6b5;--line:#273240;--pri:#6fa8dc;--pri2:#8cbbe6;--ok:#5cc97a;--okbg:#17321f;--warn:#f0b35a;--warnbg:#33270f;--bar:#5a9bd4;--chip:#222c38}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 "Segoe UI",system-ui,Arial,sans-serif}
+header{background:var(--pri);color:#fff;padding:18px 24px}
+@media (prefers-color-scheme: dark){header{background:#16324d}}
+header h1{margin:0;font-size:22px}
+header p{margin:4px 0 0;opacity:.85;font-size:13px}
+main{max-width:1400px;margin:0 auto;padding:18px 16px 40px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+@media (max-width:520px){.kpis{grid-template-columns:1fr 1fr;gap:8px}.kpi{padding:10px 12px}.kpi b{font-size:22px}.kpi span{font-size:10.5px}header h1{font-size:18px}.live-stats{grid-template-columns:1fr 1fr}.feed{height:220px}}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.kpi b{display:block;font-size:28px;font-variant-numeric:tabular-nums}
+.kpi span{color:var(--sub);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.kpi.ok b{color:var(--ok)}
+.filtros{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:16px}
+.filtros label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--sub)}
+.filtros select,.filtros input[type=text],.filtros input[type=number]{background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:inherit;min-width:150px}
+.filtros input[type=number]{min-width:90px;width:90px}
+.btn{background:var(--pri2);color:#fff;border:0;border-radius:6px;padding:8px 12px;cursor:pointer;font:inherit}
+.grid2{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:16px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr}}
+.box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+.box h2{font-size:15px;margin:0 0 10px}
+.barra{display:grid;grid-template-columns:minmax(120px,38%) 1fr 44px;gap:8px;align-items:center;margin:5px 0;font-size:12.5px}
+.barra .nome{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.barra .trilho{background:var(--chip);border-radius:4px;height:16px;position:relative;overflow:hidden}
+.barra .trilho i{position:absolute;left:0;top:0;bottom:0;background:var(--bar);border-radius:4px}
+.barra .trilho i.n7{background:var(--ok);opacity:.85}
+.barra .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.leg{font-size:12px;color:var(--sub);margin-top:6px}
+.leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 10px;vertical-align:-1px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--sub);font-weight:600;font-size:11.5px;text-transform:uppercase}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.card .img{height:170px;background:var(--chip) center/cover no-repeat;position:relative}
+.card .img .sem{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--sub);font-size:12px}
+.selo{position:absolute;top:8px;left:8px;background:var(--pri);color:#fff;border-radius:6px;padding:4px 8px;font-weight:700;font-size:13px}
+.selo.novo{background:var(--ok)}
+.card .corpo{padding:12px 14px;display:flex;flex-direction:column;gap:6px;flex:1}
+.card h3{margin:0;font-size:14px;line-height:1.3}
+.card .anun{color:var(--sub);font-size:12.5px}
+.met{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:4px 0}
+.met div{background:var(--chip);border-radius:6px;padding:6px;text-align:center}
+.met b{display:block;font-size:16px;font-variant-numeric:tabular-nums}
+.met span{font-size:10.5px;color:var(--sub)}
+.tags{display:flex;flex-wrap:wrap;gap:5px}
+.tag{background:var(--chip);border-radius:20px;padding:2px 8px;font-size:11.5px;color:var(--sub)}
+.tag.ok{background:var(--okbg);color:var(--ok)}
+.tag.warn{background:var(--warnbg);color:var(--warn)}
+.links{display:flex;gap:6px;margin-top:auto;padding-top:8px;flex-wrap:wrap}
+.links a{flex:1;text-align:center;text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:7px 4px;color:var(--pri);font-size:12.5px;font-weight:600}
+.links a:hover{background:var(--chip)}
+.vazio{padding:30px;text-align:center;color:var(--sub)}
+.abas{display:flex;gap:6px;margin:0 0 12px}
+.abas button{background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer;font:inherit}
+.abas button.on{background:var(--pri2);color:#fff;border-color:var(--pri2)}
+.live{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:16px;overflow:hidden}
+.live-top{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.live-top h2{margin:0;font-size:16px;flex:1;min-width:180px}
+.pill{display:inline-flex;align-items:center;gap:8px;border-radius:20px;padding:5px 12px;font-size:12.5px;font-weight:700;background:var(--chip);color:var(--sub)}
+.pill .dot{width:9px;height:9px;border-radius:50%;background:currentColor}
+.pill.on{background:var(--okbg);color:var(--ok)}
+.pill.on .dot{animation:pulse 1.4s infinite}
+.pill.fim{background:var(--chip);color:var(--pri)}
+.pill.alerta{background:var(--warnbg);color:var(--warn)}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(30,142,62,.55)}70%{box-shadow:0 0 0 9px rgba(30,142,62,0)}100%{box-shadow:0 0 0 0 rgba(30,142,62,0)}}
+.prog{padding:14px 18px 4px}
+.prog-bar{height:12px;background:var(--chip);border-radius:8px;overflow:hidden}
+.prog-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--pri2),var(--ok));border-radius:8px;transition:width .6s}
+.prog-txt{display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub);margin-top:6px;gap:10px;flex-wrap:wrap}
+.prog-txt b{color:var(--txt)}
+.live-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;padding:10px 18px}
+.live-stats div{background:var(--chip);border-radius:8px;padding:10px 12px}
+.live-stats span{display:block;font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
+.live-stats b{font-size:17px;font-variant-numeric:tabular-nums}
+.live-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;padding:6px 18px 18px}
+@media (max-width:900px){.live-grid{grid-template-columns:1fr}}
+.feed{background:#0d1117;color:#c9d1d9;border-radius:8px;padding:10px 12px;font:12px/1.55 Consolas,"Cascadia Mono",monospace;height:300px;overflow:auto}
+.feed div{white-space:pre-wrap;word-break:break-word}
+.feed .t{color:#6e7681}.feed .ok{color:#56d364}.feed .er{color:#ff7b72}.feed .hi{color:#79c0ff}
+.live h3{font-size:13px;margin:0 0 8px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
+tr.hot td{background:var(--okbg)}
+.agora{font-size:13px;padding:0 18px 4px;color:var(--sub)}
+.agora b{color:var(--txt)}
+footer{color:var(--sub);font-size:12px;text-align:center;margin-top:24px}
+a{color:var(--pri)}
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1F4E78">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Minerador">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+.app-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.app-bar select{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:6px 8px;font:inherit}
+.app-bar select option{color:#1b2430}
+.app-bar button{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:6px 10px;font:inherit;cursor:pointer}
+#login{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;padding:20px;z-index:9}
+#login .box{max-width:380px;width:100%}
+#login input{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font:inherit;margin:10px 0;background:var(--card);color:var(--txt)}
+#offline{display:none;background:var(--warnbg);color:var(--warn);text-align:center;padding:6px;font-size:12.5px}
+</style>
+</head>
+<body>
+<div id="offline">Sem conexão — mostrando os últimos dados salvos.</div>
+<div id="login"><div class="box"><h2>Minerador Meta Ads</h2>
+<p style="color:var(--sub)">Digite a chave de acesso (enviada no seu e-mail). Ela fica salva neste aparelho.</p>
+<input id="inChave" placeholder="mm-..." autocomplete="off"><button class="btn" id="btnEntrar" style="width:100%">Entrar</button>
+<p id="loginErro" style="color:var(--warn)"></p></div></div>
+<header>
+  <h1>Painel Minerador Meta Ads — produtos escalando</h1>
+  <p id="sub"></p>
+  <div class="app-bar"><select id="selRodada"></select><button id="btnAtualizar">Atualizar</button><span id="atualizadoEm" style="font-size:12px;opacity:.8"></span></div>
+</header>
+<main>
+  <section class="live" id="live" style="display:none">
+    <div class="live-top">
+      <h2>Mineração ao vivo</h2>
+      <span class="pill" id="lvPill"><span class="dot"></span><span id="lvStatus">aguardando</span></span>
+      <button class="btn" id="lvRecarregar" style="display:none">Ver resultados</button>
+    </div>
+    <div class="prog">
+      <div class="prog-bar"><i id="lvBar"></i></div>
+      <div class="prog-txt"><span id="lvFase"></span><span><b id="lvPct">0%</b> · <span id="lvEtapa"></span></span></div>
+    </div>
+    <div class="agora">Agora: <b id="lvAgora">—</b></div>
+    <div class="live-stats">
+      <div><span>Tempo decorrido</span><b id="lvTempo">—</b></div>
+      <div><span>Previsão de término</span><b id="lvEta">—</b></div>
+      <div><span>Buscas feitas</span><b id="lvBuscas">0</b></div>
+      <div><span>Anunciantes contados</span><b id="lvAnun">0</b></div>
+      <div><span>Escalando até agora</span><b id="lvEsc">0</b></div>
+    </div>
+    <div class="live-grid">
+      <div><h3>Atividade</h3><div class="feed" id="lvFeed"></div></div>
+      <div><h3>Melhores anunciantes até agora</h3><div style="overflow:auto;max-height:300px"><table id="lvTop"></table></div></div>
+    </div>
+  </section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="filtros">
+    <label>Dor<select id="fDor"><option value="">Todas</option></select></label>
+    <label>Palavra-chave<select id="fKw"><option value="">Todas</option></select></label>
+    <label>Mín. anúncios novos<input type="number" id="fMin" min="0" step="5"></label>
+    <label>Idade máx. do produto (dias)<input type="number" id="fIdade" min="0" step="5" placeholder="qualquer"></label>
+    <label>Buscar<input type="text" id="fTxt" placeholder="produto, loja, anunciante"></label>
+    <button class="btn" id="limpar">Limpar filtros</button>
+  </section>
+
+  <section class="grid2">
+    <div class="box"><h2>Top 15 — anúncios novos por produto</h2><div id="graf"></div>
+      <div class="leg"><i style="background:var(--bar)"></i>novos no período <i style="background:var(--ok)"></i>criados nos últimos 7 dias</div></div>
+    <div class="box"><h2>Ranking por dor</h2><div style="overflow:auto"><table id="tDor"></table></div></div>
+  </section>
+
+  <div class="abas">
+    <button class="on" data-aba="cards">Produtos</button>
+    <button data-aba="anun">Anunciantes</button>
+  </div>
+  <section id="cards" class="cards"></section>
+  <section id="anun" class="box" style="display:none;overflow:auto"><table id="tAnun"></table></section>
+
+  <footer>Dados da Biblioteca de Anúncios pública da Meta. "Novos" = anúncios ativos criados nos últimos <span class="maxd"></span> dias.
+  Fundo verde = produto lançado há no máximo <span class="maxd"></span> dias.</footer>
+</main>
+<script>
+let D = null || {linhas: [], anunciantes: [], min_anuncios: 40, max_dias: 45, n_anunciantes: 0, n_anuncios: 0, gerado_em: '', versao: null};
+const $ = id => document.getElementById(id);
+const fmt = n => (n ?? 0).toLocaleString('pt-BR');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+$('fMin').value = 15;
+const uniq = a => [...new Set(a.filter(Boolean))].sort((x, y) => x.localeCompare(y, 'pt'));
+function montar() {
+  document.querySelectorAll('.maxd').forEach(e => e.textContent = D.max_dias);
+  $('sub').textContent = D.gerado_em
+    ? `Gerado em ${D.gerado_em} · critério: ${D.min_anuncios}+ anúncios novos do MESMO anunciante, criados nos últimos ${D.max_dias} dias`
+    : 'Nenhum resultado ainda — acompanhe a mineração ao vivo abaixo.';
+  for (const [id, campo] of [['fDor', 'dor'], ['fKw', 'keyword']]) {
+    const sel = $(id), atual = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+    uniq(D.linhas.map(l => l[campo])).forEach(v => sel.add(new Option(v === '*' ? '(sem palavra-chave)' : v, v)));
+    sel.value = [...sel.options].some(o => o.value === atual) ? atual : '';
+  }
+  anunciantes(); render();
+}
+
+function filtrar() {
+  const dor = $('fDor').value, kw = $('fKw').value, min = +$('fMin').value || 0;
+  const idade = $('fIdade').value === '' ? null : +$('fIdade').value;
+  const t = $('fTxt').value.trim().toLowerCase();
+  return D.linhas.filter(l => (!dor || l.dor === dor) && (!kw || l.keyword === kw) && l.novos >= min &&
+    (idade === null || (l.idade_produto ?? 9999) <= idade) &&
+    (!t || [l.produto, l.anunciante, l.dominio].join(' ').toLowerCase().includes(t)));
+}
+
+function kpis(ls) {
+  const esc_ = ls.filter(l => l.novos >= D.min_anuncios);
+  const novosProd = esc_.filter(l => (l.idade_produto ?? 9999) <= D.max_dias);
+  const top = ls[0];
+  $('kpis').innerHTML = [
+    ['ok', esc_.length, `Produtos escalando (${D.min_anuncios}+)`],
+    ['ok', novosProd.length, `Escalando e lançados há ≤ ${D.max_dias} dias`],
+    ['', ls.filter(l => l.novos >= 15 && l.novos < D.min_anuncios).length, 'Em observação (15+)'],
+    ['', top ? top.novos : 0, 'Maior escala (anúncios novos)'],
+    ['', D.n_anunciantes, 'Anunciantes analisados'],
+    ['', D.n_anuncios, 'Anúncios lidos'],
+  ].map(([c, v, r]) => `<div class="kpi ${c}"><b>${fmt(v)}</b><span>${r}</span></div>`).join('');
+}
+
+function grafico(ls) {
+  const top = ls.slice(0, 15), max = Math.max(1, ...top.map(l => l.novos));
+  $('graf').innerHTML = top.length ? top.map(l => `<div class="barra" title="${esc(l.produto)} — ${esc(l.anunciante)}">
+    <span class="nome">${esc(l.anunciante)} · ${esc(l.produto)}</span>
+    <span class="trilho"><i style="width:${100 * l.novos / max}%"></i><i class="n7" style="width:${100 * l.ult7 / max}%"></i></span>
+    <span class="v">${fmt(l.novos)}</span></div>`).join('') : '<div class="vazio">Nenhum produto com esses filtros.</div>';
+}
+
+function tabelaDor(ls) {
+  const g = {};
+  ls.forEach(l => (g[l.dor] = g[l.dor] || []).push(l));
+  const rows = Object.entries(g).map(([dor, a]) => ({dor, esc: a.filter(l => l.novos >= D.min_anuncios).length,
+    obs: a.filter(l => l.novos >= 15 && l.novos < D.min_anuncios).length, top: a.reduce((m, l) => l.novos > m.novos ? l : m, a[0])}))
+    .sort((x, y) => y.esc - x.esc || y.top.novos - x.top.novos);
+  $('tDor').innerHTML = `<tr><th>Dor</th><th>Escalando</th><th>15+</th><th>Maior</th><th>Melhor produto</th></tr>` +
+    rows.map(r => `<tr><td>${esc(r.dor)}</td><td class="n">${r.esc}</td><td class="n">${r.obs}</td><td class="n">${r.top.novos}</td>
+      <td>${r.top.link_loja ? `<a href="${esc(r.top.link_loja)}" target="_blank">${esc(r.top.produto.slice(0, 50))}</a>` : esc(r.top.produto.slice(0, 50))}</td></tr>`).join('');
+}
+
+function cards(ls) {
+  $('cards').innerHTML = ls.length ? ls.slice(0, 300).map(l => {
+    const novo = (l.idade_produto ?? 9999) <= D.max_dias;
+    const tags = [
+      l.novos >= D.min_anuncios ? '<span class="tag ok">ESCALANDO</span>' : '<span class="tag warn">em observação</span>',
+      novo ? `<span class="tag ok">produto novo (${l.idade_produto}d)</span>` : `<span class="tag">no ar há ${l.idade_produto ?? '?'}d</span>`,
+      `<span class="tag">${esc(l.dor)}</span>`, l.dominio ? `<span class="tag">${esc(l.dominio)}</span>` : ''].join('');
+    return `<article class="card">
+      <div class="img" ${l.imagem ? `style="background-image:url('${esc(l.imagem)}')"` : ''}>${l.imagem ? '' : '<div class="sem">sem imagem</div>'}
+        <span class="selo ${novo ? 'novo' : ''}">${fmt(l.novos)} novos</span></div>
+      <div class="corpo">
+        <h3>${esc(l.produto)}</h3>
+        <div class="anun">${esc(l.anunciante)}</div>
+        <div class="met">
+          <div><b>${fmt(l.novos)}</b><span>novos</span></div>
+          <div><b>${fmt(l.ult7)}</b><span>últ. 7 dias</span></div>
+          <div><b>${l.pct_novos}%</b><span>% novos</span></div>
+          <div><b>${fmt(l.total_anunciante)}</b><span>total anunc.</span></div>
+        </div>
+        <div class="tags">${tags}</div>
+        <div class="links">
+          ${l.link_loja ? `<a href="${esc(l.link_loja)}" target="_blank">Loja</a>` : ''}
+          <a href="${esc(l.link_anuncio)}" target="_blank">Anúncio</a>
+          <a href="${esc(l.link_anunciante)}" target="_blank">Todos do anunciante</a>
+        </div>
+      </div></article>`;
+  }).join('') : '<div class="vazio box">Nenhum produto com esses filtros. Diminua o "Mín. anúncios novos".</div>';
+}
+
+function anunciantes() {
+  $('tAnun').innerHTML = `<tr><th>Anunciante</th><th>Total ativos</th><th>Novos (≤${D.max_dias}d)</th><th>Últ. 7 dias</th><th>Produtos</th><th>Dor</th><th></th></tr>` +
+    D.anunciantes.map(a => `<tr><td>${esc(a.nome)}</td><td class="n">${fmt(a.total)}</td><td class="n">${fmt(a.novos)}</td>
+      <td class="n">${fmt(a.ult7)}</td><td class="n">${a.produtos}</td><td>${esc(a.dor)}</td>
+      <td><a href="${esc(a.link)}" target="_blank">Ver todos</a></td></tr>`).join('');
+}
+
+function render() { const ls = filtrar(); kpis(ls); grafico(ls); tabelaDor(ls); cards(ls); }
+['fDor', 'fKw', 'fMin', 'fIdade', 'fTxt'].forEach(id => $(id).addEventListener('input', render));
+$('limpar').onclick = () => { $('fDor').value = ''; $('fKw').value = ''; $('fMin').value = 15; $('fIdade').value = ''; $('fTxt').value = ''; render(); };
+document.querySelectorAll('.abas button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.abas button').forEach(x => x.classList.toggle('on', x === b));
+  $('cards').style.display = b.dataset.aba === 'cards' ? '' : 'none';
+  $('anun').style.display = b.dataset.aba === 'anun' ? '' : 'none';
+});
+/* ---------------- AO VIVO ---------------- */
+const AO_VIVO = false;
+const dur = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h}h ${String(m).padStart(2, '0')}min` : `${m}min ${String(s % 60).padStart(2, '0')}s`; };
+let ultimaVersao = null;
+window.atualizarStatus = st => {
+  if (!st) return;
+  $('live').style.display = '';
+  const agora = Date.now() / 1000, parado = st.rodando && agora - st.atualizado > 240;
+  const pill = $('lvPill');
+  pill.className = 'pill ' + (st.rodando ? (parado ? 'alerta' : 'on') : 'fim');
+  $('lvStatus').textContent = st.rodando ? (parado ? 'sem atualização há ' + dur(agora - st.atualizado) : 'MINERANDO AGORA')
+                                         : (st.erro ? 'interrompido' : 'concluído');
+  const pct = st.total_etapas ? Math.min(100, 100 * st.etapa / st.total_etapas) : 0;
+  $('lvBar').style.width = (st.rodando ? pct : 100) + '%';
+  $('lvPct').textContent = Math.round(st.rodando ? pct : 100) + '%';
+  $('lvFase').textContent = st.fase || '';
+  $('lvEtapa').textContent = `etapa ${st.etapa} de ${st.total_etapas}`;
+  $('lvAgora').textContent = st.atual || '—';
+  const dec = (st.rodando ? agora : st.atualizado) - st.inicio;
+  $('lvTempo').textContent = dur(dec);
+  $('lvEta').textContent = st.rodando && st.etapa > 0
+    ? new Date((agora + dec / st.etapa * (st.total_etapas - st.etapa)) * 1000).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})
+    : (st.rodando ? 'calculando…' : 'terminou');
+  $('lvBuscas').textContent = `${st.buscas_feitas} / ${st.buscas_total}`;
+  $('lvAnun').textContent = `${st.anunciantes_feitos} / ${st.anunciantes_total || '?'}`;
+  $('lvEsc').textContent = (st.top || []).filter(a => a.novos >= D.min_anuncios).length;
+  const feed = $('lvFeed'), noFim = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 20;
+  feed.innerHTML = (st.log || []).map(l => {
+    const m = l.match(/^\[(\d\d:\d\d:\d\d)\] (.*)$/); const t = m ? m[1] : '', x = m ? m[2] : l;
+    const c = /ERRO|ATENCAO/.test(x) ? 'er' : /FASE|Planilha|Painel|ESCALANDO/.test(x) ? 'ok' : /novos/.test(x) ? 'hi' : '';
+    return `<div><span class="t">${t}</span> <span class="${c}">${esc(x)}</span></div>`; }).join('');
+  if (noFim) feed.scrollTop = feed.scrollHeight;
+  $('lvTop').innerHTML = `<tr><th>Anunciante</th><th>Novos</th><th>7 dias</th><th>Total</th><th>Dor</th></tr>` +
+    ((st.top || []).slice(0, 25).map(a => `<tr class="${a.novos >= D.min_anuncios ? 'hot' : ''}"><td>${esc(a.nome)}</td>
+      <td class="n"><b>${fmt(a.novos)}</b></td><td class="n">${fmt(a.ult7)}</td><td class="n">${fmt(a.total)}</td><td>${esc(a.dor)}</td></tr>`).join('')
+     || '<tr><td colspan="5" class="vazio">A contagem por anunciante começa na fase 2.</td></tr>');
+  $('lvRecarregar').style.display = !st.rodando && !st.erro && st.versao !== ULTIMA ? '' : 'none';
+  ultimaVersao = st.versao;
+};
+
+function puxarStatus() {
+  const sc = document.createElement('script');
+  sc.src = 'painel_status.js?t=' + Date.now();
+  sc.onload = sc.onerror = () => sc.remove();
+  document.head.appendChild(sc);
+}
+
+const API = 'https://tazyeczbbgspqbyluynf.supabase.co/functions/v1/minerador-api';
+let CHAVE = (location.hash.match(/chave=([^&]+)/) || [])[1];
+if (CHAVE) { CHAVE = decodeURIComponent(CHAVE); try { localStorage.setItem('mm_chave', CHAVE); } catch (e) {} history.replaceState(null, '', location.pathname); }
+else { try { CHAVE = localStorage.getItem('mm_chave'); } catch (e) {} }
+let RODADAS = [], ULTIMA = null;
+const nomeTipo = t => t === 'dores' ? 'Por DOR' : t === 'geral' ? 'Geral' : 'Palavra-chave';
+function aplicarRodada(i) {
+  const r = RODADAS[i]; if (!r) { D.linhas = []; D.anunciantes = []; D.gerado_em = ''; montar(); return; }
+  D = Object.assign({min_anuncios: 40, max_dias: 45}, r.resumo || {}, {linhas: r.linhas || [], anunciantes: r.anunciantes || [], versao: r.versao});
+  montar();
+}
+async function api(acao) {
+  const r = await fetch(API + '?acao=' + acao, {headers: {'x-minerador-chave': CHAVE || ''}, cache: 'no-store'});
+  if (r.status === 401) { try { localStorage.removeItem('mm_chave'); } catch (e) {} pedirChave('Chave inválida.'); throw new Error('401'); }
+  if (!r.ok) throw new Error('http ' + r.status);
+  return r.json();
+}
+async function carregarTudo() {
+  try {
+    const j = await api('painel');
+    try { localStorage.setItem('mm_cache', JSON.stringify(j)); } catch (e) {}
+    usar(j); $('offline').style.display = 'none';
+  } catch (e) {
+    if (e.message === '401') return;
+    try { const c = JSON.parse(localStorage.getItem('mm_cache')); if (c) usar(c); } catch (e2) {}
+    $('offline').style.display = '';
+  }
+}
+function usar(j) {
+  RODADAS = j.rodadas || [];
+  const sel = $('selRodada'), atual = sel.value;
+  sel.innerHTML = RODADAS.map((r, i) => `<option value="${i}">${nomeTipo(r.tipo)} · ${new Date(r.criado_em).toLocaleString('pt-BR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}</option>`).join('')
+    || '<option>Nenhuma rodada ainda</option>';
+  if (atual && RODADAS[+atual]) sel.value = atual;
+  aplicarRodada(+sel.value || 0);
+  ULTIMA = RODADAS[0] ? RODADAS[0].versao : null;
+  if (j.status) mostrarStatus(j.status);
+  $('atualizadoEm').textContent = 'atualizado ' + new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+}
+function mostrarStatus(s) {
+  if (s && s.dados && s.dados.versao) window.atualizarStatus(s.dados);
+}
+async function pollStatus() {
+  if (!CHAVE || document.hidden) return;
+  try {
+    const s = await api('status'); mostrarStatus(s); $('offline').style.display = 'none';
+    if (s.ultima_rodada && s.ultima_rodada !== ULTIMA) carregarTudo();
+  } catch (e) { if (e.message !== '401') $('offline').style.display = ''; }
+}
+function pedirChave(msg) { $('login').style.display = 'flex'; $('loginErro').textContent = msg || ''; }
+$('btnEntrar').onclick = () => { CHAVE = $('inChave').value.trim(); try { localStorage.setItem('mm_chave', CHAVE); } catch (e) {} $('login').style.display = 'none'; carregarTudo(); };
+$('selRodada').onchange = () => aplicarRodada(+$('selRodada').value);
+$('btnAtualizar').onclick = carregarTudo;
+$('lvRecarregar').onclick = carregarTudo;
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pollStatus(); });
+montar();
+if (!CHAVE) pedirChave(); else { carregarTudo(); }
+setInterval(pollStatus, 6000);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+
+</script>
+</body>
+</html>
