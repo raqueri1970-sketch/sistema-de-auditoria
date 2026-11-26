@@ -711,7 +711,7 @@ def enviar_rodada_nuvem(linhas, anunciantes, min_anuncios, max_dias, tipo, versa
     if not _chave_nuvem():
         return
     import base64
-    sel = [l for l in linhas if l["novos"] > 0][:800]
+    sel = sorted([l for l in linhas if l["novos"] >= 3], key=lambda l: -l["novos"])[:400]
     enviadas = 0
     for l in sel:
         if l["novos"] >= 15 and l.get("foto_local") and os.path.exists(l["foto_local"]):
@@ -791,9 +791,24 @@ def baixar_fotos(linhas, req):
             except Exception:
                 pass
         if os.path.exists(arq):
+            reduzir_foto(arq)
             l["foto_local"] = arq
             ok += 1
     return ok
+
+
+def reduzir_foto(arq, lado=600):
+    """Deixa a foto leve (ate 600 px, JPEG) para o PDF, o painel e o app do celular."""
+    try:
+        from PIL import Image
+        if os.path.getsize(arq) < 120_000:
+            return
+        with Image.open(arq) as orig:
+            im = orig.convert("RGB")
+        im.thumbnail((lado, lado))
+        im.save(arq, "JPEG", quality=82, optimize=True)
+    except Exception:
+        pass
 
 
 def _foto_data_uri(l):
