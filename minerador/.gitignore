@@ -1,0 +1,12 @@
+__pycache__/
+minerador_chave.txt
+perfil_chrome_meta/
+fotos_meta/
+resultados_meta/
+painel_minerador.html
+painel_status.js
+relatorio_minerador.*
+meta_ads_ranking.xlsx
+*.log
+*.json
+!manifest.webmanifest
