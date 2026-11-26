@@ -914,7 +914,8 @@ def gerar_relatorio(linhas, anunciantes, min_anuncios, max_dias, destino=None):
         with open(destino + ".html", "w", encoding="utf-8") as f:
             f.write(html)
         pg = ctx.new_page()
-        pg.set_content(html, wait_until="load")
+        from pathlib import Path
+        pg.goto(Path(destino + ".html").resolve().as_uri(), wait_until="load", timeout=180000)
         pg.pdf(path=destino + ".pdf", format="A4", print_background=True,
                margin={"top": "12mm", "bottom": "12mm", "left": "11mm", "right": "11mm"})
         nav.close()
