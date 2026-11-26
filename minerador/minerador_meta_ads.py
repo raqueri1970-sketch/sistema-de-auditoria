@@ -81,7 +81,10 @@ ARQ_DORES = os.path.join(PASTA, "dores_meta.txt")
 
 # Marcas grandes / farmacia / marketplaces: nao sao produto para revender
 IGNORAR_ANUNCIANTES = ("aleve", "advil", "voltaren", "tylenol", "cosentyx", "vyndamax", "hinge health",
-                       "alibaba.com", "temu", "amazon", "walmart", "cvs", "shop")
+                       "alibaba.com", "temu", "shoptemu", "amazon", "walmart", "cvs", "shop")
+# Sites que nao sao loja de produto proprio (marketplaces, farmacias)
+IGNORAR_DOMINIOS = ("temu.com", "amazon.com", "link.amazon", "amzlink.to", "amzn.to", "walmart.com", "alibaba.com",
+                    "aliexpress.com", "cvs.com", "walgreens.com", "target.com", "shop.com", "ebay.com")
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -472,6 +475,9 @@ def analisar(anunciantes, max_dias):
         for a in ads:
             por_prod[a["produto"]].append(a)
         for prod, lista in por_prod.items():
+            dom = next((a["dominio"] for a in lista if a["dominio"]), "")
+            if any(dom == d or dom.endswith("." + d) for d in IGNORAR_DOMINIOS):
+                continue
             novos = novos_de(lista, max_dias)
             datas = [a["inicio"] for a in lista if a["inicio"]]
             ref = max(novos or lista, key=lambda a: (a["copias"], a["inicio"] or date.min))
@@ -700,7 +706,7 @@ def resumo_anunciantes(anunciantes, max_dias):
     return an
 
 
-def enviar_rodada_nuvem(linhas, anunciantes, min_anuncios, max_dias, tipo):
+def enviar_rodada_nuvem(linhas, anunciantes, min_anuncios, max_dias, tipo, versao=None):
     """Sobe fotos + resultado para o app do celular."""
     if not _chave_nuvem():
         return
@@ -720,7 +726,7 @@ def enviar_rodada_nuvem(linhas, anunciantes, min_anuncios, max_dias, tipo):
         d = {k: l.get(k) for k in CAMPOS_PAINEL}
         d["imagem"] = l.get("imagem_nuvem") or (l.get("imagem") if str(l.get("imagem", "")).startswith("http") else "")
         linhas_app.append(d)
-    r = nuvem_post({"acao": "rodada", "versao": STATUS.get("versao") or datetime.now().strftime("%Y%m%d%H%M%S"),
+    r = nuvem_post({"acao": "rodada", "versao": versao or STATUS.get("versao") or datetime.now().strftime("%Y%m%d%H%M%S"),
                     "tipo": tipo,
                     "resumo": {"min_anuncios": min_anuncios, "max_dias": max_dias,
                                "gerado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -945,8 +951,8 @@ def refazer(caminho_json, min_anuncios=40, max_dias=45, xlsx=None, html=None, ti
     x = salvar_excel(linhas, anunciantes, min_anuncios, max_dias, resumo, arquivo=xlsx)
     h = salvar_painel(linhas, anunciantes, min_anuncios, max_dias, arquivo=html)
     if tipo:
-        STATUS["versao"] = "json-" + os.path.basename(caminho_json)
-        enviar_rodada_nuvem(linhas, anunciantes, min_anuncios, max_dias, tipo)
+        enviar_rodada_nuvem(linhas, anunciantes, min_anuncios, max_dias, tipo,
+                            versao="json-" + os.path.basename(caminho_json) + datetime.now().strftime("-%Y%m%d"))
     return x, h, linhas
 
 
