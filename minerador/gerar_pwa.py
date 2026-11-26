@@ -31,7 +31,7 @@ BARRA = """<p id="sub"></p>
 LOGIN = """<div id="offline">Sem conexão — mostrando os últimos dados salvos.</div>
 <div id="login"><div class="box"><h2>Minerador Meta Ads</h2>
 <p style="color:var(--sub)">Digite a chave de acesso (enviada no seu e-mail). Ela fica salva neste aparelho.</p>
-<input id="inChave" placeholder="mm-..." autocomplete="off"><button class="btn" id="btnEntrar" style="width:100%">Entrar</button>
+<input id="inChave" placeholder="mm-..." autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="text"><button class="btn" id="btnEntrar" style="width:100%">Entrar</button>
 <p id="loginErro" style="color:var(--warn)"></p></div></div>"""
 
 BOOT = r"""
@@ -85,7 +85,8 @@ async function pollStatus() {
   } catch (e) { if (e.message !== '401') $('offline').style.display = ''; }
 }
 function pedirChave(msg) { $('login').style.display = 'flex'; $('loginErro').textContent = msg || ''; }
-$('btnEntrar').onclick = () => { CHAVE = $('inChave').value.trim(); try { localStorage.setItem('mm_chave', CHAVE); } catch (e) {} $('login').style.display = 'none'; carregarTudo(); };
+$('inChave').onkeydown = e => { if (e.key === 'Enter') $('btnEntrar').click(); };
+$('btnEntrar').onclick = () => { CHAVE = $('inChave').value.replace(/\s+/g, ''); try { localStorage.setItem('mm_chave', CHAVE); } catch (e) {} $('login').style.display = 'none'; carregarTudo(); };
 $('selRodada').onchange = () => aplicarRodada(+$('selRodada').value);
 $('btnAtualizar').onclick = carregarTudo;
 $('lvRecarregar').onclick = carregarTudo;
