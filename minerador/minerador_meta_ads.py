@@ -75,7 +75,6 @@ DORES_PADRAO = {
     "Fungo de unha": ["nail fungus"],
     "Dentes amarelos": ["teeth whitening"],
     "Visao / oculos": ["reading glasses"],
-    "Dor / coceira em pets": ["dog joint pain", "dog itching"],
 }
 ARQ_DORES = os.path.join(PASTA, "dores_meta.txt")
 
@@ -85,6 +84,53 @@ IGNORAR_ANUNCIANTES = ("aleve", "advil", "voltaren", "tylenol", "cosentyx", "vyn
 # Sites que nao sao loja de produto proprio (marketplaces, farmacias)
 IGNORAR_DOMINIOS = ("temu.com", "amazon.com", "link.amazon", "amzlink.to", "amzn.to", "walmart.com", "alibaba.com",
                     "aliexpress.com", "cvs.com", "walgreens.com", "target.com", "shop.com", "ebay.com")
+
+# --------------------------------------------------------------------------
+# Filtro de SEGMENTO: so produto FISICO de saude, beleza e bem-estar
+# --------------------------------------------------------------------------
+_SEG_PERMITE = re.compile(  # termos que salvam palmilhas/ortopedicos mesmo com "shoe" no texto
+    r"\b(insoles?|inserts?|orthotics?|arch supports?|heel cups?|toe separators?|bunion)\b", re.I)
+_SEG_EXCLUI = [
+    ("Calcado/roupa", re.compile(
+        r"\b(shoes?|sneakers?|sandals?|boots?|slippers?|loafers?|footwear|clogs?|high heels|"
+        r"dress(es)?|jeans|leggings|pants|shirts?|t-shirts?|hoodies?|jackets?|bras?|bralettes?|underwear|"
+        r"panties|lingerie|shapewear|swimsuits?|bikinis?|apparel|clothing)\b", re.I)),
+    ("Capsula/suplemento", re.compile(
+        r"\b(supplements?|capsules?|gummies|gummy|pills?|tablets?|vitamins?|multivitamins?|probiotics?|"
+        r"softgels?|powders?|tinctures?|teas?|coffee|shakes?|drink mix|dietary|nutrition)\b|\b\d+\s?mg\b", re.I)),
+    ("Infoproduto/servico", re.compile(
+        r"\b(courses?|e-?books?|masterclass|webinars?|workshops?|programs?|coaching|coach|memberships?|"
+        r"subscriptions?|subscribe|apps?|download|guides?|appointments?|consultations?|"
+        r"chiropract\w*|physical therapists?|telehealth|insurance|medicare|podcasts?|newsletters?|"
+        r"classes|lessons?|sessions?|book now|sign up)\b", re.I)),
+    ("Remedio", re.compile(
+        r"\b(prescription|rx|medications?|drugs?|injections?|tafamidis|secukinumab|ozempic|semaglutide|"
+        r"tirzepatide|glp-?1)\b", re.I)),
+    ("Fora do segmento", re.compile(
+        r"\b(dogs?|cats?|pets?|puppy|puppies|canine|feline|mattress(es)?|sofas?|couch(es)?|chairs?|desks?|"
+        r"furniture|recliners?|drills?|tool ?kits?|phones?|laptops?|toys?|snacks?|recipes?|meals?|food|"
+        r"crochet|jewelry|watches)\b", re.I)),
+]
+_SEG_DOMINIO_EXCLUI = re.compile(
+    r"(footwear|shoes|sneaker|apparel|clothing|fashion|boutique|fabfitfun|hingehealth|"
+    r"sleepingduck|mattress|petco|chewy|kurufootwear|oofos)", re.I)
+
+
+def classificar_segmento(titulo, texto, link):
+    """(True, '') se e produto fisico de saude/beleza/bem-estar; senao (False, motivo)."""
+    dom = dominio_de(link) if link else ""
+    caminho = urlparse(link).path.replace("-", " ").replace("_", " ") if link else ""
+    tudo = " ".join(x for x in (titulo, texto, caminho) if x)
+    if dom and _SEG_DOMINIO_EXCLUI.search(dom):
+        return False, f"Calcado/roupa/servico (site {dom})"
+    for motivo, rx in _SEG_EXCLUI:
+        m = rx.search(tudo)
+        if m and not (motivo == "Calcado/roupa" and _SEG_PERMITE.search(tudo)):
+            return False, f"{motivo} ('{m.group(0)}')"
+    return True, ""
+
+
+DESCARTADOS = []   # produtos fora do segmento da ultima analise (vao para a aba "Fora do segmento")
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -307,6 +353,10 @@ def normalizar(o):
     if not titulo or "{{" in titulo:
         titulo = next((c.get("title") for c in cards if c.get("title") and "{{" not in c.get("title")), "") or ""
     loja = url_destino(link)
+    corpo = s.get("body") or {}
+    texto = corpo.get("text", "") if isinstance(corpo, dict) else str(corpo)
+    if not texto or "{{" in texto:
+        texto = next((c.get("body") for c in cards if c.get("body") and "{{" not in c.get("body")), "") or ""
     ini = o.get("start_date")
     inicio = datetime.fromtimestamp(ini, tz=timezone.utc).date() if ini else None
     img = ""
@@ -328,6 +378,7 @@ def normalizar(o):
         "link_loja": loja,
         "dominio": dominio_de(loja),
         "titulo": re.sub(r"\s+", " ", titulo).strip(),
+        "texto": re.sub(r"\s+", " ", texto).strip()[:400],
         "produto": chave_produto(loja, titulo),
         "imagem": img or "",
     }
@@ -466,9 +517,11 @@ def novos_de(ads, max_dias):
     return [a for a in ads if a["dias"] is not None and a["dias"] <= max_dias]
 
 
-def analisar(anunciantes, max_dias):
-    """Gera uma linha por (anunciante, produto)."""
+def analisar(anunciantes, max_dias, guardar_descartados=True):
+    """Gera uma linha por (anunciante, produto). So entra produto fisico de saude/beleza/bem-estar."""
     linhas = []
+    if guardar_descartados:
+        DESCARTADOS.clear()
     for pid, info in anunciantes.items():
         ads = [a for a in info["ads"] if a["ativo"]]
         por_prod = defaultdict(list)
@@ -481,6 +534,16 @@ def analisar(anunciantes, max_dias):
             novos = novos_de(lista, max_dias)
             datas = [a["inicio"] for a in lista if a["inicio"]]
             ref = max(novos or lista, key=lambda a: (a["copias"], a["inicio"] or date.min))
+            textos = " ".join(dict.fromkeys(a.get("texto", "") for a in lista[:8] if a.get("texto")))[:1200]
+            link_loja = next((a["link_loja"] for a in lista if a["link_loja"]), "")
+            ok_seg, motivo = classificar_segmento(ref["titulo"] or prod, textos, link_loja)
+            if not ok_seg:
+                if guardar_descartados:
+                    DESCARTADOS.append({"anunciante": info["nome"], "produto": ref["titulo"] or prod,
+                                        "dominio": ref["dominio"], "novos": contar(novos), "motivo": motivo,
+                                        "link_anuncio": f"https://www.facebook.com/ads/library/?id={ref['id']}",
+                                        "link_loja": link_loja, "keyword": info["keyword"]})
+                continue
             n_novos, n_tot = contar(novos), contar(lista)
             mais_antigo = min(datas) if datas else None
             linhas.append({
@@ -655,12 +718,27 @@ def salvar_excel(linhas, anunciantes, min_anuncios, max_dias, resumo_kw, arquivo
                 link(ws7.cell(ws7.max_row, 8), top["link_anuncio"], "Ver anuncio")
         larguras(ws7, {5: 45, 7: 12, 8: 12})
 
+    wsd = wb.create_sheet("Fora do segmento")
+    cabecalho(wsd, ["Motivo", "Anuncios novos", "Produto", "Anunciante", "Loja (site)", "Ver anuncio", "Link da loja",
+                    "Palavra-chave"])
+    for d in sorted(DESCARTADOS, key=lambda d: -d["novos"]):
+        wsd.append([d["motivo"], d["novos"], d["produto"][:90], d["anunciante"], d["dominio"] or "-", "", "",
+                    d["keyword"]])
+        link(wsd.cell(wsd.max_row, 6), d["link_anuncio"], "Ver anuncio")
+        link(wsd.cell(wsd.max_row, 7), d["link_loja"], "Abrir loja")
+    if not DESCARTADOS:
+        wsd.append(["Nenhum produto descartado."])
+    larguras(wsd, {1: 40, 3: 50, 6: 12, 7: 12})
+
     ws6 = wb.create_sheet("Como ler")
     for linha in como_ler(min_anuncios, max_dias) + [
             ("Dor", "A dor do cliente que levou a busca (ex.: Queda de cabelo -> hair loss, thinning hair). "
                     "Aba 'Ranking por Dor' mostra quais dores tem mais produtos escalando."),
             ("Sem palavra-chave", "Busca '*' = todos os anuncios ativos do pais, para achar anunciantes com muitos anuncios "
-                                  "em qualquer segmento.")]:
+                                  "em qualquer segmento."),
+            ("Fora do segmento", "So entra PRODUTO FISICO de saude, beleza e bem-estar. Ficam de fora (aba 'Fora do segmento', "
+                                 "com o motivo): calcados e roupas, capsulas/suplementos, infoprodutos/cursos/apps/servicos, "
+                                 "remedios, pets, moveis e outros. Palmilhas e ortopedicos continuam.")]:
         ws6.append(list(linha))
     for row in ws6.iter_rows():
         if row[0].value in ("O QUE E", "COLUNA", "ABAS", "COMO USAR"):
@@ -1100,10 +1178,8 @@ def _rodar(itens, args):
             anunciantes[pid] = {**{k: v for k, v in c.items() if k != "nota"}, "total": total, "ads": ads}
             n_novos = contar(novos_de(ads, max_dias))
             log(f"  {total or contar(ads)} anuncios ativos | lidos {len(ads)} | {n_novos} novos (<= {max_dias}d)")
-            por_prod = defaultdict(list)
-            for a in ads:
-                por_prod[a["produto"]].append(a)
-            maior = max([contar(novos_de(l, max_dias)) for l in por_prod.values()] or [0])
+            ls_ok = analisar({pid: anunciantes[pid]}, max_dias, guardar_descartados=False)
+            maior = max([l["novos"] for l in ls_ok] or [0])
             top = STATUS.get("top", []) + [{"nome": c["nome"], "novos": maior, "novos_anunciante": n_novos,
                                              "ult7": contar(novos_de(ads, 7)), "total": total or contar(ads),
                                              "dor": c.get("dor", "")}]
