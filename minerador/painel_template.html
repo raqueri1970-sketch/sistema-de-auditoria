@@ -92,6 +92,54 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 tr.hot td{background:var(--okbg)}
 .agora{font-size:13px;padding:0 18px 4px;color:var(--sub)}
 .agora b{color:var(--txt)}
+.card{cursor:pointer;transition:transform .12s,border-color .12s}
+.card:hover{transform:translateY(-2px)}
+.card:focus-visible{outline:2px solid var(--pri2);outline-offset:2px}
+.card .mais{font-size:12px;color:var(--pri);font-weight:600;margin-top:auto;padding-top:6px}
+.diag{display:inline-block;font-size:11.5px;font-weight:700;border-radius:6px;padding:3px 8px;margin-top:2px}
+.diag.fogo{background:#3a1d0d;color:#ffb36b}.diag.novo{background:var(--okbg);color:var(--ok)}
+.diag.volta{background:#1d2a3d;color:#8cbbe6}.diag.obs{background:var(--warnbg);color:var(--warn)}
+.ficha-fundo{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+.ficha-fundo.on{display:flex}
+.ficha{background:var(--card);border:1px solid var(--line);border-radius:14px;width:100%;max-width:860px;max-height:92vh;overflow:auto;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.ficha .fx{position:absolute;top:10px;right:10px;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--chip);color:var(--txt);font-size:20px;cursor:pointer;z-index:2}
+.ficha-topo{display:grid;grid-template-columns:300px 1fr;gap:18px;padding:18px}
+.ficha-img{width:100%;aspect-ratio:1;border-radius:10px;background:var(--chip) center/cover no-repeat;position:relative}
+.ficha h2{margin:0 36px 6px 0;font-size:18px;line-height:1.3}
+.ficha .linha{color:var(--sub);font-size:13px;margin:3px 0}
+.ficha .linha a{font-weight:600}
+.veredito{border-radius:10px;padding:12px 14px;margin:12px 0 0;font-size:13.5px;line-height:1.45}
+.veredito b{display:block;font-size:15px;margin-bottom:2px}
+.veredito.fogo{background:#2a1608;border:1px solid #5a3412;color:#ffd2a6}
+.veredito.novo{background:var(--okbg);border:1px solid #1f5a35;color:#bff3d2}
+.veredito.volta{background:#14223a;border:1px solid #27446b;color:#c8ddf5}
+.veredito.obs{background:var(--warnbg);border:1px solid #5a4416;color:#ffe2a8}
+.ficha-met{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 18px}
+.ficha-met div{background:var(--chip);border-radius:8px;padding:10px;text-align:center}
+.ficha-met b{display:block;font-size:19px;font-variant-numeric:tabular-nums}
+.ficha-met span{font-size:11px;color:var(--sub)}
+.semanas{padding:16px 18px 4px}
+.semanas h3{font-size:12.5px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px}
+.sem-grafico{display:flex;align-items:flex-end;gap:8px;height:120px;border-bottom:1px solid var(--line)}
+.sem-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px}
+.sem-col i{display:block;width:100%;max-width:46px;background:var(--bar);border-radius:5px 5px 0 0;min-height:2px}
+.sem-col.atual i{background:var(--ok)}
+.sem-col small{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+.sem-rot{display:flex;gap:8px;margin-top:4px}
+.sem-rot span{flex:1;text-align:center;font-size:10.5px;color:var(--sub)}
+.ficha-acoes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:16px 18px 18px}
+.ficha-acoes a,.ficha-acoes button{display:flex;align-items:center;justify-content:center;text-align:center;min-height:44px;border-radius:8px;border:1px solid var(--line);background:var(--chip);color:var(--txt);text-decoration:none;font:inherit;font-size:13px;font-weight:600;cursor:pointer;padding:6px}
+.ficha-acoes .pri{background:var(--pri2);border-color:var(--pri2);color:#fff}
+@media (max-width:700px){
+  .ficha-fundo{padding:0;align-items:flex-end}
+  .ficha{max-height:94vh;border-radius:16px 16px 0 0;animation:sobe .22s ease-out}
+  .ficha-topo{grid-template-columns:1fr;padding:14px}
+  .ficha-img{aspect-ratio:16/10}
+  .ficha-met{grid-template-columns:repeat(2,1fr);padding:0 14px}
+  .ficha-acoes{grid-template-columns:1fr 1fr;padding:14px}
+  .semanas{padding:14px 14px 4px}
+}
+@keyframes sobe{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
 footer{color:var(--sub);font-size:12px;text-align:center;margin-top:24px}
 a{color:var(--pri)}
 </style>
@@ -150,6 +198,10 @@ a{color:var(--pri)}
   <section id="cards" class="cards"></section>
   <section id="anun" class="box" style="display:none;overflow:auto"><table id="tAnun"></table></section>
 
+  <div class="ficha-fundo" id="fichaFundo" role="dialog" aria-modal="true" aria-labelledby="fTitulo">
+    <div class="ficha" id="ficha"></div>
+  </div>
+
   <footer>Dados da Biblioteca de Anúncios pública da Meta. "Novos" = anúncios ativos criados nos últimos <span class="maxd"></span> dias.
   Fundo verde = produto lançado há no máximo <span class="maxd"></span> dias.</footer>
 </main>
@@ -199,10 +251,11 @@ function kpis(ls) {
 
 function grafico(ls) {
   const top = ls.slice(0, 15), max = Math.max(1, ...top.map(l => l.novos));
-  $('graf').innerHTML = top.length ? top.map(l => `<div class="barra" title="${esc(l.produto)} — ${esc(l.anunciante)}">
+  $('graf').innerHTML = top.length ? top.map((l, i) => `<div class="barra" style="cursor:pointer" data-g="${i}" title="${esc(l.produto)} — ${esc(l.anunciante)}">
     <span class="nome">${esc(l.anunciante)} · ${esc(l.produto)}</span>
     <span class="trilho"><i style="width:${100 * l.novos / max}%"></i><i class="n7" style="width:${100 * l.ult7 / max}%"></i></span>
     <span class="v">${fmt(l.novos)}</span></div>`).join('') : '<div class="vazio">Nenhum produto com esses filtros.</div>';
+  $('graf').onclick = e => { const b = e.target.closest('.barra'); if (b) abrirFicha(top[+b.dataset.g]); };
 }
 
 function tabelaDor(ls) {
@@ -216,34 +269,85 @@ function tabelaDor(ls) {
       <td>${r.top.link_loja ? `<a href="${esc(r.top.link_loja)}" target="_blank">${esc(r.top.produto.slice(0, 50))}</a>` : esc(r.top.produto.slice(0, 50))}</td></tr>`).join('');
 }
 
+function diagnostico(l) {
+  const novo = (l.idade_produto ?? 9999) <= D.max_dias, acel = l.ult7 >= Math.max(10, l.novos * 0.3);
+  if (l.novos >= D.min_anuncios && acel) return ['fogo', '🔥 Acelerando', `${fmt(l.ult7)} anúncios criados só nos últimos 7 dias — o anunciante está aumentando a verba agora.`];
+  if (l.novos >= D.min_anuncios && novo) return ['novo', '🚀 Produto novo escalando', `Lançado há ${l.idade_produto} dias e já tem ${fmt(l.novos)} anúncios ativos.`];
+  if (l.novos >= D.min_anuncios) return ['volta', '♻️ Produto antigo voltando a escalar', `No ar há ${l.idade_produto ?? '?'} dias, mas ganhou ${fmt(l.novos)} anúncios novos nos últimos ${D.max_dias} dias.`];
+  return ['obs', '👀 Em observação', `${fmt(l.novos)} anúncios novos — ainda abaixo de ${D.min_anuncios}. Pode virar escala; acompanhe.`];
+}
+let LISTA = [];
 function cards(ls) {
-  $('cards').innerHTML = ls.length ? ls.slice(0, 300).map(l => {
-    const novo = (l.idade_produto ?? 9999) <= D.max_dias;
-    const tags = [
-      l.novos >= D.min_anuncios ? '<span class="tag ok">ESCALANDO</span>' : '<span class="tag warn">em observação</span>',
-      novo ? `<span class="tag ok">produto novo (${l.idade_produto}d)</span>` : `<span class="tag">no ar há ${l.idade_produto ?? '?'}d</span>`,
-      `<span class="tag">${esc(l.dor)}</span>`, l.dominio ? `<span class="tag">${esc(l.dominio)}</span>` : ''].join('');
-    return `<article class="card">
+  LISTA = ls.slice(0, 300);
+  $('cards').innerHTML = LISTA.length ? LISTA.map((l, i) => {
+    const novo = (l.idade_produto ?? 9999) <= D.max_dias, [dc, dt] = diagnostico(l);
+    return `<article class="card" tabindex="0" data-i="${i}" aria-label="Ver detalhes de ${esc(l.produto)}">
       <div class="img" ${l.imagem ? `style="background-image:url('${esc(l.imagem)}')"` : ''}>${l.imagem ? '' : '<div class="sem">sem imagem</div>'}
         <span class="selo ${novo ? 'novo' : ''}">${fmt(l.novos)} novos</span></div>
       <div class="corpo">
         <h3>${esc(l.produto)}</h3>
-        <div class="anun">${esc(l.anunciante)}</div>
+        <div class="anun">${esc(l.anunciante)}${l.dominio ? ' · ' + esc(l.dominio) : ''}</div>
+        <span class="diag ${dc}">${dt}</span>
         <div class="met">
           <div><b>${fmt(l.novos)}</b><span>novos</span></div>
-          <div><b>${fmt(l.ult7)}</b><span>últ. 7 dias</span></div>
+          <div><b>${fmt(l.ult7)}</b><span>7 dias</span></div>
+          <div><b>${l.idade_produto ?? '–'}d</b><span>idade</span></div>
           <div><b>${l.pct_novos}%</b><span>% novos</span></div>
-          <div><b>${fmt(l.total_anunciante)}</b><span>total anunc.</span></div>
         </div>
-        <div class="tags">${tags}</div>
-        <div class="links">
-          ${l.link_loja ? `<a href="${esc(l.link_loja)}" target="_blank">Loja</a>` : ''}
-          <a href="${esc(l.link_anuncio)}" target="_blank">Anúncio</a>
-          <a href="${esc(l.link_anunciante)}" target="_blank">Todos do anunciante</a>
-        </div>
+        <div class="mais">Ver detalhes →</div>
       </div></article>`;
   }).join('') : '<div class="vazio box">Nenhum produto com esses filtros. Diminua o "Mín. anúncios novos".</div>';
 }
+
+function dataBR(s) { return s ? s.split('-').reverse().join('/') : '–'; }
+function abrirFicha(l) {
+  const [dc, dt, dx] = diagnostico(l), serie = (l.serie || []).slice(0, 8), max = Math.max(1, ...serie);
+  const rot = ['esta sem.', '1 sem.', '2 sem.', '3 sem.', '4 sem.', '5 sem.', '6 sem.', '7 sem.'];
+  const ordem = serie.map((v, i) => [v, i]).reverse();
+  $('ficha').innerHTML = `
+    <button class="fx" aria-label="Fechar" onclick="fecharFicha()">×</button>
+    <div class="ficha-topo">
+      <div class="ficha-img" ${l.imagem ? `style="background-image:url('${esc(l.imagem)}')"` : ''}>${l.imagem ? '' : '<div class="sem" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--sub)">sem imagem</div>'}</div>
+      <div>
+        <h2 id="fTitulo">${esc(l.produto)}</h2>
+        <div class="linha">Anunciante: <a href="${esc(l.link_anunciante)}" target="_blank">${esc(l.anunciante)}</a></div>
+        <div class="linha">Loja: ${l.link_loja ? `<a href="${esc(l.link_loja)}" target="_blank">${esc(l.dominio || l.link_loja)}</a>` : 'sem link de loja'}</div>
+        <div class="linha">Dor: <b>${esc(l.dor)}</b> · Busca: ${esc(l.keyword === '*' ? '(sem palavra-chave)' : l.keyword)}</div>
+        <div class="linha">1º anúncio: <b>${dataBR(l.primeiro)}</b> · mais recente: <b>${dataBR(l.mais_recente)}</b></div>
+        <div class="veredito ${dc}"><b>${dt}</b>${dx}</div>
+      </div>
+    </div>
+    <div class="ficha-met">
+      <div><b>${fmt(l.novos)}</b><span>anúncios novos (≤${D.max_dias}d)</span></div>
+      <div><b>${fmt(l.ult7)}</b><span>criados em 7 dias</span></div>
+      <div><b>${l.idade_produto ?? '–'}d</b><span>idade do produto</span></div>
+      <div><b>${l.pct_novos}%</b><span>dos anúncios são novos</span></div>
+      <div><b>${fmt(l.total_produto)}</b><span>anúncios do produto</span></div>
+      <div><b>${fmt(l.total_anunciante)}</b><span>anúncios do anunciante</span></div>
+      <div><b>${l.novos >= D.min_anuncios ? 'SIM' : 'NÃO'}</b><span>escalando (${D.min_anuncios}+)</span></div>
+      <div><b>${serie.length ? fmt(serie[0]) : '–'}</b><span>criados esta semana</span></div>
+    </div>
+    ${serie.length ? `<div class="semanas"><h3>Anúncios novos por semana</h3>
+      <div class="sem-grafico">${ordem.map(([v, i]) => `<div class="sem-col ${i === 0 ? 'atual' : ''}"><small>${v || ''}</small><i style="height:${100 * v / max}%"></i></div>`).join('')}</div>
+      <div class="sem-rot">${ordem.map(([, i]) => `<span>${rot[i]}</span>`).join('')}</div></div>` : ''}
+    <div class="ficha-acoes">
+      <a class="pri" href="${esc(l.link_anuncio)}" target="_blank">Ver anúncio</a>
+      <a href="${esc(l.link_anunciante)}" target="_blank">Todos do anunciante</a>
+      ${l.link_loja ? `<a href="${esc(l.link_loja)}" target="_blank">Abrir loja</a>` : '<a aria-disabled="true">Sem loja</a>'}
+      <button data-u="${esc(l.link_loja || l.link_anuncio)}" onclick="copiarLink(this, this.dataset.u)">Copiar link</button>
+    </div>`;
+  $('fichaFundo').classList.add('on'); document.body.style.overflow = 'hidden';
+  $('ficha').querySelector('.fx').focus();
+}
+function fecharFicha() { $('fichaFundo').classList.remove('on'); document.body.style.overflow = ''; }
+function copiarLink(b, u) {
+  const ok = () => { b.textContent = 'Copiado ✓'; setTimeout(() => b.textContent = 'Copiar link', 1800); };
+  if (navigator.clipboard) navigator.clipboard.writeText(u).then(ok, () => prompt('Copie o link:', u)); else prompt('Copie o link:', u);
+}
+$('cards').addEventListener('click', e => { const c = e.target.closest('.card'); if (c) abrirFicha(LISTA[+c.dataset.i]); });
+$('cards').addEventListener('keydown', e => { const c = e.target.closest('.card'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); abrirFicha(LISTA[+c.dataset.i]); } });
+$('fichaFundo').addEventListener('click', e => { if (e.target.id === 'fichaFundo') fecharFicha(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharFicha(); });
 
 function anunciantes() {
   $('tAnun').innerHTML = `<tr><th>Anunciante</th><th>Total ativos</th><th>Novos (≤${D.max_dias}d)</th><th>Últ. 7 dias</th><th>Produtos</th><th>Dor</th><th></th></tr>` +

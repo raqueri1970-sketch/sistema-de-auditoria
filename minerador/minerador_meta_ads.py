@@ -498,6 +498,10 @@ def analisar(anunciantes, max_dias):
                 "link_anuncio": f"https://www.facebook.com/ads/library/?id={ref['id']}",
                 "link_anunciante": url_anunciante(pid, info["pais"]),
                 "imagem": ref["imagem"],
+                # anuncios criados por semana: [esta semana, semana passada, ...] (8 semanas)
+                "serie": [contar([a for a in lista if a["dias"] is not None
+                                  and (a["dias"] <= 7 if w == 0 else 7 * w < a["dias"] <= 7 * (w + 1))])
+                          for w in range(8)],
             })
     linhas.sort(key=lambda l: (-l["novos"], -l["ult7"], l["idade_produto"] if l["idade_produto"] is not None else 9999))
     return linhas
@@ -691,7 +695,8 @@ ARQ_TEMPLATE = os.path.join(PASTA, "painel_template.html")
 
 
 CAMPOS_PAINEL = ("anunciante", "keyword", "dor", "produto", "dominio", "link_loja", "novos", "ult7", "pct_novos",
-                 "idade_produto", "total_produto", "total_anunciante", "link_anuncio", "link_anunciante", "imagem")
+                 "idade_produto", "total_produto", "total_anunciante", "link_anuncio", "link_anunciante", "imagem",
+                 "primeiro", "mais_recente", "serie")
 
 
 def resumo_anunciantes(anunciantes, max_dias):
