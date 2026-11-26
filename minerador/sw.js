@@ -1,6 +1,6 @@
 // Service worker do Minerador: guarda a "casca" do app para abrir mesmo sem internet.
 // Os dados (API) sempre vao para a rede; o app usa o ultimo resultado salvo se estiver offline.
-const CACHE = 'minerador-v1';
+const CACHE = 'minerador-v2';
 const CASCA = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(CASCA))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
