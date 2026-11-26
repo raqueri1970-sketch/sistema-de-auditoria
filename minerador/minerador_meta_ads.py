@@ -81,7 +81,10 @@ ARQ_DORES = os.path.join(PASTA, "dores_meta.txt")
 
 # Marcas grandes / farmacia / marketplaces: nao sao produto para revender
 IGNORAR_ANUNCIANTES = ("aleve", "advil", "voltaren", "tylenol", "cosentyx", "vyndamax", "hinge health",
-                       "alibaba.com", "temu", "amazon", "walmart", "cvs", "shop")
+                       "alibaba.com", "temu", "shoptemu", "amazon", "walmart", "cvs", "shop")
+# Sites que nao sao loja de produto proprio (marketplaces, farmacias)
+IGNORAR_DOMINIOS = ("temu.com", "amazon.com", "link.amazon", "amzlink.to", "amzn.to", "walmart.com", "alibaba.com",
+                    "aliexpress.com", "cvs.com", "walgreens.com", "target.com", "shop.com", "ebay.com")
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -472,6 +475,9 @@ def analisar(anunciantes, max_dias):
         for a in ads:
             por_prod[a["produto"]].append(a)
         for prod, lista in por_prod.items():
+            dom = next((a["dominio"] for a in lista if a["dominio"]), "")
+            if any(dom == d or dom.endswith("." + d) for d in IGNORAR_DOMINIOS):
+                continue
             novos = novos_de(lista, max_dias)
             datas = [a["inicio"] for a in lista if a["inicio"]]
             ref = max(novos or lista, key=lambda a: (a["copias"], a["inicio"] or date.min))
@@ -492,6 +498,10 @@ def analisar(anunciantes, max_dias):
                 "link_anuncio": f"https://www.facebook.com/ads/library/?id={ref['id']}",
                 "link_anunciante": url_anunciante(pid, info["pais"]),
                 "imagem": ref["imagem"],
+                # anuncios criados por semana: [esta semana, semana passada, ...] (8 semanas)
+                "serie": [contar([a for a in lista if a["dias"] is not None
+                                  and (a["dias"] <= 7 if w == 0 else 7 * w < a["dias"] <= 7 * (w + 1))])
+                          for w in range(8)],
             })
     linhas.sort(key=lambda l: (-l["novos"], -l["ult7"], l["idade_produto"] if l["idade_produto"] is not None else 9999))
     return linhas
@@ -685,7 +695,8 @@ ARQ_TEMPLATE = os.path.join(PASTA, "painel_template.html")
 
 
 CAMPOS_PAINEL = ("anunciante", "keyword", "dor", "produto", "dominio", "link_loja", "novos", "ult7", "pct_novos",
-                 "idade_produto", "total_produto", "total_anunciante", "link_anuncio", "link_anunciante", "imagem")
+                 "idade_produto", "total_produto", "total_anunciante", "link_anuncio", "link_anunciante", "imagem",
+                 "primeiro", "mais_recente", "serie")
 
 
 def resumo_anunciantes(anunciantes, max_dias):
@@ -700,12 +711,12 @@ def resumo_anunciantes(anunciantes, max_dias):
     return an
 
 
-def enviar_rodada_nuvem(linhas, anunciantes, min_anuncios, max_dias, tipo):
+def enviar_rodada_nuvem(linhas, anunciantes, min_anuncios, max_dias, tipo, versao=None):
     """Sobe fotos + resultado para o app do celular."""
     if not _chave_nuvem():
         return
     import base64
-    sel = [l for l in linhas if l["novos"] > 0][:800]
+    sel = sorted([l for l in linhas if l["novos"] >= 3], key=lambda l: -l["novos"])[:400]
     enviadas = 0
     for l in sel:
         if l["novos"] >= 15 and l.get("foto_local") and os.path.exists(l["foto_local"]):
@@ -720,7 +731,7 @@ def enviar_rodada_nuvem(linhas, anunciantes, min_anuncios, max_dias, tipo):
         d = {k: l.get(k) for k in CAMPOS_PAINEL}
         d["imagem"] = l.get("imagem_nuvem") or (l.get("imagem") if str(l.get("imagem", "")).startswith("http") else "")
         linhas_app.append(d)
-    r = nuvem_post({"acao": "rodada", "versao": STATUS.get("versao") or datetime.now().strftime("%Y%m%d%H%M%S"),
+    r = nuvem_post({"acao": "rodada", "versao": versao or STATUS.get("versao") or datetime.now().strftime("%Y%m%d%H%M%S"),
                     "tipo": tipo,
                     "resumo": {"min_anuncios": min_anuncios, "max_dias": max_dias,
                                "gerado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -785,9 +796,24 @@ def baixar_fotos(linhas, req):
             except Exception:
                 pass
         if os.path.exists(arq):
+            reduzir_foto(arq)
             l["foto_local"] = arq
             ok += 1
     return ok
+
+
+def reduzir_foto(arq, lado=600):
+    """Deixa a foto leve (ate 600 px, JPEG) para o PDF, o painel e o app do celular."""
+    try:
+        from PIL import Image
+        if os.path.getsize(arq) < 120_000:
+            return
+        with Image.open(arq) as orig:
+            im = orig.convert("RGB")
+        im.thumbnail((lado, lado))
+        im.save(arq, "JPEG", quality=82, optimize=True)
+    except Exception:
+        pass
 
 
 def _foto_data_uri(l):
@@ -908,7 +934,8 @@ def gerar_relatorio(linhas, anunciantes, min_anuncios, max_dias, destino=None):
         with open(destino + ".html", "w", encoding="utf-8") as f:
             f.write(html)
         pg = ctx.new_page()
-        pg.set_content(html, wait_until="load")
+        from pathlib import Path
+        pg.goto(Path(destino + ".html").resolve().as_uri(), wait_until="load", timeout=180000)
         pg.pdf(path=destino + ".pdf", format="A4", print_background=True,
                margin={"top": "12mm", "bottom": "12mm", "left": "11mm", "right": "11mm"})
         nav.close()
@@ -945,8 +972,8 @@ def refazer(caminho_json, min_anuncios=40, max_dias=45, xlsx=None, html=None, ti
     x = salvar_excel(linhas, anunciantes, min_anuncios, max_dias, resumo, arquivo=xlsx)
     h = salvar_painel(linhas, anunciantes, min_anuncios, max_dias, arquivo=html)
     if tipo:
-        STATUS["versao"] = "json-" + os.path.basename(caminho_json)
-        enviar_rodada_nuvem(linhas, anunciantes, min_anuncios, max_dias, tipo)
+        enviar_rodada_nuvem(linhas, anunciantes, min_anuncios, max_dias, tipo,
+                            versao="json-" + os.path.basename(caminho_json) + datetime.now().strftime("-%Y%m%d"))
     return x, h, linhas
 
 
