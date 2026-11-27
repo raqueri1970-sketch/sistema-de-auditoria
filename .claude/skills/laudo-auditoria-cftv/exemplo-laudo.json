@@ -1,0 +1,49 @@
+{
+  "saida": "LAUDO_CFTV_EXEMPLO.pdf",
+  "titulo": "Laudo Técnico de Análise de Imagens de CFTV",
+  "subtitulo": "Prevenção de Perdas",
+  "cabecalho": [
+    ["Data dos fatos", "23/07/2026"],
+    ["Intervalo analisado", "08:11:43 às 08:17:01"],
+    ["Data do laudo", "27/07/2026"],
+    ["Câmeras", "CAM 7 (caixa) · CAM 8 (salão/entrada)"],
+    ["Colaborador", "NOME DO COLABORADOR"],
+    ["Função", "Vendedor"],
+    ["Objeto", "Carteira — brinde promocional"],
+    ["Responsável", "Auditor – Ricardo"]
+  ],
+  "objeto": [
+    "O presente laudo tem por finalidade descrever, de forma técnica e cronológica, as imagens registradas pelo circuito fechado de televisão (CFTV) da loja em 23/07/2026, relacionadas ao desaparecimento de uma carteira utilizada como amostra de divulgação de campanha promocional."
+  ],
+  "contexto": [
+    "A loja realizava campanha na qual o cliente que adquirisse um calçado da marca participante recebia uma carteira como brinde. As carteiras ficam armazenadas junto ao caixa, local em que são entregues ao cliente no ato do pagamento.",
+    "Para divulgação da promoção, o colaborador **NOME DO COLABORADOR** foi instruído a retirar uma carteira no caixa e colocá-la como amostra na vitrine. Ao serem vendidos calçados da campanha, verificou-se a falta de brinde e constatou-se que **não havia nenhuma carteira exposta na vitrine**. Diante disso, a auditoria procedeu à análise das gravações do CFTV."
+  ],
+  "material": [
+    {"arquivo": "Vídeo 1", "camera": "CAM 7", "horario": "08:11:43 a 08:12:14", "duracao": "31 s", "sha256": "<sha256 do arquivo>"},
+    {"arquivo": "Vídeo 2", "camera": "CAM 8", "horario": "08:12:15 a 08:13:17", "duracao": "62 s", "sha256": "<sha256 do arquivo>"}
+  ],
+  "cronologia": [
+    ["08:12:08", "CAM 7", "No balcão do caixa, a operadora entrega uma carteira em mãos ao colaborador."],
+    ["08:12:37", "CAM 8", "Retorna da vitrine para o salão ainda com a carteira na mão direita."]
+  ],
+  "fotos": [
+    {
+      "titulo": "Entrega da carteira no caixa",
+      "referencia": "Vídeo 1 · CAM 7 · 08:12:08",
+      "quadro": "ev/f1_quadro.jpg",
+      "zoom": "ev/f1_zoom.jpg",
+      "descricao": "O colaborador aproxima-se do balcão do caixa. A operadora estende o braço por cima do balcão e entrega uma carteira diretamente em suas mãos."
+    }
+  ],
+  "analise": [
+    "As imagens registram a entrega da carteira pela operadora de caixa ao colaborador.",
+    "Não há registro de colocação da carteira na vitrine."
+  ],
+  "conclusao": "Pela análise técnica das gravações, a auditoria conclui que o colaborador **NOME DO COLABORADOR** recebeu no caixa a carteira destinada à exposição promocional e não a colocou na vitrine (...), restando caracterizada sua **retirada indevida**.",
+  "fechamento": "Laudo finalizado e assinado em **27/07/2026**, referente aos fatos ocorridos em **23/07/2026**, conforme data registrada nas imagens do CFTV.",
+  "auditor": {
+    "nome": "Auditor – Ricardo",
+    "rodape": "Auditoria Interna · 27/07/2026"
+  }
+}
