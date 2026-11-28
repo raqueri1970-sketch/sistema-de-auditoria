@@ -1106,7 +1106,7 @@ def _rodar(itens, args):
             maior = max([contar(novos_de(l, max_dias)) for l in por_prod.values()] or [0])
             top = STATUS.get("top", []) + [{"nome": c["nome"], "novos": maior, "novos_anunciante": n_novos,
                                              "ult7": contar(novos_de(ads, 7)), "total": total or contar(ads),
-                                             "dor": c.get("dor", "")}]
+                                             "dor": c.get("dor", ""), "link": url_anunciante(pid, c["pais"])}]
             top.sort(key=lambda a: -a["novos"])
             status(etapa=len(itens) + j, anunciantes_feitos=j, top=top,
                    atual="Pausa humana antes do proximo anunciante")

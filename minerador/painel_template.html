@@ -127,7 +127,7 @@ tr.hot td{background:var(--okbg)}
 .sem-col small{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
 .sem-rot{display:flex;gap:8px;margin-top:4px}
 .sem-rot span{flex:1;text-align:center;font-size:10.5px;color:var(--sub)}
-.ficha-acoes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:16px 18px 18px}
+.ficha-acoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;padding:16px 18px 18px}
 .ficha-acoes a,.ficha-acoes button{display:flex;align-items:center;justify-content:center;text-align:center;min-height:44px;border-radius:8px;border:1px solid var(--line);background:var(--chip);color:var(--txt);text-decoration:none;font:inherit;font-size:13px;font-weight:600;cursor:pointer;padding:6px}
 .ficha-acoes .pri{background:var(--pri2);border-color:var(--pri2);color:#fff}
 @media (max-width:700px){
@@ -140,6 +140,45 @@ tr.hot td{background:var(--okbg)}
   .semanas{padding:14px 14px 4px}
 }
 @keyframes sobe{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+[data-act]{cursor:pointer}
+[data-act]:focus-visible{outline:2px solid var(--pri2);outline-offset:2px}
+.kpi[data-act]{position:relative;transition:border-color .12s,transform .12s}
+.kpi[data-act]:hover{border-color:#35475d;transform:translateY(-2px)}
+.kpi[data-act]::after{content:'ver lista ›';position:absolute;top:10px;right:12px;font-size:11px;color:var(--pri);opacity:0;transition:opacity .12s}
+.kpi[data-act]:hover::after{opacity:1}
+tr[data-act]:hover td{background:#1a2431}
+tr.hot[data-act]:hover td{background:#174028}
+th[data-act]{user-select:none;white-space:nowrap}
+th[data-act]:hover{color:var(--txt)}
+.live-stats div[data-act]{transition:box-shadow .12s}
+.live-stats div[data-act]:hover{box-shadow:inset 0 0 0 1px var(--pri2)}
+.barra[data-act]:hover .nome{color:var(--pri)}
+.lnk{color:var(--pri);font-weight:600;border-bottom:1px dashed currentColor;cursor:pointer}
+.lnk:hover{border-bottom-style:solid}
+.feed .lnk{font-weight:400}
+.clkt:hover{background:#26364a;color:var(--txt)}
+.ficha-nav{position:sticky;top:0;display:flex;justify-content:space-between;align-items:center;padding:10px 10px 0;z-index:3;pointer-events:none}
+.ficha-nav button{pointer-events:auto}
+.ficha .ficha-nav .fx{position:static}
+.fv{height:36px;border-radius:18px;border:1px solid var(--line);background:var(--chip);color:var(--txt);font:inherit;font-size:13px;font-weight:600;padding:0 14px;cursor:pointer}
+.fv:hover,.ficha .fx:hover{background:#26364a}
+.ficha .ficha-nav + .ficha-topo{padding-top:8px}
+.ficha-cab{padding:8px 18px 12px}
+.ficha-cab .veredito{margin-top:10px}
+.sec-tit{font-size:12.5px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin:18px 18px 10px}
+.mini{display:flex;flex-direction:column;gap:6px;padding:0 18px 18px}
+.mini-it{display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:center;background:var(--chip);border-radius:8px;padding:6px 12px 6px 6px;border:1px solid transparent}
+.mini-it:hover{border-color:var(--pri2)}
+.mini-img{width:52px;height:52px;border-radius:6px;background:#0e141b center/cover no-repeat}
+.mini-txt{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.mini-txt b{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.mini-txt small{color:var(--sub);font-size:11.5px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini-txt .diag{font-size:10.5px;padding:1px 6px;margin:0}
+.mini-n{text-align:right;font-variant-numeric:tabular-nums}
+.mini-n b{display:block;font-size:17px}
+.mini-n small{color:var(--sub);font-size:11px;white-space:nowrap}
+.tab-ficha{overflow:auto;padding:0 18px 12px}
+.ficha-met div[data-act]:hover{box-shadow:inset 0 0 0 1px var(--pri2)}
 footer{color:var(--sub);font-size:12px;text-align:center;margin-top:24px}
 a{color:var(--pri)}
 </style>
@@ -165,8 +204,8 @@ a{color:var(--pri)}
       <div><span>Tempo decorrido</span><b id="lvTempo">—</b></div>
       <div><span>Previsão de término</span><b id="lvEta">—</b></div>
       <div><span>Buscas feitas</span><b id="lvBuscas">0</b></div>
-      <div><span>Anunciantes contados</span><b id="lvAnun">0</b></div>
-      <div><span>Escalando até agora</span><b id="lvEsc">0</b></div>
+      <div data-act="live" data-v="anun" tabindex="0" role="button" title="Ver anunciantes contados"><span>Anunciantes contados ›</span><b id="lvAnun">0</b></div>
+      <div data-act="live" data-v="esc" tabindex="0" role="button" title="Ver quem está escalando"><span>Escalando até agora ›</span><b id="lvEsc">0</b></div>
     </div>
     <div class="live-grid">
       <div><h3>Atividade</h3><div class="feed" id="lvFeed"></div></div>
@@ -212,10 +251,16 @@ const fmt = n => (n ?? 0).toLocaleString('pt-BR');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 $('fMin').value = 15;
 const uniq = a => [...new Set(a.filter(Boolean))].sort((x, y) => x.localeCompare(y, 'pt'));
+const chave = l => l.anunciante + '|' + l.produto;
+const clk = (act, v, tit) => `data-act="${act}" data-v="${esc(v)}" tabindex="0" role="button"${tit ? ` title="${esc(tit)}"` : ''}`;
+const bg = u => u ? `style="background-image:url('${esc(u)}')"` : '';
+let IDX = new Map(), ULT_LS = [], ULT_TOP = [], ORD = {k: 'novos', d: -1};
+
 function montar() {
+  IDX = new Map(D.linhas.map(l => [chave(l), l]));
   document.querySelectorAll('.maxd').forEach(e => e.textContent = D.max_dias);
   $('sub').textContent = D.gerado_em
-    ? `Gerado em ${D.gerado_em} · critério: ${D.min_anuncios}+ anúncios novos do MESMO anunciante, criados nos últimos ${D.max_dias} dias`
+    ? `Gerado em ${D.gerado_em} · critério: ${D.min_anuncios}+ anúncios novos do MESMO anunciante, criados nos últimos ${D.max_dias} dias · clique em qualquer número, card ou nome para ver detalhes`
     : 'Nenhum resultado ainda — acompanhe a mineração ao vivo abaixo.';
   for (const [id, campo] of [['fDor', 'dor'], ['fKw', 'keyword']]) {
     const sel = $(id), atual = sel.value;
@@ -235,38 +280,40 @@ function filtrar() {
     (!t || [l.produto, l.anunciante, l.dominio].join(' ').toLowerCase().includes(t)));
 }
 
+const escalando = ls => ls.filter(l => l.novos >= D.min_anuncios);
+const lancados = ls => escalando(ls).filter(l => (l.idade_produto ?? 9999) <= D.max_dias);
+const observacao = ls => ls.filter(l => l.novos >= 15 && l.novos < D.min_anuncios);
+
 function kpis(ls) {
-  const esc_ = ls.filter(l => l.novos >= D.min_anuncios);
-  const novosProd = esc_.filter(l => (l.idade_produto ?? 9999) <= D.max_dias);
   const top = ls[0];
   $('kpis').innerHTML = [
-    ['ok', esc_.length, `Produtos escalando (${D.min_anuncios}+)`],
-    ['ok', novosProd.length, `Escalando e lançados há ≤ ${D.max_dias} dias`],
-    ['', ls.filter(l => l.novos >= 15 && l.novos < D.min_anuncios).length, 'Em observação (15+)'],
+    ['ok', escalando(ls).length, `Produtos escalando (${D.min_anuncios}+)`],
+    ['ok', lancados(ls).length, `Escalando e lançados há ≤ ${D.max_dias} dias`],
+    ['', observacao(ls).length, 'Em observação (15+)'],
     ['', top ? top.novos : 0, 'Maior escala (anúncios novos)'],
     ['', D.n_anunciantes, 'Anunciantes analisados'],
     ['', D.n_anuncios, 'Anúncios lidos'],
-  ].map(([c, v, r]) => `<div class="kpi ${c}"><b>${fmt(v)}</b><span>${r}</span></div>`).join('');
+  ].map(([c, v, r], i) => `<div class="kpi ${c}" ${clk('kpi', i, 'Clique para ver a lista')}><b>${fmt(v)}</b><span>${r}</span></div>`).join('');
 }
 
 function grafico(ls) {
   const top = ls.slice(0, 15), max = Math.max(1, ...top.map(l => l.novos));
-  $('graf').innerHTML = top.length ? top.map((l, i) => `<div class="barra" style="cursor:pointer" data-g="${i}" title="${esc(l.produto)} — ${esc(l.anunciante)}">
+  $('graf').innerHTML = top.length ? top.map(l => `<div class="barra" ${clk('prod', chave(l), l.produto + ' — ' + l.anunciante)}>
     <span class="nome">${esc(l.anunciante)} · ${esc(l.produto)}</span>
     <span class="trilho"><i style="width:${100 * l.novos / max}%"></i><i class="n7" style="width:${100 * l.ult7 / max}%"></i></span>
     <span class="v">${fmt(l.novos)}</span></div>`).join('') : '<div class="vazio">Nenhum produto com esses filtros.</div>';
-  $('graf').onclick = e => { const b = e.target.closest('.barra'); if (b) abrirFicha(top[+b.dataset.g]); };
 }
 
 function tabelaDor(ls) {
   const g = {};
   ls.forEach(l => (g[l.dor] = g[l.dor] || []).push(l));
-  const rows = Object.entries(g).map(([dor, a]) => ({dor, esc: a.filter(l => l.novos >= D.min_anuncios).length,
-    obs: a.filter(l => l.novos >= 15 && l.novos < D.min_anuncios).length, top: a.reduce((m, l) => l.novos > m.novos ? l : m, a[0])}))
+  const rows = Object.entries(g).map(([dor, a]) => ({dor, esc: escalando(a).length, obs: observacao(a).length,
+    top: a.reduce((m, l) => l.novos > m.novos ? l : m, a[0])}))
     .sort((x, y) => y.esc - x.esc || y.top.novos - x.top.novos);
   $('tDor').innerHTML = `<tr><th>Dor</th><th>Escalando</th><th>15+</th><th>Maior</th><th>Melhor produto</th></tr>` +
-    rows.map(r => `<tr><td>${esc(r.dor)}</td><td class="n">${r.esc}</td><td class="n">${r.obs}</td><td class="n">${r.top.novos}</td>
-      <td>${r.top.link_loja ? `<a href="${esc(r.top.link_loja)}" target="_blank">${esc(r.top.produto.slice(0, 50))}</a>` : esc(r.top.produto.slice(0, 50))}</td></tr>`).join('');
+    (rows.map(r => `<tr ${clk('dor', r.dor, 'Ver todos os produtos desta dor')}><td><b>${esc(r.dor)}</b></td><td class="n">${r.esc}</td><td class="n">${r.obs}</td><td class="n">${r.top.novos}</td>
+      <td><span class="lnk" ${clk('prod', chave(r.top))}>${esc(r.top.produto.slice(0, 50))}</span></td></tr>`).join('')
+     || '<tr><td colspan="5" class="vazio">Nenhuma dor com esses filtros.</td></tr>');
 }
 
 function diagnostico(l) {
@@ -276,17 +323,17 @@ function diagnostico(l) {
   if (l.novos >= D.min_anuncios) return ['volta', '♻️ Produto antigo voltando a escalar', `No ar há ${l.idade_produto ?? '?'} dias, mas ganhou ${fmt(l.novos)} anúncios novos nos últimos ${D.max_dias} dias.`];
   return ['obs', '👀 Em observação', `${fmt(l.novos)} anúncios novos — ainda abaixo de ${D.min_anuncios}. Pode virar escala; acompanhe.`];
 }
-let LISTA = [];
+
 function cards(ls) {
-  LISTA = ls.slice(0, 300);
-  $('cards').innerHTML = LISTA.length ? LISTA.map((l, i) => {
+  const lista = ls.slice(0, 300);
+  $('cards').innerHTML = lista.length ? lista.map(l => {
     const novo = (l.idade_produto ?? 9999) <= D.max_dias, [dc, dt] = diagnostico(l);
-    return `<article class="card" tabindex="0" data-i="${i}" aria-label="Ver detalhes de ${esc(l.produto)}">
-      <div class="img" ${l.imagem ? `style="background-image:url('${esc(l.imagem)}')"` : ''}>${l.imagem ? '' : '<div class="sem">sem imagem</div>'}
+    return `<article class="card" ${clk('prod', chave(l))} aria-label="Ver detalhes de ${esc(l.produto)}">
+      <div class="img" ${bg(l.imagem)}>${l.imagem ? '' : '<div class="sem">sem imagem</div>'}
         <span class="selo ${novo ? 'novo' : ''}">${fmt(l.novos)} novos</span></div>
       <div class="corpo">
         <h3>${esc(l.produto)}</h3>
-        <div class="anun">${esc(l.anunciante)}${l.dominio ? ' · ' + esc(l.dominio) : ''}</div>
+        <div class="anun"><span class="lnk" ${clk('anun', l.anunciante, 'Ver ficha do anunciante')}>${esc(l.anunciante)}</span>${l.dominio ? ' · ' + esc(l.dominio) : ''}</div>
         <span class="diag ${dc}">${dt}</span>
         <div class="met">
           <div><b>${fmt(l.novos)}</b><span>novos</span></div>
@@ -296,23 +343,64 @@ function cards(ls) {
         </div>
         <div class="mais">Ver detalhes →</div>
       </div></article>`;
-  }).join('') : '<div class="vazio box">Nenhum produto com esses filtros. Diminua o "Mín. anúncios novos".</div>';
+  }).join('') + (ls.length > 300 ? `<div class="vazio box">Mostrando 300 de ${fmt(ls.length)} produtos — use os filtros.</div>` : '')
+    : '<div class="vazio box">Nenhum produto com esses filtros. Diminua o "Mín. anúncios novos".</div>';
 }
 
+/* ---------------- FICHAS (janela de detalhes com navegação) ---------------- */
 function dataBR(s) { return s ? s.split('-').reverse().join('/') : '–'; }
-function abrirFicha(l) {
+const desc = (k = 'novos') => (x, y) => (y[k] ?? 0) - (x[k] ?? 0);
+
+function listaProdHTML(ls, max = 80) {
+  if (!ls.length) return '<div class="vazio">Nenhum produto.</div>';
+  return `<div class="mini">${ls.slice(0, max).map(l => {
+    const [dc, dt] = diagnostico(l);
+    return `<div class="mini-it" ${clk('prod', chave(l))}>
+      <span class="mini-img" ${bg(l.imagem)}></span>
+      <span class="mini-txt"><b>${esc(l.produto)}</b><small>${esc(l.anunciante)} · ${esc(l.dor)}</small><span class="diag ${dc}">${dt}</span></span>
+      <span class="mini-n"><b>${fmt(l.novos)}</b><small>${fmt(l.ult7)} em 7d</small></span></div>`;
+  }).join('')}</div>` + (ls.length > max ? `<div class="leg" style="padding:0 18px 18px">+ ${fmt(ls.length - max)} produtos — use os filtros do painel para ver todos.</div>` : '');
+}
+
+function listaAnunHTML(as, colNovos = 'Novos') {
+  if (!as.length) return '<div class="vazio">Nenhum anunciante.</div>';
+  return `<div class="tab-ficha"><table><tr><th>Anunciante</th><th>${colNovos}</th><th>7 dias</th><th>Total</th><th>Dor</th></tr>` +
+    as.map(a => `<tr class="${(a.novos ?? 0) >= D.min_anuncios ? 'hot' : ''}" ${clk('anun', a.nome)}><td><b>${esc(a.nome)}</b></td>
+      <td class="n"><b>${fmt(a.novos)}</b></td><td class="n">${fmt(a.ult7)}</td><td class="n">${fmt(a.total)}</td><td>${esc(a.dor)}</td></tr>`).join('') +
+    '</table></div>';
+}
+
+function chipsDor(ls) {
+  const g = {};
+  ls.forEach(l => g[l.dor] = (g[l.dor] || 0) + 1);
+  const it = Object.entries(g).sort((a, b) => b[1] - a[1]);
+  return it.length > 1 ? `<div class="tags" style="padding:0 18px 12px">${it.map(([d, n]) => `<span class="tag clkt" ${clk('dor', d)}>${esc(d)} · ${n}</span>`).join('')}</div>` : '';
+}
+
+function cab(titulo, sub, extra = '') {
+  return `<div class="ficha-cab"><h2 id="fTitulo">${titulo}</h2>${sub ? `<div class="linha">${sub}</div>` : ''}${extra}</div>`;
+}
+
+function fichaLista(titulo, sub, ls) {
+  return cab(esc(titulo), sub) + chipsDor(ls) + listaProdHTML(ls);
+}
+
+function fichaProduto(l) {
   const [dc, dt, dx] = diagnostico(l), serie = (l.serie || []).slice(0, 8), max = Math.max(1, ...serie);
   const rot = ['esta sem.', '1 sem.', '2 sem.', '3 sem.', '4 sem.', '5 sem.', '6 sem.', '7 sem.'];
   const ordem = serie.map((v, i) => [v, i]).reverse();
-  $('ficha').innerHTML = `
-    <button class="fx" aria-label="Fechar" onclick="fecharFicha()">×</button>
+  const outros = D.linhas.filter(x => x.anunciante === l.anunciante && x !== l).sort(desc());
+  const mesmaDor = D.linhas.filter(x => x.dor === l.dor && x.anunciante !== l.anunciante).sort(desc()).slice(0, 5);
+  const posDor = D.linhas.filter(x => x.dor === l.dor).sort(desc()).indexOf(l) + 1;
+  return `
     <div class="ficha-topo">
-      <div class="ficha-img" ${l.imagem ? `style="background-image:url('${esc(l.imagem)}')"` : ''}>${l.imagem ? '' : '<div class="sem" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--sub)">sem imagem</div>'}</div>
+      <div class="ficha-img" ${bg(l.imagem)}>${l.imagem ? '' : '<div class="sem" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--sub)">sem imagem</div>'}</div>
       <div>
         <h2 id="fTitulo">${esc(l.produto)}</h2>
-        <div class="linha">Anunciante: <a href="${esc(l.link_anunciante)}" target="_blank">${esc(l.anunciante)}</a></div>
+        <div class="linha">Anunciante: <span class="lnk" ${clk('anun', l.anunciante, 'Ver ficha do anunciante')}>${esc(l.anunciante)}</span>
+          <a href="${esc(l.link_anunciante)}" target="_blank" title="Abrir na Biblioteca da Meta">↗</a></div>
         <div class="linha">Loja: ${l.link_loja ? `<a href="${esc(l.link_loja)}" target="_blank">${esc(l.dominio || l.link_loja)}</a>` : 'sem link de loja'}</div>
-        <div class="linha">Dor: <b>${esc(l.dor)}</b> · Busca: ${esc(l.keyword === '*' ? '(sem palavra-chave)' : l.keyword)}</div>
+        <div class="linha">Dor: <span class="lnk" ${clk('dor', l.dor, 'Ver todos os produtos desta dor')}>${esc(l.dor)}</span>${posDor ? ` <small>(#${posDor} da dor)</small>` : ''} · Busca: ${esc(l.keyword === '*' ? '(sem palavra-chave)' : l.keyword)}</div>
         <div class="linha">1º anúncio: <b>${dataBR(l.primeiro)}</b> · mais recente: <b>${dataBR(l.mais_recente)}</b></div>
         <div class="veredito ${dc}"><b>${dt}</b>${dx}</div>
       </div>
@@ -323,7 +411,7 @@ function abrirFicha(l) {
       <div><b>${l.idade_produto ?? '–'}d</b><span>idade do produto</span></div>
       <div><b>${l.pct_novos}%</b><span>dos anúncios são novos</span></div>
       <div><b>${fmt(l.total_produto)}</b><span>anúncios do produto</span></div>
-      <div><b>${fmt(l.total_anunciante)}</b><span>anúncios do anunciante</span></div>
+      <div ${clk('anun', l.anunciante)}><b>${fmt(l.total_anunciante)}</b><span>anúncios do anunciante ›</span></div>
       <div><b>${l.novos >= D.min_anuncios ? 'SIM' : 'NÃO'}</b><span>escalando (${D.min_anuncios}+)</span></div>
       <div><b>${serie.length ? fmt(serie[0]) : '–'}</b><span>criados esta semana</span></div>
     </div>
@@ -334,36 +422,161 @@ function abrirFicha(l) {
       <a class="pri" href="${esc(l.link_anuncio)}" target="_blank">Ver anúncio</a>
       <a href="${esc(l.link_anunciante)}" target="_blank">Todos do anunciante</a>
       ${l.link_loja ? `<a href="${esc(l.link_loja)}" target="_blank">Abrir loja</a>` : '<a aria-disabled="true">Sem loja</a>'}
-      <button data-u="${esc(l.link_loja || l.link_anuncio)}" onclick="copiarLink(this, this.dataset.u)">Copiar link</button>
-    </div>`;
-  $('fichaFundo').classList.add('on'); document.body.style.overflow = 'hidden';
-  $('ficha').querySelector('.fx').focus();
+      <button ${clk('copiar', l.link_loja || l.link_anuncio)}>Copiar link</button>
+    </div>
+    ${outros.length ? `<h3 class="sec-tit">Outros produtos de ${esc(l.anunciante)} (${outros.length})</h3>${listaProdHTML(outros, 6)}` : ''}
+    ${mesmaDor.length ? `<h3 class="sec-tit">Concorrentes na mesma dor</h3>${listaProdHTML(mesmaDor, 5)}` : ''}`;
 }
-function fecharFicha() { $('fichaFundo').classList.remove('on'); document.body.style.overflow = ''; }
+
+function achaAnunciante(nome) {
+  return D.anunciantes.find(x => x.nome === nome) || ULT_TOP.find(x => x.nome === nome) || null;
+}
+
+function fichaAnunciante(nome) {
+  const a = achaAnunciante(nome) || {nome}, ps = D.linhas.filter(l => l.anunciante === nome).sort(desc());
+  const novos = a.novos_anunciante ?? a.novos ?? ps.reduce((s, l) => s + l.novos, 0);
+  const total = a.total ?? (ps[0] ? ps[0].total_anunciante : null);
+  const ult7 = a.ult7 ?? ps.reduce((s, l) => s + l.ult7, 0);
+  const esc_ = escalando(ps), link = a.link || (ps[0] && ps[0].link_anunciante) || '';
+  const pct = total ? Math.min(100, Math.round(100 * novos / total)) : null, maior = ps[0];
+  let v;
+  if (!achaAnunciante(nome) && !ps.length) v = ['obs', '⏳ Ainda não contado', 'Este anunciante ainda não foi lido na fase 2 da mineração (ou deu erro ao abrir a página).'];
+  else if (esc_.length) v = [ult7 >= Math.max(10, novos * 0.3) ? 'fogo' : 'novo', `🔥 ${esc_.length} produto${esc_.length > 1 ? 's' : ''} escalando`,
+    `${fmt(novos)} anúncios novos nos últimos ${D.max_dias} dias${ult7 ? `, ${fmt(ult7)} só nos últimos 7` : ''}. Carro-chefe: ${esc(maior.produto)} (${fmt(maior.novos)}).`];
+  else if (novos >= D.min_anuncios) v = ['volta', '📣 Muitos anúncios novos, verba espalhada', `${fmt(novos)} anúncios novos, mas nenhum produto sozinho passa de ${D.min_anuncios}. Está testando vários produtos.`];
+  else v = ['obs', '👀 Em observação', `${fmt(novos)} anúncios novos nos últimos ${D.max_dias} dias — abaixo do critério de escala.`];
+  return cab(esc(nome), `Dor: ${a.dor || (maior && maior.dor) ? `<span class="lnk" ${clk('dor', a.dor || maior.dor)}>${esc(a.dor || maior.dor)}</span>` : '–'}${maior && maior.dominio ? ' · Loja: ' + esc(maior.dominio) : ''}`,
+      `<div class="veredito ${v[0]}"><b>${v[1]}</b>${v[2]}</div>`) + `
+    <div class="ficha-met">
+      <div><b>${total == null ? '–' : fmt(total)}</b><span>anúncios ativos</span></div>
+      <div><b>${fmt(novos)}</b><span>novos (≤${D.max_dias}d)</span></div>
+      <div><b>${fmt(ult7)}</b><span>criados em 7 dias</span></div>
+      <div><b>${pct == null ? '–' : pct + '%'}</b><span>dos anúncios são novos</span></div>
+      <div><b>${fmt(a.produtos ?? ps.length)}</b><span>produtos anunciados</span></div>
+      <div><b>${esc_.length}</b><span>escalando (${D.min_anuncios}+)</span></div>
+      <div><b>${observacao(ps).length}</b><span>em observação (15+)</span></div>
+      <div><b>${maior ? fmt(maior.novos) : '–'}</b><span>maior produto</span></div>
+    </div>
+    <div class="ficha-acoes">
+      ${link ? `<a class="pri" href="${esc(link)}" target="_blank">Ver na Biblioteca da Meta</a>` : ''}
+      ${ps.length ? `<button ${clk('filtrar-anun', nome)}>Filtrar painel por ele</button>` : ''}
+      ${maior && maior.link_loja ? `<a href="${esc(maior.link_loja)}" target="_blank">Abrir loja</a>` : ''}
+      ${link ? `<button ${clk('copiar', link)}>Copiar link</button>` : ''}
+    </div>
+    <h3 class="sec-tit">Produtos (${ps.length})</h3>${listaProdHTML(ps, 40)}`;
+}
+
+function fichaDor(dor) {
+  const ps = D.linhas.filter(l => l.dor === dor).sort(desc());
+  const nomes = new Set(ps.map(l => l.anunciante));
+  const as = D.anunciantes.filter(a => nomes.has(a.nome) || a.dor === dor).sort(desc());
+  const top = ps[0];
+  return cab(`Dor: ${esc(dor)}`, `${fmt(ps.length)} produtos de ${fmt(as.length)} anunciantes`) + `
+    <div class="ficha-met">
+      <div><b>${escalando(ps).length}</b><span>escalando (${D.min_anuncios}+)</span></div>
+      <div><b>${lancados(ps).length}</b><span>novos escalando (≤${D.max_dias}d)</span></div>
+      <div><b>${observacao(ps).length}</b><span>em observação (15+)</span></div>
+      <div><b>${top ? fmt(top.novos) : '–'}</b><span>maior escala</span></div>
+    </div>
+    <div class="ficha-acoes"><button class="pri" ${clk('filtrar-dor', dor)}>Filtrar painel por esta dor</button></div>
+    <h3 class="sec-tit">Anunciantes</h3>${listaAnunHTML(as)}
+    <h3 class="sec-tit">Produtos</h3>${listaProdHTML(ps, 40)}`;
+}
+
+function abrirKpi(i) {
+  const ls = ULT_LS, M = D.min_anuncios;
+  const filtroTxt = ' (respeitando os filtros atuais)';
+  if (i === 0) return mostrar(() => fichaLista(`Produtos escalando (${M}+)`, `Produtos com ${M}+ anúncios novos do mesmo anunciante${filtroTxt}.`, escalando(ls)));
+  if (i === 1) return mostrar(() => fichaLista(`Escalando e lançados há ≤ ${D.max_dias} dias`, `Produtos novos que já entraram em escala${filtroTxt}.`, lancados(ls)));
+  if (i === 2) return mostrar(() => fichaLista('Em observação (15+)', `Entre 15 e ${M - 1} anúncios novos — podem virar escala${filtroTxt}.`, observacao(ls)));
+  if (i === 3) return ls[0] ? mostrar(() => fichaProduto(ls[0])) : null;
+  if (i === 4) return mostrar(() => cab('Anunciantes analisados', `${fmt(D.anunciantes.length)} anunciantes, ordenados por anúncios novos.`) + listaAnunHTML([...D.anunciantes].sort(desc())));
+  if (i === 5) return mostrar(() => cab('Anúncios lidos por anunciante', `${fmt(D.n_anuncios)} anúncios lidos no total, por anunciante.`) + listaAnunHTML([...D.anunciantes].sort(desc('total'))));
+}
+
+function abrirLive(tipo) {
+  const as = tipo === 'esc' ? ULT_TOP.filter(a => a.novos >= D.min_anuncios) : ULT_TOP;
+  mostrar(() => cab(tipo === 'esc' ? 'Escalando até agora' : 'Anunciantes contados', tipo === 'esc'
+    ? `Anunciantes com um produto de ${D.min_anuncios}+ anúncios novos, durante a mineração.` : 'Todos os anunciantes já contados na fase 2.')
+    + listaAnunHTML(as, 'Novos (melhor produto)'));
+}
+
+let PILHA = [], ABRIDOR = null;
+function mostrar(fn) {
+  if (!PILHA.length) ABRIDOR = document.activeElement;
+  PILHA.push(fn); pintar();
+}
+function pintar() {
+  const fn = PILHA[PILHA.length - 1];
+  $('ficha').innerHTML = `<div class="ficha-nav">${PILHA.length > 1 ? '<button class="fv" data-act="voltar">← Voltar</button>' : '<span></span>'}
+    <button class="fx" aria-label="Fechar" data-act="fechar">×</button></div>` + fn();
+  $('ficha').scrollTop = 0;
+  $('fichaFundo').classList.add('on'); document.body.style.overflow = 'hidden';
+  $('ficha').querySelector(PILHA.length > 1 ? '.fv' : '.fx').focus({preventScroll: true});
+}
+function abrirFicha(l) { mostrar(() => fichaProduto(l)); }
+function fecharFicha() {
+  if (!PILHA.length) return;
+  PILHA = []; $('fichaFundo').classList.remove('on'); document.body.style.overflow = '';
+  if (ABRIDOR && document.contains(ABRIDOR)) ABRIDOR.focus({preventScroll: true});
+}
 function copiarLink(b, u) {
   const ok = () => { b.textContent = 'Copiado ✓'; setTimeout(() => b.textContent = 'Copiar link', 1800); };
   if (navigator.clipboard) navigator.clipboard.writeText(u).then(ok, () => prompt('Copie o link:', u)); else prompt('Copie o link:', u);
 }
-$('cards').addEventListener('click', e => { const c = e.target.closest('.card'); if (c) abrirFicha(LISTA[+c.dataset.i]); });
-$('cards').addEventListener('keydown', e => { const c = e.target.closest('.card'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); abrirFicha(LISTA[+c.dataset.i]); } });
-$('fichaFundo').addEventListener('click', e => { if (e.target.id === 'fichaFundo') fecharFicha(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharFicha(); });
-
-function anunciantes() {
-  $('tAnun').innerHTML = `<tr><th>Anunciante</th><th>Total ativos</th><th>Novos (≤${D.max_dias}d)</th><th>Últ. 7 dias</th><th>Produtos</th><th>Dor</th><th></th></tr>` +
-    D.anunciantes.map(a => `<tr><td>${esc(a.nome)}</td><td class="n">${fmt(a.total)}</td><td class="n">${fmt(a.novos)}</td>
-      <td class="n">${fmt(a.ult7)}</td><td class="n">${a.produtos}</td><td>${esc(a.dor)}</td>
-      <td><a href="${esc(a.link)}" target="_blank">Ver todos</a></td></tr>`).join('');
+function irParaProdutos() {
+  aba('cards');
+  setTimeout(() => $('kpis').scrollIntoView({behavior: 'smooth', block: 'start'}), 50);
 }
 
-function render() { const ls = filtrar(); kpis(ls); grafico(ls); tabelaDor(ls); cards(ls); }
+function acao(el) {
+  const act = el.dataset.act, v = el.dataset.v;
+  if (act === 'prod') { const l = IDX.get(v); if (l) mostrar(() => fichaProduto(l)); }
+  else if (act === 'anun') mostrar(() => fichaAnunciante(v));
+  else if (act === 'dor') mostrar(() => fichaDor(v));
+  else if (act === 'kpi') abrirKpi(+v);
+  else if (act === 'live') abrirLive(v);
+  else if (act === 'voltar') { PILHA.pop(); pintar(); }
+  else if (act === 'fechar') fecharFicha();
+  else if (act === 'copiar') copiarLink(el, v);
+  else if (act === 'filtrar-dor') { fecharFicha(); $('fDor').value = v; render(); irParaProdutos(); }
+  else if (act === 'filtrar-anun') { fecharFicha(); $('fTxt').value = v; $('fMin').value = 0; render(); irParaProdutos(); }
+  else if (act === 'ord') { ORD = {k: v, d: ORD.k === v ? -ORD.d : (v === 'nome' || v === 'dor' ? 1 : -1)}; anunciantes(); }
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('a')) return;
+  const el = e.target.closest('[data-act]');
+  if (el) { e.preventDefault(); acao(el); }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') return fecharFicha();
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const el = e.target.closest && e.target.closest('[data-act]');
+  if (el && el === e.target && el.tagName !== 'BUTTON') { e.preventDefault(); acao(el); }
+});
+$('fichaFundo').addEventListener('click', e => { if (e.target.id === 'fichaFundo') fecharFicha(); });
+
+function anunciantes() {
+  const cols = [['nome', 'Anunciante'], ['total', 'Total ativos'], ['novos', `Novos (≤${D.max_dias}d)`], ['ult7', 'Últ. 7 dias'], ['produtos', 'Produtos'], ['dor', 'Dor']];
+  const as = [...D.anunciantes].sort((x, y) => {
+    const a = x[ORD.k], b = y[ORD.k];
+    return ORD.d * (typeof a === 'string' || typeof b === 'string' ? String(a ?? '').localeCompare(String(b ?? ''), 'pt') : (a ?? 0) - (b ?? 0));
+  });
+  $('tAnun').innerHTML = `<tr>${cols.map(([k, r]) => `<th ${clk('ord', k, 'Ordenar')}>${r}${ORD.k === k ? (ORD.d < 0 ? ' ▼' : ' ▲') : ''}</th>`).join('')}<th></th></tr>` +
+    (as.map(a => `<tr class="${a.novos >= D.min_anuncios ? 'hot' : ''}" ${clk('anun', a.nome, 'Ver ficha do anunciante')}><td><b>${esc(a.nome)}</b></td><td class="n">${fmt(a.total)}</td><td class="n">${fmt(a.novos)}</td>
+      <td class="n">${fmt(a.ult7)}</td><td class="n">${a.produtos}</td><td>${esc(a.dor)}</td>
+      <td><a href="${esc(a.link)}" target="_blank">Meta ↗</a></td></tr>`).join('') || '<tr><td colspan="7" class="vazio">Nenhum anunciante ainda.</td></tr>');
+}
+
+function render() { const ls = filtrar(); ULT_LS = ls; kpis(ls); grafico(ls); tabelaDor(ls); cards(ls); }
 ['fDor', 'fKw', 'fMin', 'fIdade', 'fTxt'].forEach(id => $(id).addEventListener('input', render));
 $('limpar').onclick = () => { $('fDor').value = ''; $('fKw').value = ''; $('fMin').value = 15; $('fIdade').value = ''; $('fTxt').value = ''; render(); };
-document.querySelectorAll('.abas button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('.abas button').forEach(x => x.classList.toggle('on', x === b));
-  $('cards').style.display = b.dataset.aba === 'cards' ? '' : 'none';
-  $('anun').style.display = b.dataset.aba === 'anun' ? '' : 'none';
-});
+function aba(nome) {
+  document.querySelectorAll('.abas button').forEach(x => x.classList.toggle('on', x.dataset.aba === nome));
+  $('cards').style.display = nome === 'cards' ? '' : 'none';
+  $('anun').style.display = nome === 'anun' ? '' : 'none';
+}
+document.querySelectorAll('.abas button').forEach(b => b.onclick = () => aba(b.dataset.aba));
 /* ---------------- AO VIVO ---------------- */
 const AO_VIVO = __AO_VIVO__;
 const dur = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
@@ -390,15 +603,18 @@ window.atualizarStatus = st => {
     : (st.rodando ? 'calculando…' : 'terminou');
   $('lvBuscas').textContent = `${st.buscas_feitas} / ${st.buscas_total}`;
   $('lvAnun').textContent = `${st.anunciantes_feitos} / ${st.anunciantes_total || '?'}`;
-  $('lvEsc').textContent = (st.top || []).filter(a => a.novos >= D.min_anuncios).length;
+  ULT_TOP = st.top || [];
+  $('lvEsc').textContent = ULT_TOP.filter(a => a.novos >= D.min_anuncios).length;
   const feed = $('lvFeed'), noFim = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 20;
   feed.innerHTML = (st.log || []).map(l => {
     const m = l.match(/^\[(\d\d:\d\d:\d\d)\] (.*)$/); const t = m ? m[1] : '', x = m ? m[2] : l;
     const c = /ERRO|ATENCAO/.test(x) ? 'er' : /FASE|Planilha|Painel|ESCALANDO/.test(x) ? 'ok' : /novos/.test(x) ? 'hi' : '';
-    return `<div><span class="t">${t}</span> <span class="${c}">${esc(x)}</span></div>`; }).join('');
+    const an = x.match(/^\(\d+\/\d+\) ([^\[].*?)\s*\.\.\.$/);
+    return an ? `<div><span class="t">${t}</span> <span class="${c}">${esc(x.slice(0, x.indexOf(')') + 2))}<span class="lnk" ${clk('anun', an[1], 'Ver ficha do anunciante')}>${esc(an[1])}</span>...</span></div>`
+              : `<div><span class="t">${t}</span> <span class="${c}">${esc(x)}</span></div>`; }).join('');
   if (noFim) feed.scrollTop = feed.scrollHeight;
   $('lvTop').innerHTML = `<tr><th>Anunciante</th><th>Novos</th><th>7 dias</th><th>Total</th><th>Dor</th></tr>` +
-    ((st.top || []).slice(0, 25).map(a => `<tr class="${a.novos >= D.min_anuncios ? 'hot' : ''}"><td>${esc(a.nome)}</td>
+    (ULT_TOP.slice(0, 25).map(a => `<tr class="${a.novos >= D.min_anuncios ? 'hot' : ''}" ${clk('anun', a.nome, 'Ver ficha do anunciante')}><td>${esc(a.nome)}</td>
       <td class="n"><b>${fmt(a.novos)}</b></td><td class="n">${fmt(a.ult7)}</td><td class="n">${fmt(a.total)}</td><td>${esc(a.dor)}</td></tr>`).join('')
      || '<tr><td colspan="5" class="vazio">A contagem por anunciante começa na fase 2.</td></tr>');
   $('lvRecarregar').style.display = !st.rodando && !st.erro && st.versao !== D.versao ? '' : 'none';
